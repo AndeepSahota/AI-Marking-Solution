@@ -1,0 +1,28 @@
+# Dependencies
+**/node_modules/
+
+# Environment files — contain secrets, never commit
+**/.env
+**/.env.local
+**/.env.*.local
+
+# User credentials store — contains hashed passwords
+backend/src/data/users.json
+
+# Python virtual environment
+ai-service/venv/
+ai-service/__pycache__/
+ai-service/**/__pycache__/
+**/*.pyc
+
+# Frontend build output
+frontend/dist/
+frontend/dist-ssr/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
