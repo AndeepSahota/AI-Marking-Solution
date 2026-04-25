@@ -1,5 +1,8 @@
+import { useState, useCallback } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { useInactivityTimer } from './hooks/useInactivityTimer'
+import InactivityModal from './components/InactivityModal'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -51,17 +54,58 @@ function Header() {
     )
 }
 
+// AppContent lives inside AuthProvider so it can call useAuth()
+// and own the inactivity warning state
+function AppContent() {
+    const { user, logout, refreshToken } = useAuth()
+    const [showWarning, setShowWarning] = useState(false)
+
+    const handleIdle = useCallback(() => {
+        if (user) setShowWarning(true)
+    }, [user])
+
+    const { resetTimer } = useInactivityTimer({ onIdle: handleIdle, enabled: !!user })
+
+    const handleStayLoggedIn = async () => {
+        const ok = await refreshToken()
+        if (ok) {
+            setShowWarning(false)
+            resetTimer()
+        } else {
+            // Token is genuinely invalid — force logout
+            logout()
+        }
+    }
+
+    const handleLogout = () => {
+        setShowWarning(false)
+        logout()
+    }
+
+    return (
+        <>
+            {showWarning && user && (
+                <InactivityModal
+                    onStayLoggedIn={handleStayLoggedIn}
+                    onLogout={handleLogout}
+                />
+            )}
+            <Header />
+            <Routes>
+                <Route path="/login"  element={<PublicRoute><Login /></PublicRoute>} />
+                <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
+                <Route path="/"       element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                <Route path="*"       element={<Navigate to="/" replace />} />
+            </Routes>
+        </>
+    )
+}
+
 function App() {
     return (
         <BrowserRouter>
             <AuthProvider>
-                <Header />
-                <Routes>
-                    <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-                    <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
-                    <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+                <AppContent />
             </AuthProvider>
         </BrowserRouter>
     )

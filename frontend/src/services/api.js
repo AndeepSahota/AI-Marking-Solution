@@ -6,6 +6,15 @@ export function setToken(token) {
     _token = token
 }
 
+export async function refreshSession() {
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${_token}` },
+    })
+    if (!response.ok) return null
+    return response.json()
+}
+
 export async function submitFiles(studentWork, markScheme) {
     const formData = new FormData()
     formData.append('studentWork', studentWork)

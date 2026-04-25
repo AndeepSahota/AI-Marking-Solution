@@ -9,6 +9,9 @@
 # User credentials store — contains hashed passwords
 backend/src/data/users.json
 
+# Pepper secret — must never be committed
+backend/src/data/pepper.json
+
 # Python virtual environment
 ai-service/venv/
 ai-service/__pycache__/
