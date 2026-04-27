@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_URL
 
+const EMAIL_REGEX = /^[a-zA-Z0-9_%+\-]+(\.[a-zA-Z0-9_%+\-]+)*@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$/
+const isValidEmail = (e) => e.length <= 254 && EMAIL_REGEX.test(e)
+
 function Login() {
     const { login } = useAuth()
     const [email, setEmail] = useState('')
@@ -14,8 +17,13 @@ function Login() {
     const handleSubmit = async (e) => {
         e.preventDefault()
         setError(null)
-        setLoading(true)
 
+        if (!isValidEmail(email.trim())) {
+            setError('Please enter a valid email address')
+            return
+        }
+
+        setLoading(true)
         try {
             const res = await fetch(`${API_BASE}/auth/login`, {
                 method: 'POST',

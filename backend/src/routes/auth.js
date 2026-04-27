@@ -10,6 +10,37 @@ const router = express.Router()
 
 const TOKEN_EXPIRY = '1h'
 
+// ─── Login attempt tracking ───────────────────────────────────────────────────
+// In-memory store: emailKey → { attempts, lockedUntil }
+// Resets on server restart — sufficient for session-based brute-force protection.
+const loginAttempts = new Map()
+const MAX_LOGIN_ATTEMPTS = 5
+const LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
+
+function getAttemptRecord(emailKey) {
+    const record = loginAttempts.get(emailKey)
+    if (!record) return { attempts: 0, lockedUntil: null }
+    // If the lockout window has passed, treat as a fresh start
+    if (record.lockedUntil && Date.now() >= record.lockedUntil) {
+        loginAttempts.delete(emailKey)
+        return { attempts: 0, lockedUntil: null }
+    }
+    return record
+}
+
+function recordFailedAttempt(emailKey) {
+    const record = getAttemptRecord(emailKey)
+    const attempts = record.attempts + 1
+    loginAttempts.set(emailKey, {
+        attempts,
+        lockedUntil: attempts >= MAX_LOGIN_ATTEMPTS ? Date.now() + LOCKOUT_MS : null,
+    })
+}
+
+function clearAttempts(emailKey) {
+    loginAttempts.delete(emailKey)
+}
+
 // Load blacklist once at startup into a Set for O(1) lookups
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const blacklist = new Set(
@@ -18,6 +49,13 @@ const blacklist = new Set(
         .map(p => p.trim().toLowerCase())
         .filter(Boolean)
 )
+
+// RFC 5321-compliant email format check (max 254 chars, no leading/trailing/consecutive dots)
+const EMAIL_REGEX = /^[a-zA-Z0-9_%+\-]+(\.[a-zA-Z0-9_%+\-]+)*@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$/
+
+function isValidEmail(email) {
+    return email.length <= 254 && EMAIL_REGEX.test(email)
+}
 
 function signToken(user) {
     return jwt.sign(
@@ -35,6 +73,9 @@ router.post('/signup', async (req, res, next) => {
         if (!name?.trim() || !email?.trim() || !password) {
             return res.status(400).json({ error: 'Name, email and password are required' })
         }
+        if (!isValidEmail(email.trim())) {
+            return res.status(400).json({ error: 'Please enter a valid email address' })
+        }
         if (password !== confirmPassword) {
             return res.status(400).json({ error: 'Passwords do not match' })
         }
@@ -51,7 +92,7 @@ router.post('/signup', async (req, res, next) => {
             return res.status(400).json({ error: 'This password is too common. Please choose a more unique password.' })
         }
         if (findByEmail(email)) {
-            return res.status(409).json({ error: 'An account with that email already exists' })
+            return res.status(400).json({ error: 'Unable to create account. Please check your details.' })
         }
 
         const user = await createUser({ name: name.trim(), email, password })
@@ -71,16 +112,32 @@ router.post('/login', async (req, res, next) => {
         if (!email?.trim() || !password) {
             return res.status(400).json({ error: 'Email and password are required' })
         }
+        if (!isValidEmail(email.trim())) {
+            return res.status(400).json({ error: 'Please enter a valid email address' })
+        }
+
+        const emailKey = email.trim().toLowerCase()
+
+        // Check lockout before doing any expensive work
+        const attemptRecord = getAttemptRecord(emailKey)
+        if (attemptRecord.lockedUntil) {
+            return res.status(429).json({ error: 'Account temporarily locked. Please try again in 15 minutes.' })
+        }
 
         const record = findByEmail(email)
         if (!record) {
+            recordFailedAttempt(emailKey)
             return res.status(401).json({ error: 'Invalid email or password' })
         }
 
         const match = await verifyPassword(password, record.passwordHash)
         if (!match) {
+            recordFailedAttempt(emailKey)
             return res.status(401).json({ error: 'Invalid email or password' })
         }
+
+        // Successful login — clear the failure counter
+        clearAttempts(emailKey)
 
         const { passwordHash: _, ...user } = record
         const token = signToken(user)

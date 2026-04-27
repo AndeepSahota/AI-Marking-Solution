@@ -1,6 +1,7 @@
 import FormData from 'form-data'
 import fetch from 'node-fetch'
 import config from '../config/index.js'
+import { sanitizeAIResult } from '../utils/sanitize.js'
 
 export async function getMarkFromAI(studentWorkFile, markSchemeFile) {
     const form = new FormData()
@@ -25,5 +26,6 @@ export async function getMarkFromAI(studentWorkFile, markSchemeFile) {
         throw new Error('AI service failed to process the files')
     }
 
-    return response.json()
+    const raw = await response.json()
+    return sanitizeAIResult(raw)
 }

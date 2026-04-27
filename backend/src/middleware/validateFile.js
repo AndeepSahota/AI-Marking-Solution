@@ -9,12 +9,12 @@ export function validateFile(req, res, next) {
         }
 
         if (!config.ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-            return res.status(400).json({ error: `File type not allowed: ${file.originalname}` })
+            return res.status(400).json({ error: 'Only PDF and image files are accepted' })
         }
 
         const sizeMB = file.size / (1024 * 1024)
         if (sizeMB > config.MAX_FILE_SIZE_MB) {
-            return res.status(400).json({ error: `File too large: ${file.originalname}` })
+            return res.status(400).json({ error: `Files must be under ${config.MAX_FILE_SIZE_MB} MB` })
         }
     }
 

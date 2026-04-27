@@ -548,6 +548,62 @@ body::after {
   line-height: 1.5;
 }
 
+/* ─── Refresh warning banner ────────────────────── */
+
+.refresh-warning {
+  position: sticky;
+  top: 64px; /* sits flush below the 64px header */
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 24px;
+  background: rgba(245, 158, 11, 0.07);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.22);
+  animation: slideDown 0.2s ease;
+}
+
+.refresh-warning-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--warning);
+}
+
+.refresh-warning-text svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.refresh-warning-dismiss {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--warning);
+  opacity: 0.55;
+  cursor: pointer;
+  padding: 3px 7px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.refresh-warning-dismiss:hover {
+  opacity: 1;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
 /* ─── Result card ────────────────────────────────── */
 
 .result-card {

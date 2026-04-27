@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 function DropZone({ label, hint, file, onFile, onClear, disabled }) {
   const [dragging, setDragging] = useState(false)
@@ -91,15 +91,63 @@ function DropZone({ label, hint, file, onFile, onClear, disabled }) {
   )
 }
 
-function UploadZone({ onSubmit, disabled }) {
+function UploadZone({ onSubmit, disabled, onFilesChange, hasResult, onReset }) {
   const [studentWork, setStudentWork] = useState(null)
   const [markScheme, setMarkScheme] = useState(null)
 
   const ready = studentWork && markScheme
 
+  // Notify parent whenever the combined file presence changes
+  useEffect(() => {
+    onFilesChange?.(!!studentWork || !!markScheme)
+  }, [studentWork, markScheme]) // onFilesChange intentionally omitted — parent wraps in useCallback
+
   const handleSubmit = () => {
     if (!ready || disabled) return
     onSubmit(studentWork, markScheme)
+  }
+
+  const handleReset = () => {
+    setStudentWork(null)
+    setMarkScheme(null)
+    onReset?.()
+  }
+
+  // Determine which button state to render:
+  //  1. loading  — "Marking in progress…"  (disabled)
+  //  2. hasResult — "Start New"             (always enabled, clears everything)
+  //  3. default  — "Submit for Marking"    (disabled until both files present)
+  const renderButton = () => {
+    if (disabled) {
+      return (
+        <button className="submit-btn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          Marking in progress…
+        </button>
+      )
+    }
+    if (hasResult) {
+      return (
+        <button className="submit-btn" onClick={handleReset}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 .49-4" />
+          </svg>
+          Start New
+        </button>
+      )
+    }
+    return (
+      <button className="submit-btn" onClick={handleSubmit} disabled={!ready}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 11l3 3L22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+        Submit for Marking
+      </button>
+    )
   }
 
   return (
@@ -123,28 +171,7 @@ function UploadZone({ onSubmit, disabled }) {
         />
       </div>
 
-      <button
-        className="submit-btn"
-        onClick={handleSubmit}
-        disabled={disabled || !ready}
-      >
-        {disabled ? (
-          <>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-            </svg>
-            Marking in progress…
-          </>
-        ) : (
-          <>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 11l3 3L22 4" />
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-            </svg>
-            Submit for Marking
-          </>
-        )}
-      </button>
+      {renderButton()}
     </div>
   )
 }
