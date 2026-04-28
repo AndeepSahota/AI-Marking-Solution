@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
+import cookieParser from 'cookie-parser'
 import { rateLimiter, uploadLimiter } from './middleware/rateLimiter.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authenticate } from './middleware/authenticate.js'
@@ -29,6 +30,7 @@ app.use(cors({
     origin: config.FRONTEND_URL,
     credentials: true,
 }))
+app.use(cookieParser())
 app.use(rateLimiter)
 app.use(express.json())
 

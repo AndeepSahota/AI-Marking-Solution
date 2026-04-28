@@ -46,6 +46,7 @@ function Signup() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(form),
+                credentials: 'include',
             })
             const data = await res.json()
 
@@ -54,7 +55,7 @@ function Signup() {
                 return
             }
 
-            login(data.token, data.user)
+            login(data.user)
         } catch {
             setError('Unable to connect to the server')
         } finally {

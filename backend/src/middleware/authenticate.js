@@ -2,14 +2,13 @@ import jwt from 'jsonwebtoken'
 import config from '../config/index.js'
 
 export function authenticate(req, res, next) {
-    const authHeader = req.headers.authorization
-    if (!authHeader?.startsWith('Bearer ')) {
+    const token = req.cookies?.aimira_token
+    if (!token) {
         return res.status(401).json({ error: 'Authentication required' })
     }
 
-    const token = authHeader.slice(7)
     try {
-        req.user = jwt.verify(token, config.JWT_SECRET)
+        req.user = jwt.verify(token, config.JWT_SECRET, { algorithms: ['HS256'] })
         next()
     } catch {
         return res.status(401).json({ error: 'Invalid or expired token' })

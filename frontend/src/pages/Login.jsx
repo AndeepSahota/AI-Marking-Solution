@@ -29,6 +29,7 @@ function Login() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, password }),
+                credentials: 'include',
             })
             const data = await res.json()
 
@@ -37,7 +38,7 @@ function Login() {
                 return
             }
 
-            login(data.token, data.user)
+            login(data.user)
         } catch {
             setError('Unable to connect to the server')
         } finally {
