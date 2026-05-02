@@ -25,6 +25,7 @@ frontend/dist-ssr/
 # Logs
 *.log
 npm-debug.log*
+backend/logs/.audit.json
 
 # OS
 .DS_Store
