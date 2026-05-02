@@ -1,9 +1,16 @@
 const API_BASE = import.meta.env.VITE_API_URL
 
-let _token = null
+// credentials: 'include' is required on every request so the browser
+// attaches the httpOnly aimira_token cookie automatically.
+// The token never touches JavaScript — it is set and cleared by the backend.
 
-export function setToken(token) {
-    _token = token
+export async function refreshSession() {
+    const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+    })
+    if (!response.ok) return null
+    return response.json()
 }
 
 export async function submitFiles(studentWork, markScheme) {
@@ -15,9 +22,6 @@ export async function submitFiles(studentWork, markScheme) {
         method: 'POST',
         body: formData,
         credentials: 'include',
-        headers: {
-            Authorization: `Bearer ${_token}`,
-        },
     })
 
     const data = await response.json()

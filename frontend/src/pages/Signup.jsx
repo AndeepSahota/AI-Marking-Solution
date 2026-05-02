@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext'
 
 const API_BASE = import.meta.env.VITE_API_URL
 
+const EMAIL_REGEX = /^[a-zA-Z0-9_%+\-]+(\.[a-zA-Z0-9_%+\-]+)*@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$/
+const isValidEmail = (e) => e.length <= 254 && EMAIL_REGEX.test(e)
+
 function Signup() {
     const { login } = useAuth()
     const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
@@ -16,12 +19,24 @@ function Signup() {
         e.preventDefault()
         setError(null)
 
+        if (!isValidEmail(form.email.trim())) {
+            setError('Please enter a valid email address')
+            return
+        }
         if (form.password !== form.confirmPassword) {
             setError('Passwords do not match')
             return
         }
-        if (form.password.length < 8) {
-            setError('Password must be at least 8 characters')
+        if (form.password.length < 10) {
+            setError('Password must be at least 10 characters')
+            return
+        }
+        if (!/[0-9]/.test(form.password)) {
+            setError('Password must contain at least one number')
+            return
+        }
+        if ((form.password.match(/[^a-zA-Z0-9]/g) || []).length < 2) {
+            setError('Password must contain at least 2 special characters')
             return
         }
 
@@ -31,6 +46,7 @@ function Signup() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(form),
+                credentials: 'include',
             })
             const data = await res.json()
 
@@ -39,7 +55,7 @@ function Signup() {
                 return
             }
 
-            login(data.token, data.user)
+            login(data.user)
         } catch {
             setError('Unable to connect to the server')
         } finally {
@@ -101,7 +117,7 @@ function Signup() {
                             id="password"
                             className="auth-input"
                             type="password"
-                            placeholder="Min. 8 characters"
+                            placeholder="Min. 10 chars, 1 number, 2 special characters"
                             value={form.password}
                             onChange={set('password')}
                             required
