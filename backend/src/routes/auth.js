@@ -93,6 +93,9 @@ router.post('/signup', async (req, res, next) => {
         if (password.length < 10) {
             return res.status(400).json({ error: 'Password must be at least 10 characters' })
         }
+        if (Buffer.byteLength(password, 'utf8') > 72) {
+            return res.status(400).json({ error: 'Password must not exceed 72 characters' })
+        }
         if (!/[0-9]/.test(password)) {
             return res.status(400).json({ error: 'Password must contain at least one number' })
         }
@@ -133,6 +136,13 @@ router.post('/login', async (req, res, next) => {
         const attemptRecord = getAttemptRecord(emailKey)
         if (attemptRecord.lockedUntil) {
             return res.status(429).json({ error: 'Account temporarily locked. Please try again in 15 minutes.' })
+        }
+
+        // Passwords over 72 bytes cannot exist in the store (blocked at signup)
+        // and bcrypt would silently truncate them — reject early to prevent DoS
+        if (Buffer.byteLength(password, 'utf8') > 72) {
+            recordFailedAttempt(emailKey)
+            return res.status(401).json({ error: 'Invalid email or password' })
         }
 
         const record = findByEmail(email)
@@ -181,7 +191,7 @@ router.post('/refresh', (req, res) => {
 })
 
 // POST /auth/logout — clears the httpOnly cookie server-side
-router.post('/logout', (req, res) => {
+router.post('/logout', (_req, res) => {
     res.clearCookie('aimira_token', { path: '/' }).json({ ok: true })
 })
 

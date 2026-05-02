@@ -90,6 +90,7 @@ function Home() {
           onFilesChange={handleFilesChange}
           hasResult={!!result}
           onReset={() => { setResult(null); setError(null) }}
+          backendDebug={result?._debug}
         />
 
         {loading && <LoadingSpinner />}

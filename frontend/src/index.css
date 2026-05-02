@@ -281,6 +281,27 @@ body::after {
   cursor: not-allowed;
 }
 
+.drop-zone.has-error {
+  border-style: solid;
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.drop-zone.has-error .drop-zone-icon {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.drop-zone.has-error .drop-zone-icon svg {
+  color: var(--error);
+}
+
+.drop-zone-error {
+  font-size: 0.75rem;
+  color: var(--error);
+  max-width: 220px;
+}
+
 .drop-zone-icon {
   width: 48px;
   height: 48px;
@@ -441,6 +462,112 @@ body::after {
 .submit-btn svg {
   width: 18px;
   height: 18px;
+}
+
+/* ─── Debug panel (dev only) ─────────────────────── */
+
+.debug-panel {
+  margin-top: 16px;
+  border: 1px solid rgba(65, 105, 225, 0.2);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.debug-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(65, 105, 225, 0.07);
+  border-bottom: 1px solid rgba(65, 105, 225, 0.15);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: rgba(107, 157, 240, 0.85);
+}
+
+.debug-panel-header svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.debug-panel-body {
+  padding: 10px 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.debug-panel-empty {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.debug-entry {
+  display: grid;
+  grid-template-columns: 72px 62px 160px 1fr;
+  align-items: baseline;
+  gap: 8px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.69rem;
+  line-height: 1.7;
+}
+
+.debug-source {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+.debug-source.frontend {
+  background: rgba(65, 105, 225, 0.14);
+  color: #7ba7f5;
+  border: 1px solid rgba(65, 105, 225, 0.25);
+}
+
+.debug-source.backend {
+  background: rgba(139, 92, 246, 0.12);
+  color: #b49bf8;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.debug-status {
+  font-weight: 600;
+  font-size: 0.67rem;
+  letter-spacing: 0.02em;
+}
+
+.debug-status.pass { color: var(--success); }
+.debug-status.fail { color: var(--error); }
+
+.debug-slot {
+  color: var(--text-muted);
+  font-size: 0.67rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.debug-detail {
+  color: var(--text);
+  font-size: 0.67rem;
+  opacity: 0.8;
+}
+
+.debug-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 5px 0;
 }
 
 /* ─── Loading ─────────────────────────────────────── */

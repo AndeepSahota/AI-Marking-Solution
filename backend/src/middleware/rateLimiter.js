@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 
 // Global limiter — covers all routes, keyed by IP
 export const rateLimiter = rateLimit({
@@ -16,7 +16,7 @@ export const rateLimiter = rateLimit({
 export const uploadLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 50,
-    keyGenerator: (req) => `upload:${req.user?.id ?? req.ip}`,
+    keyGenerator: (req) => `upload:${req.user?.id ?? ipKeyGenerator(req)}`,
     message: { error: 'Upload limit reached. You can submit up to 50 files per hour.' },
     standardHeaders: true,
     legacyHeaders: false,

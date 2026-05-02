@@ -1,5 +1,6 @@
 import express from 'express'
 import multer from 'multer'
+import { fileSecurity } from '../middleware/fileSecurity.js'
 import { validateFile } from '../middleware/validateFile.js'
 import { getMarkFromAI } from '../services/aiService.js'
 
@@ -16,13 +17,17 @@ router.post(
         { name: 'studentWork', maxCount: 1 },
         { name: 'markScheme', maxCount: 1 }
     ]),
-    validateFile,
+    fileSecurity,   // presence, size, extension, declared MIME
+    validateFile,   // magic-byte detection, mismatch check, metadata strip
     async (req, res, next) => {
         try {
             const studentWork = req.files.studentWork[0]
             const markScheme = req.files.markScheme[0]
             const result = await getMarkFromAI(studentWork, markScheme)
-            res.json(result)
+            const response = (process.env.NODE_ENV !== 'production' && req._securityLog?.length)
+                ? { ...result, _debug: req._securityLog }
+                : result
+            res.json(response)
         } catch (err) {
             next(err)
         }
@@ -30,6 +35,3 @@ router.post(
 )
 
 export default router
-
-// Defines what happens when the browser sends files to /upload. 
-// It runs three things in order — first multer receives the files, then validateFile checks they're safe, then it forwards them to the AI and sends the result back.
