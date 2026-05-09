@@ -1,8 +1,10 @@
-export function errorHandler(err, req, res, next) {
+export function errorHandler(err, req, res, _next) {
     console.error(err.stack)
-    res.status(err.status || 500).json({
-        error: 'An unexpected error occurred',
-    })
+    const body = { error: 'An unexpected error occurred' }
+    if (process.env.NODE_ENV !== 'production' && req._securityLog?.length) {
+        body._debug = req._securityLog
+    }
+    res.status(err.status || 500).json(body)
 }
 
 // If anything crashes anywhere in the backend, this catches it and sends a clean error message back to the browser. 

@@ -1,5 +1,6 @@
 import { fileTypeFromBuffer } from 'file-type'
 import sharp from 'sharp'
+import heicConvert from 'heic-convert'
 import { PDFDocument, PDFName, PDFDict, PDFArray } from 'pdf-lib'
 import config from '../config/index.js'
 import { logCheck } from '../logging/fileLogger.js'
@@ -138,9 +139,8 @@ export async function stripMetadata(file) {
         }
         case 'image/heic':
         case 'image/heif': {
-            file.buffer = await sharp(file.buffer)
-                .jpeg({ quality: 95 })
-                .toBuffer()
+            const jpegArrayBuffer = await heicConvert({ buffer: file.buffer, format: 'JPEG', quality: 0.95 })
+            file.buffer = await sharp(Buffer.from(jpegArrayBuffer)).jpeg({ quality: 95 }).toBuffer()
             file.mimetype = 'image/jpeg'
             break
         }
@@ -208,6 +208,17 @@ export async function validateFile(req, res, next) {
                 ? `re-encoded ${mimetypeBefore} → ${file.mimetype}, ${(file.size / 1024).toFixed(0)} KB`
                 : `re-encoded ${file.mimetype}, ${(file.size / 1024).toFixed(0)} KB`
         )
+
+        // 3a. Post-conversion size check — HEIC in particular expands significantly
+        //     when converted to JPEG. The original size check passed on the compressed
+        //     input; this catches the inflated output before it reaches the AI service.
+        const postSizeMB = file.size / (1024 * 1024)
+        if (postSizeMB > config.MAX_FILE_SIZE_MB) {
+            secLog(req, label, 'post-convert size', 'fail',
+                `${postSizeMB.toFixed(2)} MB after re-encoding — exceeds ${config.MAX_FILE_SIZE_MB} MB limit`)
+            return res.status(400).json({ error: `File exceeds ${config.MAX_FILE_SIZE_MB} MB after processing` })
+        }
+        secLog(req, label, 'post-convert size', 'pass', `${postSizeMB.toFixed(2)} MB after re-encoding`)
 
         // 4. PDF JavaScript strip (PDF only)
         if (mimetypeBefore === 'application/pdf') {

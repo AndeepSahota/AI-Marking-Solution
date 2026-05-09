@@ -3,12 +3,14 @@ import UploadZone from '../components/UploadZone'
 import ResultCard from '../components/ResultCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorBanner from '../components/ErrorBanner'
+import FlowPanel from '../components/FlowPanel'
 import { submitFiles } from '../services/api'
 
 function Home() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [securityLog, setSecurityLog] = useState(null)
   const [hasFiles, setHasFiles] = useState(false)
   const [bannerDismissed, setBannerDismissed] = useState(false)
 
@@ -35,12 +37,16 @@ function Home() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setSecurityLog(null)
 
     try {
-      const data = await submitFiles(studentWork, markScheme)
+      const data = await submitFiles(studentWork, markScheme, (event) => {
+        if (event.type === 'security') setSecurityLog(event.checks)
+      })
       setResult(data)
     } catch (err) {
-      setError(err.message)
+      setSecurityLog(prev => prev ?? (err.debug ?? null))
+      setError({ message: err.message, detail: err.detail ?? null, code: err.code ?? null, status: err.status ?? null })
     } finally {
       setLoading(false)
     }
@@ -89,13 +95,14 @@ function Home() {
           disabled={loading}
           onFilesChange={handleFilesChange}
           hasResult={!!result}
-          onReset={() => { setResult(null); setError(null) }}
-          backendDebug={result?._debug}
+          onReset={() => { setResult(null); setError(null); setSecurityLog(null) }}
+          backendDebug={securityLog}
         />
 
         {loading && <LoadingSpinner />}
-        {error && <ErrorBanner message={error} />}
+        {error && <ErrorBanner message={error.message} />}
         {result && <ResultCard result={result} />}
+        <FlowPanel loading={loading} result={result} error={error} />
       </div>
     </>
   )

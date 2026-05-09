@@ -1295,3 +1295,180 @@ body::after {
   color: var(--error);
   border-color: var(--error-border);
 }
+
+/* ── Flow Panel ─────────────────────────────────────────────────── */
+
+.flow-panel {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.flow-panel-title {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.flow-stage {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.flow-stage:last-child {
+  border-bottom: none;
+}
+
+.flow-stage-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flow-stage-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.flow-stage--done   .flow-stage-icon { color: var(--pass); }
+.flow-stage--active .flow-stage-icon { color: var(--accent-light); }
+.flow-stage--pending .flow-stage-icon { color: var(--text-secondary); opacity: 0.4; }
+.flow-stage--error  .flow-stage-icon { color: var(--error); }
+
+.flow-stage-label {
+  font-size: 13px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.flow-stage--pending .flow-stage-label { color: var(--text-secondary); opacity: 0.5; }
+
+.flow-stage-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.flow-stage--active .flow-stage-detail { color: var(--accent-light); }
+.flow-stage--error  .flow-stage-detail { color: var(--error); font-size: 12px; }
+
+/* spinner for active stage */
+.flow-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(100, 149, 237, 0.25);
+  border-top-color: var(--accent-light);
+  border-radius: 50%;
+  animation: flow-spin 0.7s linear infinite;
+}
+
+@keyframes flow-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* sub-stages (OCR page breakdown) */
+.flow-sub-stages {
+  margin-top: 6px;
+  margin-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.flow-sub-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-sub-icon {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.flow-sub-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.flow-sub-ms {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+/* ── FlowPanel meta / error additions ───────────────────────────── */
+
+.flow-meta-row {
+  margin-top: 5px;
+  margin-left: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-meta-tag {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.flow-meta-warn {
+  color: var(--accent-light);
+}
+
+.flow-sub-dims {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin-right: 4px;
+}
+
+.flow-sub-chars {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin-right: 4px;
+}
+
+.flow-error-detail {
+  margin-top: 6px;
+  margin-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.flow-error-code {
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.flow-error-body {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  word-break: break-word;
+  opacity: 0.85;
+}

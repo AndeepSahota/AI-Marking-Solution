@@ -12,8 +12,9 @@ backend/src/data/users.json
 # Pepper secret — must never be committed
 backend/src/data/pepper.json
 
-# Python virtual environment
+# Python virtual environment (both naming conventions)
 ai-service/venv/
+.venv/
 ai-service/__pycache__/
 ai-service/**/__pycache__/
 **/*.pyc
@@ -22,10 +23,20 @@ ai-service/**/__pycache__/
 frontend/dist/
 frontend/dist-ssr/
 
-# Logs
+# Local dev environment config (machine-specific device and model settings)
+ai-service/local.env
+
+# IDE settings (local to each developer)
+.vscode/
+
+# Security documentation (describes controls and attack surface — keep off VCS)
+Security-Assessment.md
+
+# Logs — keep directory structure via .gitkeep, ignore all content
 *.log
 npm-debug.log*
-backend/logs/.audit.json
+backend/logs/*
+!backend/logs/.gitkeep
 
 # OS
 .DS_Store
