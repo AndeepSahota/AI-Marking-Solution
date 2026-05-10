@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib'
 import config from '../config/index.js'
 import { generateRequestId, logUploadStart, logCheck } from '../logging/fileLogger.js'
 
@@ -52,7 +53,7 @@ function validateFilename(original) {
 
 // ─── fileSecurity ──────────────────────────────────────────────────────────────
 
-export function fileSecurity(req, res, next) {
+export async function fileSecurity(req, res, next) {
     req._requestId   = generateRequestId()
     req._securityLog = []
     logUploadStart(req)
@@ -95,6 +96,17 @@ export function fileSecurity(req, res, next) {
             return res.status(400).json({ error: 'Only PDF and image files are accepted' })
         }
         secLog(req, label, 'declared MIME', 'pass', file.mimetype)
+
+        // 5. PDF page count — final gate before processing
+        if (file.mimetype === 'application/pdf') {
+            const doc = await PDFDocument.load(file.buffer, { ignoreEncryption: true })
+            const pageCount = doc.getPageCount()
+            if (pageCount > config.MAX_PDF_PAGES) {
+                secLog(req, label, 'page count', 'fail', `${pageCount} pages — exceeds ${config.MAX_PDF_PAGES} limit`)
+                return res.status(400).json({ error: `PDF must not exceed ${config.MAX_PDF_PAGES} pages` })
+            }
+            secLog(req, label, 'page count', 'pass', `${pageCount} pages`)
+        }
     }
 
     next()

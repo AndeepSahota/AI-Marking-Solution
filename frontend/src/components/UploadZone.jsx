@@ -4,7 +4,8 @@ const IS_DEV = import.meta.env.DEV
 
 // ─── File validation ───────────────────────────────────────────────────────────
 
-const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+const MAX_BYTES = 5 * 1024 * 1024  // 5 MB
+const MAX_PDF_PAGES = 20
 
 const EXT_MIME = {
   jpg:  'image/jpeg',
@@ -14,6 +15,16 @@ const EXT_MIME = {
   heic: 'image/heic',
   heif: 'image/heif',
   pdf:  'application/pdf',
+}
+
+// Counts PDF pages by scanning for /Count N entries in the raw bytes.
+// Returns null if the structure is unreadable (compressed streams) — backend catches it.
+async function getPdfPageCount(file) {
+  const buf = await file.arrayBuffer()
+  const text = new TextDecoder('latin1').decode(new Uint8Array(buf))
+  const matches = [...text.matchAll(/\/Count\s+(\d+)/g)]
+  if (!matches.length) return null
+  return Math.max(...matches.map(m => parseInt(m[1], 10)))
 }
 
 async function readMagicBytes(file) {
@@ -44,8 +55,8 @@ async function validateFile(file) {
 
   // 1. Size
   if (file.size > MAX_BYTES) {
-    log.push({ check: 'size', status: 'fail', detail: `${mb} MB — exceeds 10 MB limit` })
-    return { error: `File is ${mb} MB — must be under 10 MB`, log }
+    log.push({ check: 'size', status: 'fail', detail: `${mb} MB — exceeds 5 MB limit` })
+    return { error: `File is ${mb} MB — must be under 5 MB`, log }
   }
   log.push({ check: 'size', status: 'pass', detail: `${mb} MB` })
 
@@ -73,6 +84,14 @@ async function validateFile(file) {
     return { error: 'File extension does not match its content', log }
   }
   log.push({ check: 'content match', status: 'pass', detail: `${detectedMime} consistent` })
+
+  // 5. PDF page count — not logged to the debug panel, backend logs it definitively
+  if (detectedMime === 'application/pdf') {
+    const pageCount = await getPdfPageCount(file)
+    if (pageCount !== null && pageCount > MAX_PDF_PAGES) {
+      return { error: `PDF has ${pageCount} pages — maximum allowed is ${MAX_PDF_PAGES}`, log }
+    }
+  }
 
   return { error: null, log }
 }
