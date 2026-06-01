@@ -12,6 +12,12 @@ backend/src/data/users.json
 # Pepper secret — must never be committed
 backend/src/data/pepper.json
 
+# SQLite database and its WAL/SHM companions — local data, never committed
+backend/src/data/*.sqlite
+backend/src/data/*.sqlite-journal
+backend/src/data/*.sqlite-wal
+backend/src/data/*.sqlite-shm
+
 # Python virtual environment (both naming conventions)
 ai-service/venv/
 .venv/

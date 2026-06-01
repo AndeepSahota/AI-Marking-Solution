@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { findByEmail, createUser, verifyPassword } from '../data/users.js'
+import { sanitiseString, MAX_STRING_LENGTH } from '../middleware/inputSecurity.js'
 import config from '../config/index.js'
 
 const router = express.Router()
@@ -79,10 +80,18 @@ function signToken(user) {
 // POST /auth/signup
 router.post('/signup', async (req, res, next) => {
     try {
-        const { name, email, password, confirmPassword } = req.body
+        const { name: rawName, email, password, confirmPassword } = req.body
 
-        if (!name?.trim() || !email?.trim() || !password) {
+        if (!rawName?.trim() || !email?.trim() || !password) {
             return res.status(400).json({ error: 'Name, email and password are required' })
+        }
+
+        const name = sanitiseString(rawName)
+        if (!name) {
+            return res.status(400).json({ error: 'Name, email and password are required' })
+        }
+        if (name.length > MAX_STRING_LENGTH) {
+            return res.status(400).json({ error: `Name must not exceed ${MAX_STRING_LENGTH} characters` })
         }
         if (!isValidEmail(email.trim())) {
             return res.status(400).json({ error: 'Please enter a valid email address' })
@@ -151,7 +160,7 @@ router.post('/login', async (req, res, next) => {
             return res.status(401).json({ error: 'Invalid email or password' })
         }
 
-        const match = await verifyPassword(password, record.passwordHash)
+        const match = await verifyPassword(password, record.password_hash)
         if (!match) {
             recordFailedAttempt(emailKey)
             return res.status(401).json({ error: 'Invalid email or password' })
@@ -160,7 +169,7 @@ router.post('/login', async (req, res, next) => {
         // Successful login — clear the failure counter
         clearAttempts(emailKey)
 
-        const { passwordHash: _, ...user } = record
+        const user = { id: record.id, name: record.name }
         const token = signToken(user)
 
         res.cookie('aimira_token', token, COOKIE_OPTIONS).json({ user })

@@ -91,3 +91,134 @@ The current phase has focused on securing how data is collected, authenticated, 
 
 ## Technologies
 Azure, Azure Container Apps Jobs, Azure Container Registry, Azure Storage, Data Lake concepts, Docker, Managed Identity, Azure Key Vault, RBAC, private endpoints, private DNS, virtual networking, API security, Active Directory, firewall and hybrid architecture concepts
+
+---
+
+## Change 1: Application Build — Database, Authentication & Core Features
+
+This change covers the full application build from scratch: a relational database, a secure authentication system, a classes and students management API, a mark scheme OCR pipeline, and the frontend pages that tie everything together. Each section below describes what was built and the security decisions made alongside it.
+
+---
+
+### 1. SQLite Database
+
+**What was built**
+
+Replaced a flat `users.json` file with a proper relational SQLite database using `better-sqlite3`. The schema covers seven tables: `year_groups`, `teachers`, `classes`, `students`, `lessons`, `student_files`, `student_ocr`, `teacher_ocr`, and `marking_results`. Foreign key relationships are enforced at the database level. `year_groups` is seeded with valid years (7–11) and protected by read-only triggers to prevent modification. The schema runs on boot as a side-effect import, and any existing teachers in the legacy JSON file are migrated in automatically on first start.
+
+**Security considerations**
+
+- `journal_mode = WAL` and `foreign_keys = ON` are set per-connection on startup — SQLite defaults both to off for backwards compatibility, so they must be set explicitly.
+- All queries throughout the application use prepared statements with parameterised values. There is no string-interpolated SQL anywhere in the codebase, making SQL injection structurally impossible.
+- The SQLite file is added to `.gitignore` so it is never committed to version control.
+- **Least-privilege database accessors** — rather than giving each route file access to the raw database connection, three scoped accessor objects are exported from `db/index.js`: `teacherDb` (2 prepared statements covering only the teachers table), `lessonDb` (4 statements covering only the lessons and OCR tables), and `classDb` (17 statements covering only the classes, students, and related tables). Each route file imports only the accessor it needs. No route can run arbitrary SQL or touch tables outside its defined scope.
+
+---
+
+### 2. Authentication
+
+**What was built**
+
+A full token-based authentication system: `POST /auth/signup`, `POST /auth/login`, `POST /auth/refresh`, and `POST /auth/logout`. Tokens are issued as short-lived JWTs and delivered via an `httpOnly` cookie. The `authenticate` middleware verifies the cookie on all protected routes. A login attempt tracker provides account lockout after repeated failures.
+
+**Security considerations**
+
+- **Password storage** — passwords are pre-hashed with HMAC-SHA256 using a server-side pepper before being passed to bcrypt (cost factor 12). This means even if the bcrypt hashes leak, an attacker without the pepper cannot attempt offline cracking. bcrypt adds a per-record random salt on top.
+- **Email storage** — email addresses are never stored in plaintext. They are hashed with HMAC-SHA256 using a separate pepper, making the stored value a deterministic lookup key that cannot be reversed to reveal a teacher's email.
+- **JWT delivery** — tokens are set as `httpOnly` cookies, keeping them off the JavaScript heap and inaccessible to any injected script. `secure: true` is enforced in production (HTTPS only). `sameSite: lax` provides CSRF protection while allowing same-site cross-port requests in development.
+- **Token expiry** — JWTs expire after 1 hour. A `/auth/refresh` endpoint allows a just-expired token to be exchanged for a fresh one without re-entering credentials, using `ignoreExpiration: true` combined with full signature verification.
+- **Brute-force protection** — login attempts are tracked in memory per email address. After 5 failed attempts the account is locked for 15 minutes. The lockout check runs before any bcrypt comparison, preventing the expensive hash operation from being abused as a timing oracle.
+- **Password policy** — minimum 10 characters, at least one digit, at least two special characters, maximum 72 bytes (bcrypt silently truncates beyond this), and checked against a 10,000-entry common password blacklist loaded at startup.
+- **Email validation** — RFC 5321-compliant regex with a 254-character maximum. Invalid formats are rejected before any database lookup is attempted.
+- **Teacher name sanitisation** — the signup name field is passed through `sanitiseString` (unicode normalisation, null-byte removal, control character stripping) before being written to the database, with a 100-character hard limit enforced in the data layer.
+
+---
+
+### 3. Middleware Factory Refactor (File Security & Validation)
+
+**What was built**
+
+The upload route originally validated two file slots (student work + mark scheme) with a single fixed middleware. The lessons route needs to validate one slot (mark scheme only). Rather than duplicate the validation logic, both middlewares were converted to factory functions: `makeFileSecurity(slots)` and `makeValidateFile(slots)`, each taking an array of slot descriptors. The existing upload route continues to use a pre-built default export.
+
+**Security considerations**
+
+- File MIME type is checked against an allowlist (PDF, JPEG, PNG, WEBP) using both the declared content type and a magic-byte inspection of the file buffer. A file with a `.pdf` extension but a JPEG magic byte is rejected.
+- File size is capped at 5 MB per slot via multer's `limits` option, enforced before any processing begins.
+- The factory pattern ensures that adding a new upload endpoint requires explicitly declaring the slots it accepts — there is no way to accidentally inherit permissive validation from another route.
+
+---
+
+### 4. Input Security Middleware
+
+**What was built**
+
+A new `inputSecurity` middleware sits between `authenticate` and the classes route handler. It runs on every state-changing request to `/classes` and inspects `req.body` before the route handler sees it.
+
+**Security considerations**
+
+- **Prototype pollution prevention** — the request body is recursively scanned for forbidden keys (`__proto__`, `constructor`, `prototype`). A request containing any of these is rejected with a 400 before reaching route logic.
+- **Depth limit** — nested objects are rejected beyond 5 levels deep, preventing deeply nested payload attacks.
+- **Array truncation** — arrays are silently truncated to 100 entries to prevent oversized bulk submissions.
+- **String sanitisation** — all string values are unicode-normalised (NFC), stripped of null bytes and ASCII control characters, and have excess whitespace collapsed. This is applied recursively across the entire body object.
+- **Length limit** — any individual string exceeding 500 characters is rejected. Field-specific tighter limits (100 characters for class names and student names) are enforced in the route handlers themselves, matching the database column constraints.
+- **Client-side mirror** — `frontend/src/utils/sanitise.js` replicates the same sanitisation logic (`sanitiseInput`, `containsHtml`, `validatePayload`) so that invalid input is caught at the point of entry in the UI, before any API call is made. `maxLength` attributes on all text inputs enforce the same character limits in the browser.
+
+---
+
+### 5. Classes & Students API
+
+**What was built**
+
+A full CRUD API for class and student management: list classes (with student counts), create a class with a batch of students, fetch students in a class, rename a class, add a single student, rename a student, and delete a student. All endpoints sit behind `authenticate`.
+
+**Security considerations**
+
+- **Ownership enforcement** — every route that reads or modifies a class verifies that the class belongs to the authenticated teacher by including `teacher_id = req.user.id` in the lookup query. A teacher cannot read, rename, or delete another teacher's classes or students even if they guess a valid ID.
+- **Year group validation** — class names are parsed for a year number (7–11). The extracted year is validated against the `year_groups` table, which is read-only. A class name that does not include a valid year is rejected.
+- **Duplicate detection** — student names are checked for duplicates within the class before insert. On conflict the API returns a 409 with the conflicting names so the teacher can resolve them (e.g. "Andy S" vs "Andy 2").
+- **Cascading delete** — deleting a student runs a transaction that removes `marking_results`, `student_ocr`, and `student_files` rows before removing the student record, so foreign key constraints are satisfied without disabling them.
+- **Structured logging** — `classLogger.js` logs each class operation (start, created, students added, done, failed) to a daily-rotating log file with severity levels. Failed operations log the reason and relevant field values to support audit and debugging.
+
+---
+
+### 6. Lessons Route & Streaming OCR
+
+**What was built**
+
+`POST /lessons` accepts a mark scheme file, runs it through the Python OCR service, and writes the lesson and OCR text to the database in a single transaction. Progress is streamed back to the browser as newline-delimited JSON so the frontend can show a real-time progress bar for each OCR phase.
+
+**Security considerations**
+
+- **Ownership check** — before any OCR work begins, the route verifies that the submitted `classId` belongs to the authenticated teacher. An invalid or unowned class ID returns a 404 with no additional detail.
+- **File security first** — the mark scheme passes through `makeFileSecurity` and `makeValidateFile` before reaching the route handler, applying the same MIME type, magic-byte, and size checks as the student work upload.
+- **Transactional write** — the lesson insert, OCR text insert, and OCR link update are wrapped in a single SQLite transaction. A failure at any step rolls back all three writes, preventing partial or orphaned records.
+- **Error detail scoping** — the `error` event streamed to the frontend contains only a generic message in production. The `detail` and `code` fields are populated from the AI service error shape and contain no internal stack traces or file paths.
+- **Lesson title source** — the lesson title is derived server-side from the uploaded filename, not from a user-typed field. There is no free-text input on this route that requires sanitisation.
+- **OCR logging** — all OCR operations are logged via `ocrLogger` (start, file info, AI dispatch, file type, dimensions, per-page, done, failed) in the same format as student-work OCR, providing a consistent audit trail across both upload paths.
+
+---
+
+### 7. Frontend Pages
+
+**What was built**
+
+Three new pages: **Home** (class selection, mark scheme upload, NDJSON-driven progress bar, navigation to the marking screen), **Create/Manage Class** (tabbed view — create a class with batch student entry or paste import; manage existing classes with inline rename, add, and delete), and **Student Marking** (lesson context display, student list placeholder). React Router provides protected routes (redirect to `/login` if unauthenticated) and public routes (redirect to `/` if already authenticated).
+
+**Security considerations**
+
+- **XSS** — all user-supplied content displayed in the UI passes through React's JSX rendering, which HTML-escapes values by default. There is no use of `dangerouslySetInnerHTML` anywhere in the application.
+- **Client-side input controls (CreateClass)** — all text inputs have `maxLength` attributes matching the backend limits. On submission, `sanitiseInput` is applied to every value, `containsHtml` blocks `<` and `>` characters with an inline error, and `validatePayload` checks the full payload object for prototype pollution before the API call is made. Paste imports are sanitised per-entry and truncated to the 100-student maximum.
+- **Token handling** — the JWT is stored in an `httpOnly` cookie managed by the browser; the frontend never reads or stores it. API calls do not manually attach an `Authorization` header — the cookie is sent automatically on same-site requests.
+- **Authentication state** — `AuthContext` initialises from a `/auth/refresh` call on mount rather than from `localStorage`, so the session source of truth is always the server-issued cookie rather than a client-stored value.
+
+---
+
+### Summary of Security Controls by Layer
+
+| Layer | Control |
+|---|---|
+| Database | Parameterised queries, least-privilege accessors, FK constraints, WAL mode, sqlite file gitignored |
+| Auth | bcrypt + pepper, HMAC email hash, httpOnly+sameSite cookie, JWT 1h expiry, rate limiting, password blacklist |
+| Middleware | inputSecurity (prototype pollution, depth, array, string), file security (MIME + magic byte + size) |
+| Route handlers | Ownership checks on every class/student operation, year validation, duplicate detection |
+| Frontend | React JSX escaping, sanitiseInput + containsHtml + validatePayload before API calls, maxLength on all inputs |

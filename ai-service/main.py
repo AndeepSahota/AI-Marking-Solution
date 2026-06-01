@@ -15,7 +15,7 @@ if _env_file.exists():
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile
 from model.marker import run_marking
-from model.ocr import _get_model
+from model.ocr import _get_model, run_ocr
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -24,6 +24,19 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# ── POST /ocr ─────────────────────────────────────────────────────────────────
+# Single-file OCR endpoint. First in the marking queue — used for mark scheme
+# processing before student files are submitted. Returns raw OCR output only;
+# no marking logic is applied. Student files use POST /mark below.
+@app.post("/ocr")
+async def ocr_file(file: UploadFile = File(...)):
+    file_bytes = await file.read()
+    result = run_ocr(file_bytes)
+    return result
+
+# ── POST /mark ────────────────────────────────────────────────────────────────
+# Two-file marking endpoint. Receives student work and mark scheme, runs OCR
+# on the student submission, and returns a structured marking result.
 @app.post("/mark")
 async def mark_submission(
     student_work: UploadFile = File(...),

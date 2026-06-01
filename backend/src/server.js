@@ -5,9 +5,13 @@ import cookieParser from 'cookie-parser'
 import { rateLimiter, uploadLimiter } from './middleware/rateLimiter.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authenticate } from './middleware/authenticate.js'
+import { inputSecurity } from './middleware/inputSecurity.js'
 import uploadRoutes from './routes/upload.js'
 import authRoutes from './routes/auth.js'
+import classRoutes from './routes/classes.js'
+import lessonRoutes from './routes/lessons.js'
 import config from './config/index.js'
+import './db/schema.js'
 
 const app = express()
 
@@ -35,6 +39,8 @@ app.use(rateLimiter)
 app.use(express.json())
 
 app.use('/auth', authRoutes)
+app.use('/classes', authenticate, inputSecurity, classRoutes)
+app.use('/lessons', authenticate, lessonRoutes)
 app.use('/upload', authenticate, uploadLimiter, uploadRoutes)
 
 app.use(errorHandler)

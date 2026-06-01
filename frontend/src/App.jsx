@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { useInactivityTimer } from './hooks/useInactivityTimer'
 import InactivityModal from './components/InactivityModal'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
+import CreateClass from './pages/CreateClass'
+import StudentMarking from './pages/StudentMarking'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -35,6 +37,13 @@ function Header() {
                     <span className="brand-name">AIMIRA</span>
                     <span className="brand-badge">Beta</span>
                 </div>
+
+                {user && (
+                    <nav className="header-nav">
+                        <NavLink to="/" end className="header-nav-link">Home</NavLink>
+                        <NavLink to="/create-class" className="header-nav-link">Create Class</NavLink>
+                    </nav>
+                )}
 
                 {user ? (
                     <div className="header-user">
@@ -94,8 +103,10 @@ function AppContent() {
             <Routes>
                 <Route path="/login"  element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/signup" element={<PublicRoute><Signup /></PublicRoute>} />
-                <Route path="/"       element={<ProtectedRoute><Home /></ProtectedRoute>} />
-                <Route path="*"       element={<Navigate to="/" replace />} />
+                <Route path="/"             element={<ProtectedRoute><Home /></ProtectedRoute>} />
+                <Route path="/create-class"          element={<ProtectedRoute><CreateClass /></ProtectedRoute>} />
+                <Route path="/student-marking/:lessonId" element={<ProtectedRoute><StudentMarking /></ProtectedRoute>} />
+                <Route path="*"                      element={<Navigate to="/" replace />} />
             </Routes>
         </>
     )

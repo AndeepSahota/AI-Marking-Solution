@@ -1,5 +1,134 @@
 const API_BASE = import.meta.env.VITE_API_URL
 
+export async function getClasses() {
+    const response = await fetch(`${API_BASE}/classes`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch classes')
+    return data
+}
+
+export async function getStudents(classId) {
+    const response = await fetch(`${API_BASE}/classes/${classId}/students`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch students')
+    return data
+}
+
+// onEvent(event) fires for each streamed progress event:
+//   { type: 'security_pass' }
+//   { type: 'ai_dispatched' }
+//   { type: 'ocr_file_type', fileType, pageCount }
+//   { type: 'ocr_page', index, totalPages }
+//   { type: 'done', data: { id, class_id, class_name } }
+//   { type: 'error', message, detail, code, status }
+export async function createLesson(classId, markSchemeFile, onEvent = () => {}) {
+    const formData = new FormData()
+    formData.append('markScheme', markSchemeFile)
+    formData.append('classId', classId)
+
+    const response = await fetch(`${API_BASE}/lessons`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+    })
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('ndjson')) {
+        if (contentType.includes('json')) {
+            const data = await response.json()
+            throw new Error(data.error || 'Failed to create lesson')
+        }
+        throw new Error(`Server error (${response.status}) — is the backend running?`)
+    }
+
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let result = null
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+            if (!line.trim()) continue
+            const event = JSON.parse(line)
+            onEvent(event)
+            if (event.type === 'done')  result = event.data
+            if (event.type === 'error') throw new Error(event.message)
+        }
+    }
+
+    if (!result) throw new Error('Lesson creation did not complete')
+    return result
+}
+
+export async function createClass(className, students) {
+    const response = await fetch(`${API_BASE}/classes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ className, students }),
+    })
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) {
+        throw new Error(`Server error (${response.status}) — is the backend running?`)
+    }
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to create class')
+    return data
+}
+
+export async function renameClass(classId, className) {
+    const response = await fetch(`${API_BASE}/classes/${classId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ class_name: className }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to rename class')
+    return data
+}
+
+export async function addStudentToClass(classId, studentName) {
+    const response = await fetch(`${API_BASE}/classes/${classId}/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ student_name: studentName }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to add student')
+    return data
+}
+
+export async function renameStudent(classId, studentId, studentName) {
+    const response = await fetch(`${API_BASE}/classes/${classId}/students/${studentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ student_name: studentName }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to rename student')
+    return data
+}
+
+export async function deleteStudent(classId, studentId) {
+    const response = await fetch(`${API_BASE}/classes/${classId}/students/${studentId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to delete student')
+    return data
+}
+
 // credentials: 'include' is required on every request so the browser
 // attaches the httpOnly aimira_token cookie automatically.
 // The token never touches JavaScript — it is set and cleared by the backend.
