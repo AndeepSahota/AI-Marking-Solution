@@ -77,6 +77,19 @@ function sanitiseValue(value) {
     return value
 }
 
+// Sanitisation for AI-generated OCR text before it is written to teacher_ocr.
+// Applies a subset of the controls above — no trimming, no whitespace
+// normalisation, no character limit — because mark scheme layout depends on
+// deliberate spacing and newlines that must be preserved.
+export function sanitiseOcrText(text) {
+    if (typeof text !== 'string') return ''
+    let s = text.normalize('NFC')
+    s = s.replace(/\0/g, '')
+    s = s.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, '')
+    s = s.replace(/<[^>]*>/g, '')
+    return s
+}
+
 // Exported so individual route files can apply string sanitisation
 // and the shared length ceiling to specific fields outside the middleware chain.
 export { sanitiseString, MAX_STRING_LENGTH }

@@ -4,6 +4,7 @@ import { lessonDb } from '../db/index.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
 import { getOcrFromAI } from '../services/aiService.js'
+import { sanitiseOcrText } from '../middleware/inputSecurity.js'
 import {
     logOcrStart, logFileInfo, logAiDispatched,
     logOcrFileType, logOcrDims, logOcrPage,
@@ -18,6 +19,17 @@ const upload = multer({
 })
 
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
+
+// GET /lessons/:id/ocr — return the stored OCR text for a lesson owned by this teacher.
+router.get('/:id/ocr', (req, res, next) => {
+    try {
+        const row = lessonDb.getOcrText(req.params.id, req.user.id)
+        if (!row) return res.status(404).json({ error: 'Lesson not found' })
+        res.json({ ocr_text: row.ocr_text })
+    } catch (err) {
+        next(err)
+    }
+})
 
 // POST /lessons — security-check the mark scheme, OCR it, store the result.
 // Streams newline-delimited JSON so the frontend can drive a progress bar.
@@ -75,10 +87,11 @@ router.post('/',
 
             logOcrDone(req, meta?.page_count ?? stages.length, meta?.total_chars ?? 0, Date.now() - ocrStart)
 
-            const lessonTitle = file.originalname.replace(/\.[^.]+$/, '')
+            const lessonTitle  = file.originalname.replace(/\.[^.]+$/, '')
+            const cleanOcrText = sanitiseOcrText(ocrResult.text ?? '')
 
             const lessonId = lessonDb.createLesson(
-                lessonTitle, classId, file.originalname, file.mimetype, ocrResult.text
+                lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText
             )
 
             emit({

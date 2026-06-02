@@ -14,6 +14,13 @@ export async function getStudents(classId) {
     return data
 }
 
+export async function getLessonOcr(lessonId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/ocr`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to load mark scheme')
+    return data.ocr_text
+}
+
 // onEvent(event) fires for each streamed progress event:
 //   { type: 'security_pass' }
 //   { type: 'ai_dispatched' }

@@ -125,7 +125,7 @@ db.exec(`
 // ── Lesson and marking tables ─────────────────────────────────────────────────
 // lessons         — one row per marking session for a class; mark scheme stored once here.
 //                   mark_scheme_ocr stores the teacher_ocr row id (back-reference, no FK).
-// teacher_ocr     — created manually in the SQLite file, not by this script.
+// teacher_ocr     — one row per lesson; holds the OCR text extracted from the mark scheme.
 // marking_results — one row per student per lesson; UNIQUE(lesson_id, student_id)
 //                   prevents a student being graded twice in the same lesson.
 
@@ -138,6 +138,13 @@ db.exec(`
         mark_scheme_mime_type TEXT    NOT NULL,
         mark_scheme_ocr       INTEGER,
         created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_ocr (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        lesson_id  INTEGER NOT NULL REFERENCES lessons(id),
+        ocr_text   TEXT    NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS marking_results (

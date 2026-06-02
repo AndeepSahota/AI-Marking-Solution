@@ -32,6 +32,13 @@ const _lessonClassCheck  = db.prepare('SELECT id, class_name FROM classes WHERE 
 const _lessonInsert      = db.prepare('INSERT INTO lessons (lesson_title, class_id, mark_scheme_file_name, mark_scheme_mime_type) VALUES (?, ?, ?, ?)')
 const _teacherOcrInsert  = db.prepare('INSERT INTO teacher_ocr (lesson_id, ocr_text) VALUES (?, ?)')
 const _lessonOcrLink     = db.prepare('UPDATE lessons SET mark_scheme_ocr = ? WHERE id = ?')
+const _lessonOcrText     = db.prepare(`
+    SELECT t.ocr_text
+    FROM teacher_ocr t
+    JOIN lessons l ON t.lesson_id = l.id
+    JOIN classes c ON l.class_id = c.id
+    WHERE l.id = ? AND c.teacher_id = ?
+`)
 
 const _createLessonTx = db.transaction((lessonTitle, classId, fileName, mimeType, ocrText) => {
     const { lastInsertRowid: lessonId } = _lessonInsert.run(lessonTitle, classId, fileName, mimeType)
@@ -41,8 +48,9 @@ const _createLessonTx = db.transaction((lessonTitle, classId, fileName, mimeType
 })
 
 export const lessonDb = {
-    findClass:    (classId, teacherId) => _lessonClassCheck.get(classId, teacherId),
+    findClass:    (classId, teacherId)                              => _lessonClassCheck.get(classId, teacherId),
     createLesson: (lessonTitle, classId, fileName, mimeType, ocrText) => _createLessonTx(lessonTitle, classId, fileName, mimeType, ocrText),
+    getOcrText:   (lessonId, teacherId)                            => _lessonOcrText.get(lessonId, teacherId),
 }
 
 // Least-privilege accessor for the classes flow only.

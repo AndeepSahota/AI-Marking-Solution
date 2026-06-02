@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { getStudents } from '../services/api'
+import { getStudents, getLessonOcr } from '../services/api'
 
 const CIRCUMFERENCE = 2 * Math.PI * 26 // r=26 → ≈163.4
 
@@ -39,10 +39,20 @@ function StudentMarking() {
   const classId   = state?.classId
   const className = state?.className
 
+  const [ocrText, setOcrText]   = useState(null)
+  const [ocrError, setOcrError] = useState(null)
+
   useEffect(() => {
     if (!classId) return
     getStudents(classId).then(setStudents).catch(() => {})
   }, [classId])
+
+  useEffect(() => {
+    if (!lessonId) return
+    getLessonOcr(lessonId)
+      .then(setOcrText)
+      .catch(err => setOcrError(err.message))
+  }, [lessonId])
 
   // Guard: if navigated directly without state, go home
   if (!classId) {
@@ -67,6 +77,17 @@ function StudentMarking() {
         </div>
 
         <ProgressRing marked={marked} total={students.length} />
+      </div>
+
+      <div className="ms-ocr-box">
+        <h3 className="ms-ocr-title">Mark Scheme</h3>
+        {ocrError ? (
+          <p className="ms-ocr-error">{ocrError}</p>
+        ) : ocrText === null ? (
+          <p className="ms-ocr-loading">Loading mark scheme…</p>
+        ) : (
+          <pre className="ms-ocr-text">{ocrText}</pre>
+        )}
       </div>
 
       <div className="student-marking-list">
