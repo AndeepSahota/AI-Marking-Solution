@@ -13,3 +13,13 @@ starlette==0.49.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.39.0
+
+# LLM Service Dependanices 
+openai==1.14.0
+python-dotenv==1.0.1
+httpx==0.27.0
+
+#OCR dependencies 
+pytesseract==0.3.13
+Pillow==10.4.0
+pdf2image==1.17.0
