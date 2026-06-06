@@ -20,6 +20,27 @@ const upload = multer({
 
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
 
+// GET /lessons — all lessons belonging to the logged-in teacher, newest first.
+router.get('/', (req, res, next) => {
+    try {
+        res.json(lessonDb.listLessons(req.user.id))
+    } catch (err) {
+        next(err)
+    }
+})
+
+// GET /lessons/:id — return lesson metadata (title, class_id, class_name) for a lesson
+// owned by this teacher. Used by StudentMarking to bootstrap itself from the URL alone.
+router.get('/:id', (req, res, next) => {
+    try {
+        const lesson = lessonDb.findLesson(req.params.id, req.user.id)
+        if (!lesson) return res.status(404).json({ error: 'Lesson not found' })
+        res.json(lesson)
+    } catch (err) {
+        next(err)
+    }
+})
+
 // GET /lessons/:id/ocr — return the stored OCR text for a lesson owned by this teacher.
 router.get('/:id/ocr', (req, res, next) => {
     try {

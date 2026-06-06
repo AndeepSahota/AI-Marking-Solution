@@ -28,6 +28,19 @@ export const teacherDb = {
 // Least-privilege accessor for the lessons flow only.
 // Covers: ownership check on classes, lesson creation, and OCR storage.
 // lessons.js imports this instead of the raw db connection.
+const _listLessons       = db.prepare(`
+    SELECT l.id, l.lesson_title, l.class_id, l.created_at, c.class_name
+    FROM lessons l
+    JOIN classes c ON l.class_id = c.id
+    WHERE c.teacher_id = ?
+    ORDER BY l.created_at DESC
+`)
+const _findLesson        = db.prepare(`
+    SELECT l.id, l.lesson_title, l.class_id, c.class_name
+    FROM lessons l
+    JOIN classes c ON l.class_id = c.id
+    WHERE l.id = ? AND c.teacher_id = ?
+`)
 const _lessonClassCheck  = db.prepare('SELECT id, class_name FROM classes WHERE id = ? AND teacher_id = ?')
 const _lessonInsert      = db.prepare('INSERT INTO lessons (lesson_title, class_id, mark_scheme_file_name, mark_scheme_mime_type) VALUES (?, ?, ?, ?)')
 const _teacherOcrInsert  = db.prepare('INSERT INTO teacher_ocr (lesson_id, ocr_text) VALUES (?, ?)')
@@ -48,6 +61,8 @@ const _createLessonTx = db.transaction((lessonTitle, classId, fileName, mimeType
 })
 
 export const lessonDb = {
+    listLessons:  (teacherId)                                      => _listLessons.all(teacherId),
+    findLesson:   (lessonId, teacherId)                            => _findLesson.get(lessonId, teacherId),
     findClass:    (classId, teacherId)                              => _lessonClassCheck.get(classId, teacherId),
     createLesson: (lessonTitle, classId, fileName, mimeType, ocrText) => _createLessonTx(lessonTitle, classId, fileName, mimeType, ocrText),
     getOcrText:   (lessonId, teacherId)                            => _lessonOcrText.get(lessonId, teacherId),

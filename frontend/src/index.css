@@ -586,13 +586,184 @@ body::after {
   }
 }
 
-/* Left column — marketing */
+/* Left column — wrapper + marketing */
+
+.home-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 24px;
+}
 
 .home-marketing {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  padding-top: 24px;
+}
+
+/* ─── Collapsible panels ─────────────────────────── */
+
+.home-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.home-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.home-panel-header:hover {
+  background: var(--accent-soft, #f0fdf4);
+}
+
+.home-panel-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.home-panel-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.home-panel-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.home-panel-icon.is-open {
+  transform: rotate(45deg);
+}
+
+.home-panel-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s ease;
+}
+
+.home-panel-body.is-open {
+  max-height: 380px;
+}
+
+.home-panel-cards {
+  display: grid;
+  grid-template-rows: repeat(3, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: 160px;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 12px 14px;
+}
+
+.home-panel-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.home-panel-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft, #f0fdf4);
+}
+
+.home-panel-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft, #f0fdf4);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.home-panel-card-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 136px;
+}
+
+.home-panel-card-sub {
+  font-size: 0.73rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.home-panel-card-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ─── Selected mark scheme chip ──────────────────── */
+
+.home-selected-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--accent-soft, #f0fdf4);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.home-selected-chip svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.home-selected-chip span {
+  flex: 1;
+}
+
+.home-chip-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.home-chip-clear:hover {
+  color: var(--text);
+}
+
+/* ─── Drop zone dimmed state ─────────────────────── */
+
+.home-drop-zone.is-dimmed {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .home-eyebrow {
@@ -946,6 +1117,8 @@ body::after {
   cursor: not-allowed;
   box-shadow: none;
 }
+
+/* ─── Previous sessions ──────────────────────────── */
 
 /* Process strip at the bottom */
 

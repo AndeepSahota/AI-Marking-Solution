@@ -14,6 +14,20 @@ export async function getStudents(classId) {
     return data
 }
 
+export async function getLessons() {
+    const response = await fetch(`${API_BASE}/lessons`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch lessons')
+    return data
+}
+
+export async function getLesson(lessonId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Lesson not found')
+    return data
+}
+
 export async function getLessonOcr(lessonId) {
     const response = await fetch(`${API_BASE}/lessons/${lessonId}/ocr`, { credentials: 'include' })
     const data = await response.json()

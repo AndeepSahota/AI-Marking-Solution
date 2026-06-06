@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getClasses, createLesson } from '../services/api'
+import { getClasses, getLessons, createLesson } from '../services/api'
 
-// Progress weights — sum to 100. Tuned so the bar moves smoothly through OCR
-// rather than jumping from "dispatched" straight to "done".
 const PROGRESS = {
   security_pass:  10,
   ai_dispatched:  10,
@@ -20,24 +18,62 @@ const PROGRESS_LABELS = {
   done:           'Done',
 }
 
+const PlusIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+)
+
+function CollapsiblePanel({ title, isOpen, onToggle, children }) {
+  return (
+    <div className="home-panel">
+      <button className="home-panel-header" type="button" onClick={onToggle}>
+        <span className="home-panel-title">{title}</span>
+        <span className={`home-panel-icon${isOpen ? ' is-open' : ''}`}>
+          <PlusIcon />
+        </span>
+      </button>
+      <div className={`home-panel-body${isOpen ? ' is-open' : ''}`}>
+        <div className="home-panel-cards">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Home() {
-  const [classes, setClasses] = useState([])
+  const [classes, setClasses]               = useState([])
   const [selectedClassId, setSelectedClassId] = useState('')
-  const [markScheme, setMarkScheme] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [progressLabel, setProgressLabel] = useState('')
-  const [error, setError] = useState(null)
+  const [markScheme, setMarkScheme]         = useState(null)
+  const [lessons, setLessons]               = useState([])
+  const [selectedLesson, setSelectedLesson] = useState(null)
+  const [panel1Open, setPanel1Open]         = useState(false)
+  const [panel2Open, setPanel2Open]         = useState(false)
+  const [loading, setLoading]               = useState(false)
+  const [progress, setProgress]             = useState(0)
+  const [progressLabel, setProgressLabel]   = useState('')
+  const [error, setError]                   = useState(null)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     getClasses().then(setClasses).catch(() => {})
+    getLessons().then(setLessons).catch(() => {})
   }, [])
 
   const handleFileChange = (e) => {
     const file = e.target.files[0] ?? null
     setMarkScheme(file)
+    setSelectedLesson(null)
+    setError(null)
+  }
+
+  const handleSelectLesson = (lesson) => {
+    setSelectedLesson(prev => prev?.id === lesson.id ? null : lesson)
+    setMarkScheme(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
     setError(null)
   }
 
@@ -53,9 +89,9 @@ function Home() {
       setProgress(PROGRESS.security_pass + PROGRESS.ai_dispatched + PROGRESS.ocr_file_type)
       setProgressLabel(PROGRESS_LABELS.ocr_file_type)
     } else if (event.type === 'ocr_page') {
-      const base   = PROGRESS.security_pass + PROGRESS.ai_dispatched + PROGRESS.ocr_file_type
-      const total  = totalPagesRef.current || event.totalPages || 1
-      const ratio  = event.index / total
+      const base  = PROGRESS.security_pass + PROGRESS.ai_dispatched + PROGRESS.ocr_file_type
+      const total = totalPagesRef.current || event.totalPages || 1
+      const ratio = event.index / total
       setProgress(Math.min(base + PROGRESS.ocr_pages * ratio, 90))
       setProgressLabel(
         PROGRESS_LABELS.ocr_page.replace('{index}', event.index).replace('{total}', total)
@@ -67,8 +103,13 @@ function Home() {
   }
 
   const handleBeginMarking = async () => {
-    if (!selectedClassId) return setError('Please select a class before continuing.')
-    if (!markScheme)      return setError('Please upload a mark scheme before continuing.')
+    if (!selectedClassId)                   return setError('Please select a class before continuing.')
+    if (!markScheme && !selectedLesson)     return setError('Please upload a mark scheme or select a previous one.')
+
+    if (selectedLesson) {
+      navigate(`/student-marking/${selectedLesson.id}`)
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -82,9 +123,7 @@ function Home() {
         markScheme,
         (event) => handleProgressEvent(event, totalPagesRef)
       )
-      navigate(`/student-marking/${result.id}`, {
-        state: { classId: result.class_id, className: result.class_name },
-      })
+      navigate(`/student-marking/${result.id}`)
     } catch (err) {
       setError(err.message)
       setLoading(false)
@@ -93,55 +132,105 @@ function Home() {
     }
   }
 
+  const formatDate = (iso) =>
+    new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+
   return (
     <div className="home-page">
       <div className="home-grid">
-        <section className="home-marketing">
-          <div className="home-eyebrow">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-            AI-POWERED ASSISTANT
-          </div>
 
-          <h1 className="home-title">
-            Smarter marking,<br />
-            <span className="home-title-accent">better outcomes.</span>
-          </h1>
-
-          <p className="home-description">
-            Choose your class, upload the mark scheme, and let AIMIRA's AI do the heavy
-            lifting—so you can focus on what matters most: your students.
-          </p>
-
-          <div className="home-features">
-            <div className="home-feature">
-              <span className="home-feature-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </span>
-              Built for teachers
+        {/* ── Left column ── */}
+        <div className="home-left-col">
+          <section className="home-marketing">
+            <div className="home-eyebrow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+              AI-POWERED ASSISTANT
             </div>
-            <div className="home-feature">
-              <span className="home-feature-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              </span>
-              Secure & private
-            </div>
-            <div className="home-feature">
-              <span className="home-feature-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
-                </svg>
-              </span>
-              AI that understands context
-            </div>
-          </div>
-        </section>
 
+            <h1 className="home-title">
+              Smarter marking,<br />
+              <span className="home-title-accent">better outcomes.</span>
+            </h1>
+
+            <p className="home-description">
+              Choose your class, upload the mark scheme, and let AIMIRA's AI do the heavy
+              lifting—so you can focus on what matters most: your students.
+            </p>
+
+            <div className="home-features">
+              <div className="home-feature">
+                <span className="home-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+                Built for teachers
+              </div>
+              <div className="home-feature">
+                <span className="home-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  </svg>
+                </span>
+                Secure &amp; private
+              </div>
+              <div className="home-feature">
+                <span className="home-feature-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
+                  </svg>
+                </span>
+                AI that understands context
+              </div>
+            </div>
+          </section>
+
+          {lessons.length > 0 && (
+            <>
+              <CollapsiblePanel
+                title="Previous mark schemes"
+                isOpen={panel1Open}
+                onToggle={() => setPanel1Open(o => !o)}
+              >
+                {lessons.map(l => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className={`home-panel-card${selectedLesson?.id === l.id ? ' is-selected' : ''}`}
+                    onClick={() => handleSelectLesson(l)}
+                  >
+                    <span className="home-panel-card-title">{l.lesson_title}</span>
+                    <span className="home-panel-card-sub">{l.class_name}</span>
+                    <span className="home-panel-card-date">{formatDate(l.created_at)}</span>
+                  </button>
+                ))}
+              </CollapsiblePanel>
+
+              <CollapsiblePanel
+                title="Previous marking sessions"
+                isOpen={panel2Open}
+                onToggle={() => setPanel2Open(o => !o)}
+              >
+                {lessons.map(l => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className="home-panel-card"
+                    onClick={() => navigate(`/student-marking/${l.id}`)}
+                  >
+                    <span className="home-panel-card-title">{l.lesson_title}</span>
+                    <span className="home-panel-card-sub">{l.class_name}</span>
+                    <span className="home-panel-card-date">{formatDate(l.created_at)}</span>
+                  </button>
+                ))}
+              </CollapsiblePanel>
+            </>
+          )}
+        </div>
+
+        {/* ── Right column — action card ── */}
         <section className="home-action-card">
           <div className="home-action-header">
             <h2 className="home-action-title">Start a new marking session</h2>
@@ -189,8 +278,8 @@ function Home() {
               <span className="home-field-num">2.</span> Upload your mark scheme
             </label>
             <div
-              className={`home-drop-zone${markScheme ? ' has-file' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
+              className={`home-drop-zone${markScheme ? ' has-file' : ''}${selectedLesson ? ' is-dimmed' : ''}`}
+              onClick={() => !selectedLesson && fileInputRef.current?.click()}
             >
               <input
                 ref={fileInputRef}
@@ -227,6 +316,22 @@ function Home() {
                 </div>
               )}
             </div>
+
+            {selectedLesson && (
+              <div className="home-selected-chip">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>Using: <strong>{selectedLesson.lesson_title}</strong></span>
+                <button
+                  type="button"
+                  className="home-chip-clear"
+                  onClick={() => setSelectedLesson(null)}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="home-encryption-hint">

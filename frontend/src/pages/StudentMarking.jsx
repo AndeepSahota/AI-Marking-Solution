@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { getStudents, getLessonOcr } from '../services/api'
+import { useParams, useNavigate } from 'react-router-dom'
+import { getLesson, getStudents, getLessonOcr } from '../services/api'
 
 const CIRCUMFERENCE = 2 * Math.PI * 26 // r=26 → ≈163.4
 
@@ -31,31 +31,34 @@ function ProgressRing({ marked, total }) {
 }
 
 function StudentMarking() {
-  const { lessonId }    = useParams()
-  const { state }       = useLocation()
-  const navigate        = useNavigate()
+  const { lessonId } = useParams()
+  const navigate     = useNavigate()
+
+  const [lesson,   setLesson]   = useState(null)
   const [students, setStudents] = useState([])
-
-  const classId   = state?.classId
-  const className = state?.className
-
-  const [ocrText, setOcrText]   = useState(null)
+  const [ocrText,  setOcrText]  = useState(null)
   const [ocrError, setOcrError] = useState(null)
+  const [notFound, setNotFound] = useState(false)
 
+  // Fetch lesson metadata first, then use its class_id to fetch students.
+  // Both lesson and OCR fetches fire immediately since both only need lessonId.
   useEffect(() => {
-    if (!classId) return
-    getStudents(classId).then(setStudents).catch(() => {})
-  }, [classId])
+    if (!lessonId) { navigate('/', { replace: true }); return }
 
-  useEffect(() => {
-    if (!lessonId) return
+    getLesson(lessonId)
+      .then(l => {
+        setLesson(l)
+        return getStudents(l.class_id)
+      })
+      .then(setStudents)
+      .catch(() => setNotFound(true))
+
     getLessonOcr(lessonId)
       .then(setOcrText)
       .catch(err => setOcrError(err.message))
   }, [lessonId])
 
-  // Guard: if navigated directly without state, go home
-  if (!classId) {
+  if (notFound) {
     navigate('/', { replace: true })
     return null
   }
@@ -73,7 +76,7 @@ function StudentMarking() {
         </button>
 
         <div className="marking-header-centre">
-          <h2 className="marking-class-name">{className}</h2>
+          <h2 className="marking-class-name">{lesson?.class_name ?? '…'}</h2>
         </div>
 
         <ProgressRing marked={marked} total={students.length} />
