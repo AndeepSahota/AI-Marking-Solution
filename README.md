@@ -1,5 +1,47 @@
 # Teacher AI - Secure AI Marking Platform (Work in Progress)
 
+## Local Setup
+
+### 1. Install dependencies
+
+Each service's dependencies are listed in a manifest file (`package.json` for Node, `requirements.txt` for Python) but not committed themselves — install them locally:
+
+```bash
+cd backend && npm install
+cd frontend && npm install
+cd ai-service && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+```
+
+### 2. Configure environment files
+
+Each of the three services (`backend`, `frontend`, `ai-service`) needs its own local config file, which is gitignored because it contains machine-specific or secret values. An `.env.example` (or `local.env.example` for ai-service) is committed alongside each one — copy it and fill in the values:
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-service/local.env.example ai-service/local.env
+```
+
+For `backend/.env`, generate your own `JWT_SECRET`:
+
+```bash
+openssl rand -hex 32
+```
+
+It only needs to exist for your local backend to sign/verify session tokens — it doesn't need to match anyone else's value.
+
+For `ai-service/local.env`, set `TORCH_DEVICE` based on your hardware (`mps` for Apple Silicon, `cuda` for Nvidia GPU, `cpu` otherwise).
+
+### 3. Run
+
+Start each service in its own terminal:
+
+```bash
+cd backend && npm run dev
+cd frontend && npm run dev
+cd ai-service && source .venv/bin/activate && python3 main.py
+```
+
 ## Overview
 Teacher AI is a multi-phase project to design a secure, enterprise-style platform for AI-assisted marking in secondary education. The goal is to support the marking of English responses against a rubric while building the surrounding infrastructure as if it were being delivered to schools as a B2B SaaS offering.
 
