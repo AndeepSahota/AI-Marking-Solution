@@ -15,6 +15,10 @@ import './db/schema.js'
 
 const app = express()
 
+// Trust the first hop proxy (Azure Container Apps ingress) so req.ip reflects
+// the real client IP via X-Forwarded-For, rather than the proxy's address.
+app.set('trust proxy', 1)
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {

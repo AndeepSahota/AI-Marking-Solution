@@ -136,6 +136,103 @@ Azure, Azure Container Apps Jobs, Azure Container Registry, Azure Storage, Data 
 
 ---
 
+## Change 2a — Migrating to Azure: I1–3 + I7–8
+
+This change prepares the application for deployment to Azure Container Apps. The issues addressed here are the ones that would prevent the containerised build from starting, serving cookies correctly, or routing API calls — everything that must work before the application is even reachable in Azure. Issues I4–I6 (SQLite at runtime, PyTorch architecture, and Chandra model sizing) are deferred to a follow-on change.
+
+---
+
+### I1 — Pepper values moved from `pepper.json` to environment variables
+
+**Problem**
+
+Passwords and emails are pre-hashed with an HMAC pepper before being passed to bcrypt. Previously, the pepper values were read at startup from a hardcoded file path (`src/data/pepper.json`). That file was gitignored, which meant it had to be manually placed on every server. In a container environment there is no persistent filesystem to drop files into — the file would simply not exist at runtime.
+
+**Fix**
+
+`pepper.json` is removed entirely. `PASSWORD_PEPPER` and `EMAIL_PEPPER` are now read from environment variables and validated at startup in `backend/src/config/index.js`, using the same pattern already in place for `JWT_SECRET` (throws immediately on boot if either value is missing). Both variables are documented in `backend/.env.example`.
+
+**Azure path**
+
+When deploying to Azure Container Apps, these values will be pulled from Azure Key Vault and injected as container environment variables, keeping secrets out of the image and out of source control entirely.
+
+---
+
+### I2 — Trust proxy added
+
+**Problem**
+
+Azure Container Apps places an ingress proxy in front of every container. Without `trust proxy`, Express reads `req.ip` as the proxy's internal IP address rather than the real client IP. This causes every user's request to appear to come from the same address, which collapses all users into a single rate-limit bucket — the global 100-requests-per-hour limit would be hit immediately under any real load.
+
+**Fix**
+
+`app.set('trust proxy', 1)` is added to `backend/src/server.js` before any middleware is registered. A trust level of 1 tells Express to read the client IP from the first `X-Forwarded-For` hop, which is set by the Azure ingress, rather than from the raw TCP connection.
+
+---
+
+### I3 — Cross-origin cookie problem resolved via single-origin gateway
+
+**Problem**
+
+The auth cookie is set with `sameSite: lax`. In development, frontend and backend both run under `localhost` so the cookie is treated as same-site and sent on every request. In a container deployment, each service gets its own domain, so the browser considers requests cross-site and the cookie is silently dropped — every authenticated API call fails.
+
+**Fix**
+
+The solution is to route all traffic through a single domain. Nginx (introduced in I8) acts as the gateway: it serves the frontend static files and proxies `/api/*` to the backend container, stripping the `/api` prefix before forwarding. From the browser's perspective, every request — whether loading a page or calling the API — goes to the same origin. The cookie is always same-site.
+
+Two supporting changes flow from this:
+
+- `secure: true` is now hardcoded in the cookie options (previously `process.env.NODE_ENV === 'production'`). Browsers treat `http://localhost` as a secure context, so this works in local dev as well as production HTTPS.
+- All frontend `fetch` calls are switched from absolute URLs (`import.meta.env.VITE_API_URL`) to relative paths (`/api/...`). The `VITE_API_URL` environment variable is removed entirely, and `frontend/.env.example` is updated to reflect that no variables are currently needed.
+
+---
+
+### I7 — Vite and Nginx API path clash resolved
+
+**Problem**
+
+Vite embedded `VITE_API_URL` into the built bundle at build time. In production, nginx's CSP treats that absolute URL as a foreign origin and blocks the requests. Even if CSP were relaxed, the URL would be wrong inside a container where services communicate over an internal Docker network, not `localhost`.
+
+**Fix**
+
+All API calls now use the relative path `/api` as a constant, set directly in `frontend/src/services/api.js`, `Login.jsx`, `Signup.jsx`, and `AuthContext.jsx`. This path resolves against whatever origin served the page — it is correct in both dev and production without any build-time substitution.
+
+In development, a Vite dev server proxy is added to `vite.config.js`: requests to `/api/*` are forwarded to `http://localhost:3001` with the `/api` prefix stripped, mirroring exactly what nginx does in production. This means the same relative fetch call works unchanged across both environments.
+
+The CSP `connect-src` directive no longer needs to include an external URL — `'self'` is sufficient in both Vite's dev headers and nginx's production headers.
+
+---
+
+### I8 — Two-stage Docker build and nginx serving for the frontend
+
+**Problem**
+
+Locally the frontend is served by Vite's dev server directly from source files. That is not appropriate for a container image: Vite is a development tool, the source files include unbuilt JSX, and the dev server has no nginx-style request routing. A production container needs a compiled, optimised build served by a proper web server.
+
+**Fix**
+
+Three new files are introduced in `frontend/`:
+
+**`Dockerfile`** — a two-stage build. Stage one uses `node:22-bookworm-slim` to run `npm ci` and `npm run build`, producing the compiled static files in `/app/dist`. Stage two copies only that `/dist` directory into an `nginx:1.27-alpine` image. Vite never runs in the final image. The `BACKEND_URL` environment variable defaults to `http://backend:3001` (correct for local docker-compose) and can be overridden with the Azure Container Apps internal URL at deploy time.
+
+**`nginx.conf.template`** — nginx configuration with two responsibilities. The `location /` block serves static files from `/usr/share/nginx/html` with SPA fallback (`try_files $uri $uri/ /index.html`). The `location /api/` block proxies requests to `${BACKEND_URL}/` with the `/api` prefix stripped, sets `X-Forwarded-For` and `X-Forwarded-Proto` headers, disables response buffering, and allows 300 seconds for long-running OCR streams. Security headers (CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`) and a 10 MB body limit are set at the server level. The `${BACKEND_URL}` placeholder is substituted by `envsubst` when the container starts, using the official nginx:alpine entrypoint's template mechanism.
+
+**`.dockerignore`** — excludes `node_modules`, `dist`, and `.env` from the build context so they are never copied into the image.
+
+---
+
+### Summary
+
+| Issue | Root cause | Fix |
+|---|---|---|
+| I1 | Pepper in a file that can't exist in a container | Moved to env vars, validated at startup |
+| I2 | Ingress proxy collapses all client IPs | `trust proxy 1` added to Express |
+| I3 | Separate container domains break same-site cookies | Single-origin nginx gateway; all API calls use relative `/api` paths; `secure: true` hardcoded |
+| I7 | Absolute `VITE_API_URL` baked into bundle, rejected by CSP | Removed; relative `/api` constant used everywhere; Vite proxy mirrors nginx in dev |
+| I8 | Vite dev server not suitable for container deployment | Two-stage Docker build: Node builds, nginx serves; nginx config handles routing and security headers |
+
+---
+
 ## Change 1: Application Build — Database, Authentication & Core Features
 
 This change covers the full application build from scratch: a relational database, a secure authentication system, a classes and students management API, a mark scheme OCR pipeline, and the frontend pages that tie everything together. Each section below describes what was built and the security decisions made alongside it.
