@@ -11,7 +11,7 @@ import authRoutes from './routes/auth.js'
 import classRoutes from './routes/classes.js'
 import lessonRoutes from './routes/lessons.js'
 import config from './config/index.js'
-import './db/schema.js'
+import './db/index.js' // opens the DB and builds the schema (via initSchema) at startup
 
 const app = express()
 

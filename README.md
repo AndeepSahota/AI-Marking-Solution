@@ -136,6 +136,46 @@ Azure, Azure Container Apps Jobs, Azure Container Registry, Azure Storage, Data 
 
 ---
 
+## Change 2c — Front and Backend Dockerisation
+
+Containerises the backend (Node/Express) and finalises the frontend image — completing the set of three Azure-ready images (frontend, backend, Chandra). Includes I4: making the SQLite database work at container runtime.
+
+### Backend image (new)
+
+[backend/Dockerfile](backend/Dockerfile) + [backend/.dockerignore](backend/.dockerignore).
+
+- **Multi-stage build** — a build stage carrying the native-addon toolchain (`better-sqlite3`, `bcrypt`, `sharp` are C/C++ modules), and a lean runtime stage that ships no compilers.
+- **Non-root** — runs as the `node` user, with `src/data` and `logs` owned by it. Smaller blast radius for a service holding auth and the database.
+- **Env-driven, nothing baked** — `PORT`, `FRONTEND_URL`, `AI_SERVICE_URL`, `JWT_SECRET` and the peppers all come from the Container App at deploy; the three secrets fail-fast on startup if missing.
+- **`.dockerignore`** excludes the local `.sqlite`, `.env`, `users.json` and `pepper.json` so the image gets a clean DB and no leaked secrets (while keeping `10k-most-common.txt` and `users.js`).
+
+Why the backend needed far less work than the frontend: it was already a portable, env-configured server — `node src/server.js` runs identically in dev and prod. Containerising it was packaging, not re-architecting.
+
+### I4 — SQLite at container runtime
+
+The DB file is gitignored, so a container starts with **no database**. Two fixes:
+
+1. **Directory baked in** — `mkdir -p src/data` so `better-sqlite3` can create a fresh `aimira.sqlite` on first boot, and `schema.js` builds the tables via `CREATE TABLE IF NOT EXISTS`.
+2. **Startup ordering bug fixed** — [db/index.js](backend/src/db/index.js) prepared SQL statements at import time (e.g. `SELECT … FROM teachers`), but the tables were only created later by `db/schema.js`. This worked locally **only because a `.sqlite` file already existed** from previous runs; on a fresh container it crashed with `no such table: teachers`. Fixed by turning `schema.js` into an `initSchema(db)` function that [index.js](backend/src/db/index.js) calls **immediately after opening the connection, before any statement is prepared** ([schema.js](backend/src/db/schema.js), [server.js](backend/src/server.js)). The DB layer is now correctly self-initialising whether or not the file pre-exists.
+
+⚠️ Container storage is **ephemeral**: data resets on restart and is not shared across replicas. Deploy the backend as a **single replica** for now; PostgreSQL is the persistent long-term fix.
+
+### Frontend image (finalised)
+
+The Dockerfile and nginx config were built in Change 2a. The change here is **scoping the security headers to the static content**: nginx's `add_header` directives sat at the `server` level, so they were also applied to proxied `/api` responses — which already carry the backend's helmet headers, producing duplicate and conflicting headers (e.g. `X-Frame-Options: DENY` from nginx vs `SAMEORIGIN` from helmet). Moved them into `location /` ([nginx.conf.template](frontend/nginx.conf.template)) so nginx only sets them on the pages it serves, and the backend owns its own response headers.
+
+### Validation
+
+All three images were built for `linux/amd64` and tested locally: the backend boots and self-creates the DB (`aimira.sqlite` + WAL companions); the frontend serves the SPA and proxies `/api` to the backend over a Docker network (mirroring how Azure resolves the internal FQDN), returning the backend's response with no duplicate headers.
+
+### Deploy intent (ingress)
+
+- **Frontend** → external ingress (public — the browser's only entry point).
+- **Backend** → internal ingress (only the frontend's nginx reaches it, via `/api`).
+- **Chandra** → internal ingress (only the backend reaches it).
+
+---
+
 ## Change 2b — Containerising Chandra: I5 + I6
 
 Packages the Chandra OCR model as its own container for Azure Container Apps. It runs as a standalone internal service ([ai-service/Dockerfile](ai-service/Dockerfile)), reached only by the backend.

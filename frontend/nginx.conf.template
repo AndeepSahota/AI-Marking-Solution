@@ -13,11 +13,6 @@ server {
     # headroom above multer's combined limit.
     client_max_body_size 10m;
 
-    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
     # Backend API — /api/auth/login -> http://backend:3001/auth/login (prefix stripped)
     location /api/ {
         proxy_pass ${BACKEND_URL}/;
@@ -35,5 +30,13 @@ server {
     location / {
         root /usr/share/nginx/html;
         try_files $uri $uri/ /index.html;
+
+        # Security headers scoped to the pages nginx serves. /api responses are
+        # intentionally NOT given these — the backend's helmet already sets them,
+        # so scoping here avoids duplicate/conflicting headers on proxied responses.
+        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     }
 }
