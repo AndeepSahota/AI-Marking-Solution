@@ -136,6 +136,44 @@ Azure, Azure Container Apps Jobs, Azure Container Registry, Azure Storage, Data 
 
 ---
 
+## Change 2b — Containerising Chandra: I5 + I6
+
+Packages the Chandra OCR model as its own container for Azure Container Apps. It runs as a standalone internal service ([ai-service/Dockerfile](ai-service/Dockerfile)), reached only by the backend.
+
+### I6 — Sizing: measured, not guessed
+
+Instead of assuming a profile, we ran Chandra in a CPU container locally and pushed a real 23-page mark scheme through `/ocr`:
+
+| Metric | Result |
+|---|---|
+| Idle RAM (model loaded) | 3.68 GiB |
+| Peak RAM during OCR | 15.16 GiB |
+| Time per page (CPU) | ~5-7 min (23 pages ≈ 2.5 hrs) |
+
+The binding constraint is **compute, not memory** — CPU inference is unusably slow (a single page exceeds nginx's 300s proxy timeout). Conclusion: Chandra needs a **GPU**, not a large CPU box. Target: Azure serverless GPU **NC8as-T4** (NVIDIA T4, 16 GB VRAM) — the bf16 model fits in ~8-10 GB, with the 1280px image cap bounding activation memory.
+
+The test scaffolding isn't in the code, but two production features were kept from it: a `/health` readiness probe ([main.py](ai-service/main.py)) and env-driven thread caps ([ocr.py](ai-service/model/ocr.py)).
+
+### I5 — PyTorch architecture
+
+Local dev uses MPS torch (Mac); Azure GPU nodes are linux/amd64 with NVIDIA CUDA. Fixed by the Dockerfile: an `nvidia/cuda` base built for `--platform linux/amd64`, where pip resolves the CUDA torch build automatically — no separate requirements file needed.
+
+### The image
+
+- **Base:** `nvidia/cuda:13.0.0-cudnn-runtime` (amd64) — GPU runtime for Azure.
+- **Weights baked in:** `datalab-to/chandra-ocr-2` (bf16) downloaded at build, so the container starts ready and never re-downloads.
+- **Offline at runtime:** `HF_HUB_OFFLINE=1` — no Hugging Face calls on start.
+- **Listens on `0.0.0.0:8000`**, serving `/ocr`, `/mark`, `/health`.
+
+### Security
+
+- **Internal ingress only** — reachable solely from the backend over the Container Apps network; never exposed to the browser or public internet.
+- **No runtime external dependency** — offline weight loading works behind locked-down egress and can't be stalled by a Hugging Face outage.
+- **No host config leak** — `.dockerignore` excludes `local.env` (which holds `TORCH_DEVICE=mps`) and caches from the image.
+- **Concurrency 1 per replica** (deploy-time) bounds VRAM — Azure scales replicas rather than stacking jobs.
+
+---
+
 ## Change 2a — Migrating to Azure: I1–3 + I7–8
 
 This change prepares the application for deployment to Azure Container Apps. The issues addressed here are the ones that would prevent the containerised build from starting, serving cookies correctly, or routing API calls — everything that must work before the application is even reachable in Azure. Issues I4–I6 (SQLite at runtime, PyTorch architecture, and Chandra model sizing) are deferred to a follow-on change.
