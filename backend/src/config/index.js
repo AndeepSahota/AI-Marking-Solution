@@ -15,6 +15,6 @@ export default {
         return process.env.EMAIL_PEPPER
     })(),
     MAX_FILE_SIZE_MB: 5,
-    MAX_PDF_PAGES: 20,
+    MAX_PDF_PAGES: 30,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],
 }
