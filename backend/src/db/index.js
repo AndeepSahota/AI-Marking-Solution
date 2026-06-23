@@ -1,130 +1,161 @@
-import Database from 'better-sqlite3'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
-import { initSchema } from './schema.js'
+import pg from 'pg'
+import config from '../config/index.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname  = dirname(__filename)
+// node-postgres connection pool. SQLite was a single in-process file handle;
+// Postgres is a separate server, so we keep a pool of reusable TCP connections.
+// SSL: Azure Postgres requires it (sslmode=require in the connection string);
+// the local docker-compose Postgres doesn't — so enable it conditionally.
+const useSsl = /sslmode=require/i.test(config.DATABASE_URL)
+export const pool = new pg.Pool({
+    connectionString: config.DATABASE_URL,
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+})
 
-const DB_PATH = join(__dirname, '..', 'data', 'aimira.sqlite')
+// Run a query on the pool by default, or on a transaction client when one is
+// passed as `e`. This lets the same accessor method work standalone OR inside a
+// transaction (see classDb.transaction), so all the SQL stays in this file.
+const exec = (e, sql, params) => e.query(sql, params)
 
-const db = new Database(DB_PATH)
-
-// WAL gives concurrent reads + a writer without blocking; foreign_keys must
-// be enabled per-connection — SQLite defaults to off for backwards compat.
-db.pragma('journal_mode = WAL')
-db.pragma('foreign_keys = ON')
-
-// Build the schema BEFORE preparing any statements below. On a fresh database
-// (e.g. a new container) the tables don't exist yet, and db.prepare() against a
-// missing table throws — so the schema must be created here first.
-initSchema(db)
-
-// Least-privilege accessor for the teachers table only.
-// Prepared once at startup — users.js imports this instead of the raw db
-// connection so it cannot run arbitrary SQL against any other table.
-const _teacherFind   = db.prepare('SELECT * FROM teachers WHERE email_hash = ?')
-const _teacherInsert = db.prepare('INSERT INTO teachers (name, email_hash, password_hash) VALUES (?, ?, ?)')
-
+// ── Least-privilege accessor for the teachers table only. ──
+// users.js imports this instead of the raw pool, so it cannot run arbitrary SQL.
 export const teacherDb = {
-    findByEmailHash: (emailHash) => _teacherFind.get(emailHash),
-    insert:          (name, emailHash, passwordHash) => _teacherInsert.run(name, emailHash, passwordHash),
+    findByEmailHash: async (emailHash, e = pool) =>
+        (await exec(e, 'SELECT * FROM teachers WHERE email_hash = $1', [emailHash])).rows[0],
+    insert: async (name, emailHash, passwordHash, e = pool) =>
+        (await exec(e,
+            'INSERT INTO teachers (name, email_hash, password_hash) VALUES ($1, $2, $3) RETURNING id',
+            [name, emailHash, passwordHash])).rows[0],
 }
 
-// Least-privilege accessor for the lessons flow only.
-// Covers: ownership check on classes, lesson creation, and OCR storage.
-// lessons.js imports this instead of the raw db connection.
-const _listLessons       = db.prepare(`
+// ── Least-privilege accessor for the lessons flow only. ──
+const SQL_LIST_LESSONS = `
     SELECT l.id, l.lesson_title, l.class_id, l.created_at, c.class_name
     FROM lessons l
     JOIN classes c ON l.class_id = c.id
-    WHERE c.teacher_id = ?
+    WHERE c.teacher_id = $1
     ORDER BY l.created_at DESC
-`)
-const _findLesson        = db.prepare(`
+`
+const SQL_FIND_LESSON = `
     SELECT l.id, l.lesson_title, l.class_id, c.class_name
     FROM lessons l
     JOIN classes c ON l.class_id = c.id
-    WHERE l.id = ? AND c.teacher_id = ?
-`)
-const _lessonClassCheck  = db.prepare('SELECT id, class_name FROM classes WHERE id = ? AND teacher_id = ?')
-const _lessonInsert      = db.prepare('INSERT INTO lessons (lesson_title, class_id, mark_scheme_file_name, mark_scheme_mime_type) VALUES (?, ?, ?, ?)')
-const _teacherOcrInsert  = db.prepare('INSERT INTO teacher_ocr (lesson_id, ocr_text) VALUES (?, ?)')
-const _lessonOcrLink     = db.prepare('UPDATE lessons SET mark_scheme_ocr = ? WHERE id = ?')
-const _lessonOcrText     = db.prepare(`
+    WHERE l.id = $1 AND c.teacher_id = $2
+`
+const SQL_LESSON_CLASS_CHECK = 'SELECT id, class_name FROM classes WHERE id = $1 AND teacher_id = $2'
+const SQL_LESSON_OCR_TEXT = `
     SELECT t.ocr_text
     FROM teacher_ocr t
     JOIN lessons l ON t.lesson_id = l.id
     JOIN classes c ON l.class_id = c.id
-    WHERE l.id = ? AND c.teacher_id = ?
-`)
-
-const _createLessonTx = db.transaction((lessonTitle, classId, fileName, mimeType, ocrText) => {
-    const { lastInsertRowid: lessonId } = _lessonInsert.run(lessonTitle, classId, fileName, mimeType)
-    const { lastInsertRowid: ocrId }    = _teacherOcrInsert.run(lessonId, ocrText)
-    _lessonOcrLink.run(ocrId, lessonId)
-    return lessonId
-})
+    WHERE l.id = $1 AND c.teacher_id = $2
+`
 
 export const lessonDb = {
-    listLessons:  (teacherId)                                      => _listLessons.all(teacherId),
-    findLesson:   (lessonId, teacherId)                            => _findLesson.get(lessonId, teacherId),
-    findClass:    (classId, teacherId)                              => _lessonClassCheck.get(classId, teacherId),
-    createLesson: (lessonTitle, classId, fileName, mimeType, ocrText) => _createLessonTx(lessonTitle, classId, fileName, mimeType, ocrText),
-    getOcrText:   (lessonId, teacherId)                            => _lessonOcrText.get(lessonId, teacherId),
+    listLessons: async (teacherId, e = pool)          => (await exec(e, SQL_LIST_LESSONS, [teacherId])).rows,
+    findLesson:  async (lessonId, teacherId, e = pool) => (await exec(e, SQL_FIND_LESSON, [lessonId, teacherId])).rows[0],
+    findClass:   async (classId, teacherId, e = pool)  => (await exec(e, SQL_LESSON_CLASS_CHECK, [classId, teacherId])).rows[0],
+    getOcrText:  async (lessonId, teacherId, e = pool) => (await exec(e, SQL_LESSON_OCR_TEXT, [lessonId, teacherId])).rows[0],
+
+    // Transaction: insert the lesson, insert its mark-scheme OCR, link them.
+    // Self-contained (owns its client), so it doesn't take an executor.
+    createLesson: async (lessonTitle, classId, fileName, mimeType, ocrText) => {
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            const { rows: [lesson] } = await client.query(
+                'INSERT INTO lessons (lesson_title, class_id, mark_scheme_file_name, mark_scheme_mime_type) VALUES ($1, $2, $3, $4) RETURNING id',
+                [lessonTitle, classId, fileName, mimeType]
+            )
+            const { rows: [ocr] } = await client.query(
+                'INSERT INTO teacher_ocr (lesson_id, ocr_text) VALUES ($1, $2) RETURNING id',
+                [lesson.id, ocrText]
+            )
+            await client.query('UPDATE lessons SET mark_scheme_ocr = $1 WHERE id = $2', [ocr.id, lesson.id])
+            await client.query('COMMIT')
+            return lesson.id
+        } catch (err) {
+            await client.query('ROLLBACK')
+            throw err
+        } finally {
+            client.release()
+        }
+    },
 }
 
-// Least-privilege accessor for the classes flow only.
-// Covers all class and student CRUD operations.
-// classes.js imports this instead of the raw db connection.
-const _listClasses              = db.prepare(`
-    SELECT c.id, c.class_name, c.year_group_id, COUNT(s.id) AS student_count
-    FROM classes c
-    LEFT JOIN students s ON s.class_id = c.id
-    WHERE c.teacher_id = ?
-    GROUP BY c.id
-    ORDER BY c.class_name
-`)
-const _findClassById            = db.prepare('SELECT id, class_name, year_group_id FROM classes WHERE id = ? AND teacher_id = ?')
-const _findClassByName          = db.prepare('SELECT id FROM classes WHERE class_name = ? AND teacher_id = ?')
-const _findClassByNameExcluding = db.prepare('SELECT id FROM classes WHERE class_name = ? AND teacher_id = ? AND id != ?')
-const _validateYear             = db.prepare('SELECT id FROM year_groups WHERE id = ?')
-const _insertClass              = db.prepare('INSERT INTO classes (class_name, year_group_id, teacher_id) VALUES (?, ?, ?)')
-const _updateClass              = db.prepare('UPDATE classes SET class_name = ?, year_group_id = ? WHERE id = ?')
-const _listStudents             = db.prepare('SELECT id, student_name FROM students WHERE class_id = ? ORDER BY student_name')
-const _findStudentByName        = db.prepare('SELECT id FROM students WHERE student_name = ? AND class_id = ?')
-const _findStudentByNameExcluding = db.prepare('SELECT id FROM students WHERE student_name = ? AND class_id = ? AND id != ?')
-const _findStudentById          = db.prepare('SELECT id FROM students WHERE id = ? AND class_id = ?')
-const _insertStudent            = db.prepare('INSERT INTO students (student_name, class_id) VALUES (?, ?)')
-const _updateStudent            = db.prepare('UPDATE students SET student_name = ? WHERE id = ?')
-const _delMarkingResults        = db.prepare('DELETE FROM marking_results WHERE student_id = ?')
-const _delStudentOcr            = db.prepare('DELETE FROM student_ocr WHERE file_id IN (SELECT id FROM student_files WHERE student_id = ?)')
-const _delStudentFiles          = db.prepare('DELETE FROM student_files WHERE student_id = ?')
-const _delStudent               = db.prepare('DELETE FROM students WHERE id = ?')
-
-const _deleteStudentTx = db.transaction((studentId) => {
-    _delMarkingResults.run(studentId)
-    _delStudentOcr.run(studentId)
-    _delStudentFiles.run(studentId)
-    _delStudent.run(studentId)
-})
-
+// ── Least-privilege accessor for the classes flow only. ──
+// Every read/write method accepts an optional executor `e` (the pool by default,
+// or a transaction client) so it can run inside classDb.transaction.
 export const classDb = {
-    listClasses:               (teacherId)                         => _listClasses.all(teacherId),
-    findClassById:             (classId, teacherId)                => _findClassById.get(classId, teacherId),
-    findClassByName:           (className, teacherId)              => _findClassByName.get(className, teacherId),
-    findClassByNameExcluding:  (className, teacherId, classId)     => _findClassByNameExcluding.get(className, teacherId, classId),
-    validateYear:              (yearId)                            => _validateYear.get(yearId),
-    insertClass:               (className, yearGroupId, teacherId) => _insertClass.run(className, yearGroupId, teacherId),
-    updateClass:               (className, yearGroupId, classId)   => _updateClass.run(className, yearGroupId, classId),
-    listStudents:              (classId)                           => _listStudents.all(classId),
-    findStudentByName:         (studentName, classId)              => _findStudentByName.get(studentName, classId),
-    findStudentByNameExcluding:(studentName, classId, studentId)   => _findStudentByNameExcluding.get(studentName, classId, studentId),
-    findStudentById:           (studentId, classId)                => _findStudentById.get(studentId, classId),
-    insertStudent:             (studentName, classId)              => _insertStudent.run(studentName, classId),
-    updateStudent:             (studentName, studentId)            => _updateStudent.run(studentName, studentId),
-    deleteStudent:             (studentId)                         => _deleteStudentTx(studentId),
-    transaction:               (fn)                                => db.transaction(fn)(),
-}
+    listClasses: async (teacherId, e = pool) => (await exec(e, `
+        SELECT c.id, c.class_name, c.year_group_id, COUNT(s.id)::int AS student_count
+        FROM classes c
+        LEFT JOIN students s ON s.class_id = c.id
+        WHERE c.teacher_id = $1
+        GROUP BY c.id
+        ORDER BY c.class_name
+    `, [teacherId])).rows,
 
-export default db
+    findClassById:            async (classId, teacherId, e = pool) =>
+        (await exec(e, 'SELECT id, class_name, year_group_id FROM classes WHERE id = $1 AND teacher_id = $2', [classId, teacherId])).rows[0],
+    findClassByName:          async (className, teacherId, e = pool) =>
+        (await exec(e, 'SELECT id FROM classes WHERE class_name = $1 AND teacher_id = $2', [className, teacherId])).rows[0],
+    findClassByNameExcluding: async (className, teacherId, classId, e = pool) =>
+        (await exec(e, 'SELECT id FROM classes WHERE class_name = $1 AND teacher_id = $2 AND id != $3', [className, teacherId, classId])).rows[0],
+    validateYear:             async (yearId, e = pool) =>
+        (await exec(e, 'SELECT id FROM year_groups WHERE id = $1', [yearId])).rows[0],
+    insertClass:              async (className, yearGroupId, teacherId, e = pool) =>
+        (await exec(e, 'INSERT INTO classes (class_name, year_group_id, teacher_id) VALUES ($1, $2, $3) RETURNING id', [className, yearGroupId, teacherId])).rows[0],
+    updateClass:              async (className, yearGroupId, classId, e = pool) =>
+        exec(e, 'UPDATE classes SET class_name = $1, year_group_id = $2 WHERE id = $3', [className, yearGroupId, classId]),
+
+    listStudents:               async (classId, e = pool) =>
+        (await exec(e, 'SELECT id, student_name FROM students WHERE class_id = $1 ORDER BY student_name', [classId])).rows,
+    findStudentByName:          async (studentName, classId, e = pool) =>
+        (await exec(e, 'SELECT id FROM students WHERE student_name = $1 AND class_id = $2', [studentName, classId])).rows[0],
+    findStudentByNameExcluding: async (studentName, classId, studentId, e = pool) =>
+        (await exec(e, 'SELECT id FROM students WHERE student_name = $1 AND class_id = $2 AND id != $3', [studentName, classId, studentId])).rows[0],
+    findStudentById:            async (studentId, classId, e = pool) =>
+        (await exec(e, 'SELECT id FROM students WHERE id = $1 AND class_id = $2', [studentId, classId])).rows[0],
+    insertStudent:              async (studentName, classId, e = pool) =>
+        (await exec(e, 'INSERT INTO students (student_name, class_id) VALUES ($1, $2) RETURNING id', [studentName, classId])).rows[0],
+    updateStudent:              async (studentName, studentId, e = pool) =>
+        exec(e, 'UPDATE students SET student_name = $1 WHERE id = $2', [studentName, studentId]),
+
+    // Transaction: delete a student plus their derived rows, in FK-safe order.
+    // Self-contained (owns its client).
+    deleteStudent: async (studentId) => {
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            await client.query('DELETE FROM marking_results WHERE student_id = $1', [studentId])
+            await client.query('DELETE FROM student_ocr WHERE file_id IN (SELECT id FROM student_files WHERE student_id = $1)', [studentId])
+            await client.query('DELETE FROM student_files WHERE student_id = $1', [studentId])
+            await client.query('DELETE FROM students WHERE id = $1', [studentId])
+            await client.query('COMMIT')
+        } catch (err) {
+            await client.query('ROLLBACK')
+            throw err
+        } finally {
+            client.release()
+        }
+    },
+
+    // Generic transaction wrapper: runs fn on a single dedicated client with
+    // BEGIN/COMMIT (ROLLBACK on throw). fn receives the client to pass as the
+    // `e` executor into the accessor methods above, so all of fn's queries run
+    // on the same transactional connection.
+    transaction: async (fn) => {
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            const result = await fn(client)
+            await client.query('COMMIT')
+            return result
+        } catch (err) {
+            await client.query('ROLLBACK')
+            throw err
+        } finally {
+            client.release()
+        }
+    },
+}

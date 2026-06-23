@@ -1,0 +1,33 @@
+# Local development services.
+#
+# Postgres here is the local stand-in for Azure Database for PostgreSQL — same
+# engine and wire protocol, so code that works against this works in Azure. The
+# named volume persists data across restarts (so we can prove persistence, the
+# whole reason for moving off the ephemeral SQLite file).
+#
+#   docker compose up -d postgres
+#   DATABASE_URL=postgres://aimira:localdevpassword@localhost:5432/aimira
+#
+# Credentials here are LOCAL-DEV ONLY. Azure uses a Flexible Server host with
+# sslmode=require and credentials from Key Vault.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: aimira-postgres
+    environment:
+      POSTGRES_USER: aimira
+      POSTGRES_PASSWORD: localdevpassword
+      POSTGRES_DB: aimira
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aimira -d aimira"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

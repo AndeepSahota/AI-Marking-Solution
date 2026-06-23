@@ -21,9 +21,9 @@ const upload = multer({
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
 
 // GET /lessons — all lessons belonging to the logged-in teacher, newest first.
-router.get('/', (req, res, next) => {
+router.get('/', async (req, res, next) => {
     try {
-        res.json(lessonDb.listLessons(req.user.id))
+        res.json(await lessonDb.listLessons(req.user.id))
     } catch (err) {
         next(err)
     }
@@ -31,9 +31,9 @@ router.get('/', (req, res, next) => {
 
 // GET /lessons/:id — return lesson metadata (title, class_id, class_name) for a lesson
 // owned by this teacher. Used by StudentMarking to bootstrap itself from the URL alone.
-router.get('/:id', (req, res, next) => {
+router.get('/:id', async (req, res, next) => {
     try {
-        const lesson = lessonDb.findLesson(req.params.id, req.user.id)
+        const lesson = await lessonDb.findLesson(req.params.id, req.user.id)
         if (!lesson) return res.status(404).json({ error: 'Lesson not found' })
         res.json(lesson)
     } catch (err) {
@@ -42,9 +42,9 @@ router.get('/:id', (req, res, next) => {
 })
 
 // GET /lessons/:id/ocr — return the stored OCR text for a lesson owned by this teacher.
-router.get('/:id/ocr', (req, res, next) => {
+router.get('/:id/ocr', async (req, res, next) => {
     try {
-        const row = lessonDb.getOcrText(req.params.id, req.user.id)
+        const row = await lessonDb.getOcrText(req.params.id, req.user.id)
         if (!row) return res.status(404).json({ error: 'Lesson not found' })
         res.json({ ocr_text: row.ocr_text })
     } catch (err) {
@@ -62,7 +62,7 @@ router.post('/',
         const classId = parseInt(req.body.classId)
         if (!classId) return res.status(400).json({ error: 'Class is required' })
 
-        const cls = lessonDb.findClass(classId, req.user.id)
+        const cls = await lessonDb.findClass(classId, req.user.id)
         if (!cls) return res.status(404).json({ error: 'Class not found' })
 
         res.setHeader('Content-Type',     'application/x-ndjson')
@@ -111,7 +111,7 @@ router.post('/',
             const lessonTitle  = file.originalname.replace(/\.[^.]+$/, '')
             const cleanOcrText = sanitiseOcrText(ocrResult.text ?? '')
 
-            const lessonId = lessonDb.createLesson(
+            const lessonId = await lessonDb.createLesson(
                 lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText
             )
 
