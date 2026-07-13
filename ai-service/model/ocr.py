@@ -1,112 +1,45 @@
-import gc
-import io
 import os
 import time
-import torch
+
 import filetype as ft
-from PIL import Image
-import pypdfium2 as pdfium
-import pypdfium2.raw as pdfium_c
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.core.credentials import AzureKeyCredential
+from azure.identity import DefaultAzureCredential
 
-from chandra.model.hf import load_model, generate_hf
-from chandra.model.schema import BatchInputItem
-from chandra.output import parse_markdown
-from chandra.settings import settings
-
-# Cap CPU threads before the model loads. Defaults match the local M3 Pro tuning
-# (leaves cores free for the OS/browser); in a container set these to the
-# replica's vCPU count via TORCH_NUM_THREADS so torch doesn't oversubscribe the
-# cgroup CPU limit. A value of 0 leaves torch's own default in place.
-_n_threads = int(os.environ.get("TORCH_NUM_THREADS", "6"))
-_n_interop = int(os.environ.get("TORCH_INTEROP_THREADS", "3"))
-if _n_threads > 0:
-    torch.set_num_threads(_n_threads)
-if _n_interop > 0:
-    torch.set_num_interop_threads(_n_interop)
-
-# chandra's internal cap is 3072×2048 (~34 GiB attention on M3 Pro).
-# 1280 on the long side → ~6 k tokens → ~4.4 GiB attention, safely within 18 GB unified memory.
-_MAX_LONG_SIDE = 1280
-
-_model = None
+# ── Azure AI Document Intelligence client — created lazily and reused ──────────
+_client = None
 
 
-def _get_model():
-    global _model
-    if _model is None:
-        print("[OCR] Loading chandra model...")
-        _model = load_model()
-        print("[OCR] Model ready")
-    return _model
-
-
-def model_loaded() -> bool:
-    """True once the weights are resident — used by the /health readiness probe."""
-    return _model is not None
-
-
-def _cap_image(image: Image.Image) -> tuple[Image.Image, bool]:
-    """Downscale if the long side exceeds _MAX_LONG_SIDE. Returns (image, was_downscaled)."""
-    long_side = max(image.width, image.height)
-    if long_side > _MAX_LONG_SIDE:
-        scale = _MAX_LONG_SIDE / long_side
-        image = image.resize(
-            (int(image.width * scale), int(image.height * scale)),
-            Image.Resampling.LANCZOS,
-        )
-        print(f"[OCR] Downscaled to {image.width}×{image.height} (memory cap)")
-        return image, True
-    return image, False
-
-
-def cleanup_mps():
-    """Force Python GC then drain and release the MPS cache."""
-    gc.collect()
-    if torch.backends.mps.is_available():
-        try:
-            torch.mps.synchronize()
-            torch.mps.empty_cache()
-        except Exception as e:
-            print(f"[OCR] MPS cleanup warning: {e}")
-    gc.collect()
-
-
-def _flatten_page(page):
-    rc = pdfium_c.FPDFPage_Flatten(page, pdfium_c.FLAT_NORMALDISPLAY)
-    if rc == pdfium_c.FLATTEN_FAIL:
-        print("[OCR] Warning: failed to flatten annotations on page")
-
-
-def _ocr_image(image: Image.Image, model, label: str) -> tuple[str, dict]:
-    """OCR a single PIL image. Cleans up GPU memory before, during, and after."""
-    cleanup_mps()
-
-    t = time.time()
-    batch = [BatchInputItem(image=image, prompt_type="ocr")]
-    with torch.inference_mode():
-        results = generate_hf(batch, model)
-
-    cleanup_mps()
-
-    text = "".join(parse_markdown(r.raw) for r in results)
-    stage = {"label": label, "ms": _ms(t)}
-
-    del batch, results
-    cleanup_mps()
-
-    return text, stage
+def _get_client() -> DocumentIntelligenceClient:
+    global _client
+    if _client is None:
+        endpoint = os.getenv("AZURE_DOCINTEL_ENDPOINT") or ""
+        key = os.getenv("AZURE_DOCINTEL_KEY")
+        if key:
+            # Local dev: authenticate with the resource key from local.env.
+            credential = AzureKeyCredential(key)
+        else:
+            # Production: no key — authenticate via managed identity (Entra ID).
+            # DefaultAzureCredential also works locally via `az login` / VS Code sign-in.
+            credential = DefaultAzureCredential()
+        _client = DocumentIntelligenceClient(endpoint=endpoint, credential=credential)
+    return _client
 
 
 def run_ocr(file_bytes: bytes) -> dict:
     """
-    Run OCR on file bytes. Returns:
-      text       — full markdown string
-      stages     — list of timing entries for the flow panel
-      meta       — file type, page count, per-page dims and char counts
+    Run OCR on file bytes using Document Intelligence's "prebuilt-read" model.
+    Returns the exact shape the backend already consumes:
+      text   — full text (pages joined)
+      stages — timing entries for the flow panel
+      meta   — file type, page count, per-page dims and char counts
+
+    Document Intelligence takes the raw PDF/image and handles multi-page itself, so
+    there is no rasterising, flattening, or downscaling — we send the bytes once and
+    map the returned pages into our contract.
     """
     stages = []
     page_metas = []
-    model = _get_model()
     pages = []
 
     kind = ft.guess(file_bytes)
@@ -114,96 +47,55 @@ def run_ocr(file_bytes: bytes) -> dict:
     file_type = "pdf" if is_pdf else "image"
     print(f"[OCR] File type: {file_type} ({len(file_bytes)} bytes)")
 
-    if is_pdf:
-        doc = pdfium.PdfDocument(file_bytes)
-        doc.init_forms()
-        page_count = len(doc)
-        print(f"[OCR] PDF has {page_count} page(s)")
+    # One call analyses the whole document (PDF or image).
+    t = time.time()
+    poller = _get_client().begin_analyze_document(
+        "prebuilt-read",
+        body=file_bytes,
+        content_type="application/octet-stream",
+    )
+    result = poller.result()
+    analyze_ms = _ms(t)
 
-        for i in range(page_count):
-            page = doc[i]
-            min_dim = min(page.get_width(), page.get_height())
-            scale_dpi = max((settings.MIN_PDF_IMAGE_DIM / min_dim) * 72, settings.IMAGE_DPI)
-            _flatten_page(page)
-            image = doc[i].render(scale=scale_dpi / 72).to_pil().convert("RGB")
+    doc_pages = result.pages or []
+    page_count = len(doc_pages)
+    # One network call covers all pages, so split its duration evenly across the
+    # per-page stages the flow panel expects.
+    per_page_ms = analyze_ms // max(page_count, 1)
+    print(f"[OCR] Analysed {page_count} page(s) in {analyze_ms} ms")
 
-            original_width, original_height = image.width, image.height
-            print(f"[OCR] Page {i + 1} rendered at {original_width}×{original_height}")
+    for page in doc_pages:
+        lines = page.lines or []
+        page_text = "\n".join(line.content for line in lines)
+        char_count = len(page_text)
+        print(f"[OCR] Page {page.page_number} → {char_count} chars")
 
-            image, downscaled = _cap_image(image)
-            model_width, model_height = image.width, image.height
-
-            text, stage = _ocr_image(image, model, f"OCR page {i + 1} of {page_count}")
-            char_count = len(text)
-            print(f"[OCR] Page {i + 1} → {char_count} chars in {stage['ms']} ms")
-
-            pages.append(text)
-            stages.append(stage)
-            page_metas.append({
-                "index":           i + 1,
-                "original_width":  original_width,
-                "original_height": original_height,
-                "model_width":     model_width,
-                "model_height":    model_height,
-                "downscaled":      downscaled,
-                "char_count":      char_count,
-                "ms":              stage["ms"],
-            })
-
-            del image
-            cleanup_mps()
-
-        doc.close()
-
-    else:
-        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-        original_width, original_height = image.width, image.height
-        print(f"[OCR] Image dimensions: {original_width}×{original_height}")
-
-        min_dim = settings.MIN_IMAGE_DIM
-        if image.width < min_dim or image.height < min_dim:
-            scale = min_dim / min(image.width, image.height)
-            image = image.resize(
-                (int(image.width * scale), int(image.height * scale)),
-                Image.Resampling.LANCZOS,
-            )
-
-        image, downscaled = _cap_image(image)
-        model_width, model_height = image.width, image.height
-
-        text, stage = _ocr_image(image, model, "OCR page 1 of 1")
-        char_count = len(text)
-        print(f"[OCR] Extracted {char_count} chars in {stage['ms']} ms")
-
-        pages.append(text)
-        stages.append(stage)
+        pages.append(page_text)
+        stages.append({"label": f"OCR page {page.page_number} of {page_count}", "ms": per_page_ms})
         page_metas.append({
-            "index":           1,
-            "original_width":  original_width,
-            "original_height": original_height,
-            "model_width":     model_width,
-            "model_height":    model_height,
-            "downscaled":      downscaled,
+            "index":           page.page_number,
+            "original_width":  page.width,
+            "original_height": page.height,
+            "model_width":     page.width,
+            "model_height":    page.height,
+            "downscaled":      False,
             "char_count":      char_count,
-            "ms":              stage["ms"],
+            "ms":              per_page_ms,
         })
 
-        del image
-        cleanup_mps()
-
-    t = time.time()
+    t2 = time.time()
     text = "\n\n---\n\n".join(pages)
-    stages.append({"label": "Assembled markdown output", "ms": _ms(t)})
+    stages.append({"label": "Assembled text output", "ms": _ms(t2)})
 
     total_chars = sum(p["char_count"] for p in page_metas)
-    print(f"[OCR] Done — {len(pages)} page(s), {total_chars} total chars")
+    print(f"[OCR] Done — {page_count} page(s), {total_chars} total chars")
 
     return {
         "text":   text,
         "stages": stages,
         "meta": {
             "file_type":   file_type,
-            "page_count":  len(pages),
+            "page_count":  page_count,
             "total_chars": total_chars,
             "pages":       page_metas,
         },
