@@ -17,6 +17,10 @@ backend/src/data/*.sqlite
 backend/src/data/*.sqlite-journal
 backend/src/data/*.sqlite-wal
 backend/src/data/*.sqlite-shm
+ai-service/data/*.sqlite
+ai-service/data/*.sqlite-journal
+ai-service/data/*.sqlite-wal
+ai-service/data/*.sqlite-shm
 
 # Python virtual environment (both naming conventions)
 ai-service/venv/

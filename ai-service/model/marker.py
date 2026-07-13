@@ -1,15 +1,15 @@
-from model.ocr import run_ocr
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ocr_service import extract_text_from_file
 from llm_service import generate_llm_response
 
+
 def run_marking(student_bytes: bytes, scheme_bytes: bytes) -> dict:
-    # Step 1 — OCR extracts text from both uploaded files
-    student_result = run_ocr(student_bytes)
-    scheme_result = run_ocr(scheme_bytes)
+    student_text = extract_text_from_file(student_bytes, "student.pdf")
+    scheme_text  = extract_text_from_file(scheme_bytes,  "scheme.pdf")
 
-    student_text = student_result["text"]
-    scheme_text = scheme_result["text"]
-
-    # Step 2 — LLM marks the extracted text against the scheme
     llm_result = generate_llm_response(
         question="GCSE English Essay",
         essay=student_text,
@@ -17,17 +17,8 @@ def run_marking(student_bytes: bytes, scheme_bytes: bytes) -> dict:
         max_score=25
     )
 
-    # Step 3 — return structured result to the frontend
     return {
         "score":    llm_result.get("score"),
-        "maxScore": 25,
+        "maxScore": llm_result.get("maxScore", 25),
         "feedback": llm_result,
-        "_ocr_stages": {
-            "studentWork": student_result["stages"],
-            "markScheme":  scheme_result["stages"],
-        },
-        "_ocr_meta": {
-            "studentWork": student_result["meta"],
-            "markScheme":  scheme_result["meta"],
-        }
     }

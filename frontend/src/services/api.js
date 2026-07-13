@@ -28,10 +28,11 @@ export async function getLessonOcr(lessonId) {
 //   { type: 'ocr_page', index, totalPages }
 //   { type: 'done', data: { id, class_id, class_name } }
 //   { type: 'error', message, detail, code, status }
-export async function createLesson(classId, markSchemeFile, onEvent = () => {}) {
+export async function createLesson(classId, question, markSchemeFile, onEvent = () => {}) {
     const formData = new FormData()
-    formData.append('markScheme', markSchemeFile)
     formData.append('classId', classId)
+    formData.append('question', question)
+    formData.append('markScheme', markSchemeFile)
 
     const response = await fetch(`${API_BASE}/lessons`, {
         method: 'POST',
@@ -139,6 +140,141 @@ export async function deleteStudent(classId, studentId) {
 // credentials: 'include' is required on every request so the browser
 // attaches the httpOnly aimira_token cookie automatically.
 // The token never touches JavaScript — it is set and cleared by the backend.
+
+export async function selectQuestion(lessonId, selectedQuestionIndex) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/select-question`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ selectedQuestionIndex }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to select question')
+    return data
+}
+
+export async function getMarkingResults(lessonId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/results`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch results')
+    return data.results
+}
+
+export async function submitStudentWork(lessonId, studentId, studentWorkFile, onEvent) {
+    const formData = new FormData()
+    formData.append('studentWork', studentWorkFile)
+    formData.append('studentId', String(studentId))
+
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/mark-student`, {
+        method:      'POST',
+        credentials: 'include',
+        body:        formData,
+    })
+
+    if (response.status === 401) throw new Error('Your session has expired. Please sign in again.')
+
+    if (!response.headers.get('content-type')?.includes('ndjson')) {
+        const data = await response.json()
+        throw new Error(data.error || 'Something went wrong')
+    }
+
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let result = null
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+        for (const line of lines) {
+            if (!line.trim()) continue
+            const event = JSON.parse(line)
+            onEvent(event)
+            if (event.type === 'result') result = event.data
+            if (event.type === 'error')  throw new Error(event.message)
+        }
+    }
+
+    if (!result) throw new Error('No result received')
+    return result
+}
+
+// onEvent fires for each streamed event:
+//   { type: 'split',       total }
+//   { type: 'ocr_complete' }
+//   { type: 'result',      studentId, studentName, confidence, data }
+//   { type: 'error',       message }
+//   { type: 'done' }
+export async function bulkMarkStudents(lessonId, pdfFile, pagesPerStudent, onEvent = () => {}) {
+    const formData = new FormData()
+    formData.append('pdfFile', pdfFile)
+    formData.append('pagesPerStudent', String(pagesPerStudent))
+
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/bulk-mark`, {
+        method:      'POST',
+        credentials: 'include',
+        body:        formData,
+    })
+
+    if (response.status === 401) throw new Error('Your session has expired. Please sign in again.')
+
+    if (!response.headers.get('content-type')?.includes('ndjson')) {
+        const data = await response.json()
+        throw new Error(data.error || 'Bulk mark failed')
+    }
+
+    const reader  = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+        for (const line of lines) {
+            if (!line.trim()) continue
+            onEvent(JSON.parse(line))
+        }
+    }
+}
+
+export async function getExemplars() {
+    const response = await fetch(`${API_BASE}/exemplars`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch exemplars')
+    return data.exemplars
+}
+
+export async function addExemplar(file, questionNumber, score, maxMarks, band, source) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('question_number', questionNumber)
+    formData.append('score',     String(score))
+    formData.append('max_marks', String(maxMarks))
+    if (band)   formData.append('band',   String(band))
+    if (source) formData.append('source', source)
+
+    const response = await fetch(`${API_BASE}/exemplars`, {
+        method: 'POST', credentials: 'include', body: formData,
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to add exemplar')
+    return data
+}
+
+export async function deleteExemplar(id) {
+    const response = await fetch(`${API_BASE}/exemplars/${id}`, {
+        method: 'DELETE', credentials: 'include',
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to delete exemplar')
+    return data
+}
 
 export async function refreshSession() {
     const response = await fetch(`${API_BASE}/auth/refresh`, {

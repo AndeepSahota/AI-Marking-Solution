@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import CreateClass from './pages/CreateClass'
 import StudentMarking from './pages/StudentMarking'
+import Exemplars from './pages/Exemplars'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -42,6 +43,7 @@ function Header() {
                     <nav className="header-nav">
                         <NavLink to="/" end className="header-nav-link">Home</NavLink>
                         <NavLink to="/create-class" className="header-nav-link">Create Class</NavLink>
+                        <NavLink to="/exemplars" className="header-nav-link">Exemplars</NavLink>
                     </nav>
                 )}
 
@@ -106,7 +108,8 @@ function AppContent() {
                 <Route path="/"             element={<ProtectedRoute><Home /></ProtectedRoute>} />
                 <Route path="/create-class"          element={<ProtectedRoute><CreateClass /></ProtectedRoute>} />
                 <Route path="/student-marking/:lessonId" element={<ProtectedRoute><StudentMarking /></ProtectedRoute>} />
-                <Route path="*"                      element={<Navigate to="/" replace />} />
+                <Route path="/exemplars"              element={<ProtectedRoute><Exemplars /></ProtectedRoute>} />
+                <Route path="*"                       element={<Navigate to="/" replace />} />
             </Routes>
         </>
     )

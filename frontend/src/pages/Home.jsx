@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getClasses, createLesson } from '../services/api'
+import { getClasses, createLesson, selectQuestion } from '../services/api'
 
 // Progress weights — sum to 100. Tuned so the bar moves smoothly through OCR
 // rather than jumping from "dispatched" straight to "done".
@@ -23,11 +23,14 @@ const PROGRESS_LABELS = {
 function Home() {
   const [classes, setClasses] = useState([])
   const [selectedClassId, setSelectedClassId] = useState('')
+  const [question, setQuestion] = useState('')
   const [markScheme, setMarkScheme] = useState(null)
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
   const [error, setError] = useState(null)
+  const [questionPicker, setQuestionPicker] = useState(null) // { lesson, questions }
+  const [pickingQuestion, setPickingQuestion] = useState(false)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
@@ -67,8 +70,8 @@ function Home() {
   }
 
   const handleBeginMarking = async () => {
-    if (!selectedClassId) return setError('Please select a class before continuing.')
-    if (!markScheme)      return setError('Please upload a mark scheme before continuing.')
+    if (!selectedClassId)  return setError('Please select a class before continuing.')
+    if (!markScheme)       return setError('Please upload a mark scheme before continuing.')
 
     setLoading(true)
     setError(null)
@@ -79,17 +82,41 @@ function Home() {
     try {
       const result = await createLesson(
         selectedClassId,
+        question.trim(),
         markScheme,
         (event) => handleProgressEvent(event, totalPagesRef)
       )
-      navigate(`/student-marking/${result.id}`, {
-        state: { classId: result.class_id, className: result.class_name },
-      })
+
+      if (result.paper_type === 'multi' && result.questions?.length > 1) {
+        setLoading(false)
+        setQuestionPicker({ lesson: result, questions: result.questions })
+      } else {
+        navigate(`/student-marking/${result.id}`, {
+          state: { classId: result.class_id, className: result.class_name },
+        })
+      }
     } catch (err) {
       setError(err.message)
       setLoading(false)
       setProgress(0)
       setProgressLabel('')
+    }
+  }
+
+  const handleSelectQuestion = async (index) => {
+    if (!questionPicker || pickingQuestion) return
+    setPickingQuestion(true)
+    try {
+      await selectQuestion(questionPicker.lesson.id, index)
+      navigate(`/student-marking/${questionPicker.lesson.id}`, {
+        state: {
+          classId:   questionPicker.lesson.class_id,
+          className: questionPicker.lesson.class_name,
+        },
+      })
+    } catch (err) {
+      setError(err.message)
+      setPickingQuestion(false)
     }
   }
 
@@ -143,124 +170,166 @@ function Home() {
         </section>
 
         <section className="home-action-card">
-          <div className="home-action-header">
-            <h2 className="home-action-title">Start a new marking session</h2>
-            <span className="home-action-cap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-                <path d="M6 12v5c3 3 9 3 12 0v-5" />
-              </svg>
-            </span>
-          </div>
-
-          <div className="home-field">
-            <label className="home-field-label">
-              <span className="home-field-num">1.</span> Choose your class
-            </label>
-            <div className="home-select-wrap">
-              <span className="home-select-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </span>
-              <select
-                className="home-class-select"
-                value={selectedClassId}
-                onChange={e => { setSelectedClassId(e.target.value); setError(null) }}
-              >
-                <option value="">Select a class…</option>
-                {classes.map(cls => (
-                  <option key={cls.id} value={cls.id}>{cls.class_name}</option>
-                ))}
-              </select>
-              <span className="home-select-chevron">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </span>
-            </div>
-          </div>
-
-          <div className="home-field">
-            <label className="home-field-label">
-              <span className="home-field-num">2.</span> Upload your mark scheme
-            </label>
-            <div
-              className={`home-drop-zone${markScheme ? ' has-file' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-              />
-              {markScheme ? (
-                <div className="home-drop-selected">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>{markScheme.name}</span>
+          {questionPicker ? (
+            <>
+              <div className="home-action-header">
+                <h2 className="home-action-title">Which question are you marking?</h2>
+              </div>
+              <p className="question-picker-hint">
+                We found {questionPicker.questions.length} questions in this mark scheme.
+                Select the one your students answered.
+              </p>
+              {error && <p className="home-error">{error}</p>}
+              <div className="question-picker-grid">
+                {questionPicker.questions.map((q, i) => (
                   <button
-                    type="button"
-                    className="home-drop-clear"
-                    onClick={e => { e.stopPropagation(); setMarkScheme(null); fileInputRef.current.value = '' }}
+                    key={i}
+                    className={`question-card${pickingQuestion ? ' question-card--disabled' : ''}`}
+                    onClick={() => handleSelectQuestion(i)}
+                    disabled={pickingQuestion}
                   >
-                    ✕
+                    <span className="question-card-number">{q.question_number}</span>
+                    <span className="question-card-desc">{q.description}</span>
+                    <span className="question-card-marks">{q.marks} marks</span>
                   </button>
-                </div>
-              ) : (
-                <div className="home-drop-prompt">
-                  <span className="home-drop-cloud">
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="home-action-header">
+                <h2 className="home-action-title">Start a new marking session</h2>
+                <span className="home-action-cap">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+                    <path d="M6 12v5c3 3 9 3 12 0v-5" />
+                  </svg>
+                </span>
+              </div>
+
+              <div className="home-field">
+                <label className="home-field-label">
+                  <span className="home-field-num">1.</span> Choose your class
+                </label>
+                <div className="home-select-wrap">
+                  <span className="home-select-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                      <polyline points="16 12 12 8 8 12" />
-                      <line x1="12" y1="8" x2="12" y2="16" />
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                     </svg>
                   </span>
-                  <span className="home-drop-title">Drag &amp; drop your file here</span>
-                  <span className="home-drop-hint">PDF or image · Max 5 MB</span>
+                  <select
+                    className="home-class-select"
+                    value={selectedClassId}
+                    onChange={e => { setSelectedClassId(e.target.value); setError(null) }}
+                  >
+                    <option value="">Select a class…</option>
+                    {classes.map(cls => (
+                      <option key={cls.id} value={cls.id}>{cls.class_name}</option>
+                    ))}
+                  </select>
+                  <span className="home-select-chevron">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </span>
+                </div>
+              </div>
+
+              <div className="home-field">
+                <label className="home-field-label">
+                  <span className="home-field-num">2.</span> Exam question <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional — extracted from mark scheme if left blank)</span>
+                </label>
+                <textarea
+                  className="home-question-input"
+                  placeholder="e.g. How does Shakespeare present the theme of ambition in Macbeth? Leave blank to auto-detect from mark scheme."
+                  value={question}
+                  onChange={e => { setQuestion(e.target.value); setError(null) }}
+                  rows={3}
+                />
+              </div>
+
+              <div className="home-field">
+                <label className="home-field-label">
+                  <span className="home-field-num">3.</span> Upload your mark scheme
+                </label>
+                <div
+                  className={`home-drop-zone${markScheme ? ' has-file' : ''}`}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                  {markScheme ? (
+                    <div className="home-drop-selected">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span>{markScheme.name}</span>
+                      <button
+                        type="button"
+                        className="home-drop-clear"
+                        onClick={e => { e.stopPropagation(); setMarkScheme(null); fileInputRef.current.value = '' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="home-drop-prompt">
+                      <span className="home-drop-cloud">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+                          <polyline points="16 12 12 8 8 12" />
+                          <line x1="12" y1="8" x2="12" y2="16" />
+                        </svg>
+                      </span>
+                      <span className="home-drop-title">Drag &amp; drop your file here</span>
+                      <span className="home-drop-hint">PDF or image · Max 5 MB</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="home-encryption-hint">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>Your files are encrypted and never shared.</span>
+              </div>
+
+              {error && <p className="home-error">{error}</p>}
+
+              {loading && (
+                <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+                  <div className="ocr-progress-track">
+                    <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="ocr-progress-meta">
+                    <span className="ocr-progress-label">{progressLabel}</span>
+                    <span className="ocr-progress-value">{Math.round(progress)}%</span>
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          <div className="home-encryption-hint">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            <span>Your files are encrypted and never shared.</span>
-          </div>
-
-          {error && <p className="home-error">{error}</p>}
-
-          {loading && (
-            <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
-              <div className="ocr-progress-track">
-                <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="ocr-progress-meta">
-                <span className="ocr-progress-label">{progressLabel}</span>
-                <span className="ocr-progress-value">{Math.round(progress)}%</span>
-              </div>
-            </div>
+              <button
+                className="home-begin-btn"
+                onClick={handleBeginMarking}
+                disabled={loading}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
+                </svg>
+                <span>{loading ? 'Analysing mark scheme…' : 'Begin marking'}</span>
+              </button>
+            </>
           )}
-
-          <button
-            className="home-begin-btn"
-            onClick={handleBeginMarking}
-            disabled={loading}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
-            </svg>
-            <span>{loading ? 'Analysing mark scheme…' : 'Begin marking'}</span>
-          </button>
         </section>
       </div>
 
@@ -281,6 +350,19 @@ function Home() {
         <div className="home-process-step">
           <span className="home-process-badge">2</span>
           <div className="home-process-body">
+            <h3>Question (optional)</h3>
+            <p>Auto-detected from the mark scheme, or enter it manually.</p>
+          </div>
+        </div>
+        <span className="home-process-arrow">
+          <svg viewBox="0 0 64 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
+            <line x1="2" y1="8" x2="56" y2="8" />
+            <polyline points="50 2 60 8 50 14" strokeDasharray="0" />
+          </svg>
+        </span>
+        <div className="home-process-step">
+          <span className="home-process-badge">3</span>
+          <div className="home-process-body">
             <h3>Upload mark scheme</h3>
             <p>Upload your mark scheme in PDF or image format.</p>
           </div>
@@ -292,7 +374,7 @@ function Home() {
           </svg>
         </span>
         <div className="home-process-step">
-          <span className="home-process-badge">3</span>
+          <span className="home-process-badge">4</span>
           <div className="home-process-body">
             <h3>Review results</h3>
             <p>Instant, consistent marking with clear insights.</p>

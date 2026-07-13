@@ -87,17 +87,45 @@ export function sanitizeAIResult(raw) {
         { min: 0, max: 100 }
     )
 
-    const feedback = safeText(raw.feedback, { maxLength: 5000 })
+    const sanitizeList = (arr) => Array.isArray(arr)
+        ? arr.filter(s => s && typeof s === 'string').map(s => safeText(s, { maxLength: 500 }))
+        : []
 
-    const breakdown = Array.isArray(raw.breakdown)
-        ? raw.breakdown
+    const strengths      = sanitizeList(raw.strengths)
+    const improvements   = sanitizeList(raw.improvements)
+    const actionableSteps = sanitizeList(raw.actionable_steps)
+
+    const breakdown = Array.isArray(raw.rubric_breakdown)
+        ? raw.rubric_breakdown
               .filter(item => item && typeof item === 'object')
-              .map(item => ({
-                  section:  safeText(item.section,  { maxLength: 200, fallback: 'Section' }),
-                  marks:    safeInt(item.marks,    { min: 0 }),
-                  maxMarks: safeInt(item.maxMarks, { min: 1, fallback: 1 }),
+              .map(item => {
+                  const maxMarks = safeInt(item.max_marks,     { min: 1, fallback: 1 })
+                  const marks    = safeInt(item.score_awarded, { min: 0, max: maxMarks })
+                  return {
+                      section:  safeText(item.criterion, { maxLength: 200, fallback: 'Section' }),
+                      marks,
+                      maxMarks,
+                      reason:   safeText(item.reason,    { maxLength: 500 }),
+                  }
+              })
+        : []
+
+    const teacherReviewRequired  = raw.teacher_review_required === true
+    const questionMismatch       = raw.question_mismatch === true
+    const questionMismatchReason = safeText(raw.question_mismatch_reason ?? '', { maxLength: 500 })
+
+    const studentOcrText = safeText(raw.student_ocr_text ?? '', { maxLength: 20000 })
+
+    const annotations = Array.isArray(raw.annotations)
+        ? raw.annotations
+              .filter(a => a && typeof a === 'object' && a.quote && a.comment)
+              .slice(0, 10)
+              .map(a => ({
+                  quote:   safeText(a.quote,   { maxLength: 500 }),
+                  comment: safeText(a.comment, { maxLength: 1000 }),
+                  type:    a.type === 'strength' ? 'strength' : 'improvement',
               }))
         : []
 
-    return { score, maxScore, percentage, breakdown, feedback }
+    return { score, maxScore, percentage, breakdown, strengths, improvements, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, annotations }
 }
