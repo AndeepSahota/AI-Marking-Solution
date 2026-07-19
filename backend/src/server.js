@@ -11,8 +11,7 @@ import authRoutes from './routes/auth.js'
 import classRoutes from './routes/classes.js'
 import lessonRoutes from './routes/lessons.js'
 import config from './config/index.js'
-import { pool } from './db/index.js'
-import { initSchema } from './db/schema.js'
+import { poolConnect } from './db/index.js'
 
 const app = express()
 
@@ -50,14 +49,16 @@ app.use('/upload', authenticate, uploadLimiter, uploadRoutes)
 
 app.use(errorHandler)
 
-// Async startup: build the schema (and prove the DB is reachable) BEFORE
-// accepting traffic. Fail fast if the DB is unreachable so Azure restarts us.
+// Async startup: prove the Azure SQL database is reachable BEFORE accepting
+// traffic. The schema is applied out-of-band (db/schema.sql, run once by the
+// Entra admin), so the app no longer runs DDL — it just connects. Fail fast if
+// the DB is unreachable so Azure restarts us.
 try {
-    await initSchema(pool)
+    await poolConnect
     app.listen(config.PORT, () => {
         console.log(`Backend running on port ${config.PORT}`)
     })
 } catch (err) {
-    console.error('Failed to initialise the database:', err.message)
+    console.error('Failed to connect to the database:', err.message)
     process.exit(1)
 }

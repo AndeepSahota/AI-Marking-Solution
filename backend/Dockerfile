@@ -14,7 +14,7 @@ WORKDIR /app
 
 # Toolchain for native modules — bcrypt and sharp are C/C++ addons. They usually
 # fetch prebuilt linux/amd64 binaries, but these are here as a fallback so the
-# build can compile from source if a prebuilt is missing. (pg is pure JS.)
+# build can compile from source if a prebuilt is missing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -37,7 +37,7 @@ COPY --chown=node:node package*.json ./
 COPY --chown=node:node src ./src
 
 # Logs dir for winston-daily-rotate-file, owned by the non-root runtime user.
-# (No SQLite directory anymore — data lives in PostgreSQL, an external service,
+# (No SQLite directory anymore — data lives in Azure SQL, an external service,
 # so backend storage is stateless and the app can run multiple replicas.)
 RUN mkdir -p logs && chown -R node:node logs
 

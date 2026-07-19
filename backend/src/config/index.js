@@ -14,12 +14,13 @@ export default {
         if (!process.env.EMAIL_PEPPER) throw new Error('EMAIL_PEPPER environment variable is not set')
         return process.env.EMAIL_PEPPER
     })(),
-    // PostgreSQL connection string. Required — the database is the source of
-    // truth, so fail fast at startup if it's missing (like the secrets above).
-    DATABASE_URL: (() => {
-        if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL environment variable is not set')
-        return process.env.DATABASE_URL
-    })(),
+    // Azure SQL Database connection target. The app authenticates with an Entra
+    // managed identity ('Active Directory Default'), so there is NO password or
+    // connection string secret — only the server host and database name. The
+    // mssql config object is assembled in db/index.js. Mirrors the ADO.NET string:
+    //   Server=tcp:klassioserver.database.windows.net,1433;Initial Catalog=KlassioDatabase;...
+    SQL_SERVER: process.env.SQL_SERVER || 'klassioserver.database.windows.net',
+    SQL_DATABASE: process.env.SQL_DATABASE || 'KlassioDatabase',
     MAX_FILE_SIZE_MB: 5,
     MAX_PDF_PAGES: 30,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],
