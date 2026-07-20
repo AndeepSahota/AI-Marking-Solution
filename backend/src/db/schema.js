@@ -137,14 +137,17 @@ db.exec(`
         mark_scheme_file_name TEXT    NOT NULL,
         mark_scheme_mime_type TEXT    NOT NULL,
         mark_scheme_ocr       INTEGER,
-        created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+        question              TEXT    NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS teacher_ocr (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         lesson_id  INTEGER NOT NULL REFERENCES lessons(id),
         ocr_text   TEXT    NOT NULL,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        structured_scheme       TEXT    NOT NULL DEFAULT '',
+        selected_question_index INTEGER DEFAULT NULL
     );
 
     CREATE TABLE IF NOT EXISTS marking_results (
@@ -156,5 +159,17 @@ db.exec(`
         marked_at     TEXT    NOT NULL DEFAULT (datetime('now')),
         UNIQUE (lesson_id, student_id)
     );
+
+    
+
+    CREATE TABLE IF NOT EXISTS mark_corrections (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        result_id           INTEGER NOT NULL REFERENCES marking_results(id),
+        teacher_id          INTEGER NOT NULL REFERENCES teachers(id),
+        llm_score           INTEGER NOT NULL,
+        teacher_correction  INTEGER,
+        new_score           INTEGER NOT NULL,     
+        corrected_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
 `)
 
