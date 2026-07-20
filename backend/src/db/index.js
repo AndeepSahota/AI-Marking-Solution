@@ -88,6 +88,17 @@ db.exec(`
         marked_at     TEXT    NOT NULL DEFAULT (datetime('now')),
         UNIQUE (lesson_id, student_id)
     );
+
+    CREATE TABLE IF NOT EXISTS mark_corrections (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        result_id           INTEGER NOT NULL REFERENCES marking_results(id),
+        teacher_id          INTEGER NOT NULL REFERENCES teachers(id),
+        llm_score           INTEGER NOT NULL,
+        teacher_correction  INTEGER,
+        new_score           INTEGER NOT NULL,     
+        corrected_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+
 `)
 
 // Add question column to existing databases that predate this field.
