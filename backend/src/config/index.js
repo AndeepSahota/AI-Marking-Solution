@@ -6,6 +6,10 @@ export default {
         if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is not set')
         return process.env.JWT_SECRET
     })(),
+    DATABASE_URL: (() => {
+        if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL environment variable is not set')
+        return process.env.DATABASE_URL
+    })(),
     MAX_FILE_SIZE_MB: 5,
     MAX_PDF_PAGES: 20,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],

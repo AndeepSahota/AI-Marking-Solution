@@ -1,5 +1,6 @@
 import express from 'express'
 import multer from 'multer'
+import config from '../config/index.js'
 import { lessonDb, markingDb, classDb } from '../db/index.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
@@ -43,9 +44,9 @@ const bulkUpload = multer({
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
 
 // GET /lessons/:id/ocr — return the stored OCR text and question for a lesson owned by this teacher.
-router.get('/:id/ocr', (req, res, next) => {
+router.get('/:id/ocr', async (req, res, next) => {
     try {
-        const row = lessonDb.getOcrText(req.params.id, req.user.id)
+        const row = await lessonDb.getOcrText(req.params.id, req.user.id)
         if (!row) return res.status(404).json({ error: 'Lesson not found' })
         res.json({ ocr_text: row.ocr_text, question: row.question })
     } catch (err) {
@@ -53,15 +54,16 @@ router.get('/:id/ocr', (req, res, next) => {
     }
 })
 
+
 // PATCH /lessons/:id/select-question — store which question from a multi-question paper this lesson marks
-router.patch('/:id/select-question', express.json(), (req, res, next) => {
+router.patch('/:id/select-question', express.json(), async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.id)
         const { selectedQuestionIndex } = req.body
         if (selectedQuestionIndex === undefined || selectedQuestionIndex === null) {
             return res.status(400).json({ error: 'selectedQuestionIndex is required' })
         }
-        lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex)
+        await lessonDb.updateSelectedQuestion (lessonId, req.user.id, selectedQuestionIndex)
         res.json({ ok: true })
     } catch (err) {
         next(err)
@@ -78,7 +80,7 @@ router.post('/',
         const classId = parseInt(req.body.classId)
         if (!classId) return res.status(400).json({ error: 'Class is required' })
 
-        const cls = lessonDb.findClass(classId, req.user.id)
+        const cls = await lessonDb.findClass(classId, req.user.id)
         if (!cls) return res.status(404).json({ error: 'Class not found' })
 
         res.setHeader('Content-Type',     'application/x-ndjson')
@@ -131,7 +133,7 @@ router.post('/',
                 ? JSON.stringify(ocrResult.structured_scheme)
                 : ''
 
-            const lessonId = lessonDb.createLesson(
+            const lessonId = await lessonDb.createLesson(
                 lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText, question, structuredScheme
             )
 
@@ -171,10 +173,10 @@ router.post('/',
 const STUDENT_MARK_SLOTS = [{ field: 'studentWork', label: 'Student Work' }]
 
 // GET /lessons/:lessonId/results — all marking results for this lesson
-router.get('/:lessonId/results', (req, res, next) => {
+router.get('/:lessonId/results', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.lessonId)
-        const rows     = markingDb.getResults(lessonId, req.user.id)
+        const rows     = await markingDb.getResults(lessonId, req.user.id)
         const results  = rows.map(r => ({
             studentId: r.student_id,
             markedAt:  r.marked_at,
@@ -197,12 +199,12 @@ router.post('/:lessonId/mark-student',
 
         if (!studentId) return res.status(400).json({ error: 'Student ID is required' })
 
-        const ocrRow   = lessonDb.getOcrText(lessonId, req.user.id)
+        const ocrRow   = await lessonDb.getOcrText(lessonId, req.user.id)
         if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
         const question = ocrRow.question ?? ''
         const scheme   = resolveScheme(ocrRow)
 
-        const valid = markingDb.validateStudent(studentId, lessonId, req.user.id)
+        const valid = await markingDb.validateStudent(studentId, lessonId, req.user.id)
         if (!valid) return res.status(404).json({ error: 'Student not found in this lesson' })
 
         res.setHeader('Content-Type',      'application/x-ndjson')
@@ -216,7 +218,7 @@ router.post('/:lessonId/mark-student',
             const aiResult  = await getMarkFromAIWithSchemeText(file, scheme, question)
             const sanitized = sanitizeAIResult(aiResult)
 
-            markingDb.markStudent(
+            await markingDb.markStudent(
                 studentId, lessonId,
                 file.originalname, file.mimetype,
                 aiResult.student_ocr_text ?? '',
@@ -249,14 +251,14 @@ router.post('/:lessonId/bulk-mark',
             return res.status(400).json({ error: 'Pages per student is required' })
         }
 
-        const ocrRow = lessonDb.getOcrText(lessonId, req.user.id)
+        const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
         if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
         const bulkScheme = resolveScheme(ocrRow)
 
-        const lessonClass = lessonDb.getClassId(lessonId, req.user.id)
+        const lessonClass = await lessonDb.getClassId(lessonId, req.user.id)
         if (!lessonClass) return res.status(404).json({ error: 'Lesson class not found' })
 
-        const students = classDb.listStudents(lessonClass.class_id)
+        const students = await classDb.listStudents(lessonClass.class_id)
 
         const file = req.files?.pdfFile?.[0]
         if (!file) return res.status(400).json({ error: 'PDF file is required' })
@@ -307,7 +309,7 @@ router.post('/:lessonId/bulk-mark',
 
                 if (event.type === 'result' && event.student_id) {
                     const sanitized = sanitizeAIResult(event)
-                    markingDb.markStudent(
+                    await markingDb.markStudent(
                         event.student_id, lessonId,
                         'bulk_upload.pdf', 'application/pdf',
                         event.student_ocr_text ?? '',

@@ -12,7 +12,8 @@ import classRoutes from './routes/classes.js'
 import lessonRoutes from './routes/lessons.js'
 import exemplarRoutes from './routes/exemplars.js'
 import config from './config/index.js'
-import './db/schema.js'
+import { pool } from './db/index.js'
+import { initSchema } from './db/schema.js'
 
 const app = express()
 
@@ -47,6 +48,14 @@ app.use('/exemplars', authenticate, exemplarRoutes)
 
 app.use(errorHandler)
 
-app.listen(config.PORT, () => {
-    console.log(`Backend running on port ${config.PORT}`)
-})
+// Async startup: build the schema (and prove the DB is reachable) BEFORE
+// accepting traffic. Fail fast if the DB is unreachable so the process restarts.
+try {
+    await initSchema(pool)
+    app.listen(config.PORT, () => {
+        console.log(`Backend running on port ${config.PORT}`)
+    })
+} catch (err) {
+    console.error('Failed to initialise the database:', err.message)
+    process.exit(1)
+}
