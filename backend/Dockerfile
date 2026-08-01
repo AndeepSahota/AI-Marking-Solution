@@ -1,8 +1,14 @@
 # ---- Backend (Node/Express API) — Azure Container Apps image ----
 # A plain long-running Node server: it runs the same `node src/server.js` in dev
 # and prod, so unlike the frontend it needs no build step or restructuring —
-# this image just packages it. All wiring (port, frontend origin, AI service URL,
-# secrets) comes from environment variables at deploy time, never baked in.
+# this image just packages it. All wiring comes from environment variables at
+# deploy time, never baked in:
+#   - Non-secret: SQL_SERVER, SQL_DATABASE, FRONTEND_URL, AI_SERVICE_URL, PORT
+#   - Secret (from Key Vault): JWT_SECRET, PASSWORD_PEPPER, EMAIL_PEPPER
+# The Azure SQL database needs NO secret at all: the container authenticates with
+# its Entra managed identity, resolved at runtime by @azure/identity's
+# DefaultAzureCredential — so there is no DB password or connection string to
+# store, rotate, or leak.
 #
 # Deploy with INTERNAL ingress: only the frontend's nginx (same Container Apps
 # environment) calls it, proxying /api/* to it. The browser never reaches it
@@ -12,9 +18,10 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
-# Toolchain for native modules — bcrypt and sharp are C/C++ addons. They usually
-# fetch prebuilt linux/amd64 binaries, but these are here as a fallback so the
-# build can compile from source if a prebuilt is missing.
+# Toolchain for native modules — only bcrypt and sharp are C/C++ addons; the
+# data layer (mssql + tedious + @azure/identity) is pure JavaScript. They usually
+# fetch prebuilt linux/amd64 binaries, but this toolchain is here as a fallback
+# so the build can compile from source if a prebuilt is missing.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
