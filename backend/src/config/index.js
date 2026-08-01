@@ -16,11 +16,20 @@ export default {
     })(),
     // Azure SQL Database connection target. The app authenticates with an Entra
     // managed identity ('Active Directory Default'), so there is NO password or
-    // connection string secret — only the server host and database name. The
-    // mssql config object is assembled in db/index.js. Mirrors the ADO.NET string:
-    //   Server=tcp:klassioserver.database.windows.net,1433;Initial Catalog=KlassioDatabase;...
-    SQL_SERVER: process.env.SQL_SERVER || 'klassioserver.database.windows.net',
-    SQL_DATABASE: process.env.SQL_DATABASE || 'KlassioDatabase',
+    // connection string secret — only the server host and database name. Both are
+    // REQUIRED (no hardcoded default): the target is 100% env-driven, so changing
+    // server/database is a config change, never a code change, and a missing value
+    // fails loudly at startup instead of silently pointing at the wrong database.
+    // The mssql config object is assembled in db/index.js. Together these form the
+    // ADO.NET string: Server=tcp:<SQL_SERVER>,1433;Initial Catalog=<SQL_DATABASE>;...
+    SQL_SERVER: (() => {
+        if (!process.env.SQL_SERVER) throw new Error('SQL_SERVER environment variable is not set')
+        return process.env.SQL_SERVER
+    })(),
+    SQL_DATABASE: (() => {
+        if (!process.env.SQL_DATABASE) throw new Error('SQL_DATABASE environment variable is not set')
+        return process.env.SQL_DATABASE
+    })(),
     MAX_FILE_SIZE_MB: 5,
     MAX_PDF_PAGES: 30,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],
