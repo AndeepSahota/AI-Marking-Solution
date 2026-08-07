@@ -116,8 +116,11 @@ const SQL_LESSON_CLASS_CHECK = `
     WHERE id = @classId AND teacher_id = @teacherId
 `
 
+// Central read for everything about a lesson's mark scheme — ownership-checked
+// once here, reused by every endpoint that needs any piece of this data
+// (GET /:id/ocr, GET /:id/questions) rather than each running its own query.
 const SQL_LESSON_OCR_TEXT = `
-    SELECT t.ocr_text
+    SELECT t.ocr_text, t.structured_scheme, t.selected_question_index
     FROM dbo.teacher_ocr AS t
     JOIN dbo.lessons AS l ON t.lesson_id = l.id
     JOIN dbo.classes AS c ON l.class_id = c.id
@@ -148,8 +151,28 @@ export const lessonDb = {
             intParam('teacherId', teacherId),
         ])).recordset[0],
 
-    // Insert the lesson and OCR row, then link them atomically.
-    createLesson: async (lessonTitle, classId, fileName, mimeType, ocrText) =>
+    // Saves which question index the teacher selected for a multi-question paper.
+    // Ownership enforced via the same lessons -> classes -> teacher_id join used
+    // everywhere else in this file, not just trusted from the request.
+    updateSelectedQuestion: async (lessonId, teacherId, index, e = pool) =>
+        exec(e, `
+            UPDATE t
+            SET t.selected_question_index = @index
+            FROM dbo.teacher_ocr AS t
+            JOIN dbo.lessons AS l ON t.lesson_id = l.id
+            JOIN dbo.classes AS c ON l.class_id = c.id
+            WHERE l.id = @lessonId AND c.teacher_id = @teacherId
+        `, [
+            intParam('index', index),
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+        ]),
+
+    // Insert the lesson and OCR row, then link them atomically. structuredScheme
+    // comes from the mark-scheme extraction step (main.py's /ocr, via
+    // extract_mark_scheme) — stored so per-student marking calls can reuse it
+    // instead of re-extracting.
+    createLesson: async (lessonTitle, classId, fileName, mimeType, ocrText, structuredScheme) =>
         inTransaction(async (transaction) => {
             const lesson = (await exec(transaction, `
                 INSERT INTO dbo.lessons (
@@ -168,12 +191,13 @@ export const lessonDb = {
             ])).recordset[0]
 
             const ocr = (await exec(transaction, `
-                INSERT INTO dbo.teacher_ocr (lesson_id, ocr_text)
+                INSERT INTO dbo.teacher_ocr (lesson_id, ocr_text, structured_scheme)
                 OUTPUT INSERTED.id
-                VALUES (@lessonId, @ocrText)
+                VALUES (@lessonId, @ocrText, @structuredScheme)
             `, [
                 intParam('lessonId', lesson.id),
                 textParam('ocrText', sql.MAX, ocrText),
+                textParam('structuredScheme', sql.MAX, structuredScheme ?? ''),
             ])).recordset[0]
 
             await exec(transaction, `

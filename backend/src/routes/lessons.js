@@ -52,6 +52,49 @@ router.get('/:id/ocr', async (req, res, next) => {
     }
 })
 
+// GET /lessons/:id/questions — return the extracted {paper_type, questions[]} for
+// a lesson owned by this teacher, read back from storage rather than trusting
+// whatever was streamed at upload time. Backs the question-picker page so it
+// works from a direct visit or a refresh, not just immediately after upload.
+router.get('/:id/questions', async (req, res, next) => {
+    try {
+        const row = await lessonDb.getOcrText(req.params.id, req.user.id)
+        if (!row) return res.status(404).json({ error: 'Lesson not found' })
+
+        let parsedScheme = {}
+        try { parsedScheme = row.structured_scheme ? JSON.parse(row.structured_scheme) : {} }
+        catch { parsedScheme = {} }
+
+        const paperType     = parsedScheme.paper_type ?? 'single'
+        const questionsList = (parsedScheme.questions ?? []).map(q => ({
+            question_number: q.question_number,
+            marks:           q.marks,
+            description:     q.description,
+        }))
+
+        res.json({ paper_type: paperType, questions: questionsList })
+    } catch (err) {
+        next(err)
+    }
+})
+
+// PATCH /lessons/:id/select-question — store which question from a multi-question
+// paper this lesson marks. Ownership is enforced inside updateSelectedQuestion,
+// via the same lessons -> classes -> teacher_id join every other lessonDb method uses.
+router.patch('/:id/select-question', async (req, res, next) => {
+    try {
+        const lessonId = parseInt(req.params.id)
+        const { selectedQuestionIndex } = req.body
+        if (selectedQuestionIndex === undefined || selectedQuestionIndex === null) {
+            return res.status(400).json({ error: 'selectedQuestionIndex is required' })
+        }
+        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex)
+        res.json({ ok: true })
+    } catch (err) {
+        next(err)
+    }
+})
+
 // POST /lessons — security-check the mark scheme, OCR it, store the result.
 // Streams newline-delimited JSON so the frontend can drive a progress bar.
 router.post('/',
@@ -108,16 +151,33 @@ router.post('/',
 
             logOcrDone(req, meta?.page_count ?? stages.length, meta?.total_chars ?? 0, Date.now() - ocrStart)
 
-            const lessonTitle  = file.originalname.replace(/\.[^.]+$/, '')
-            const cleanOcrText = sanitiseOcrText(ocrResult.text ?? '')
+            const lessonTitle      = file.originalname.replace(/\.[^.]+$/, '')
+            const cleanOcrText     = sanitiseOcrText(ocrResult.text ?? '')
+            const structuredScheme = ocrResult.structured_scheme
+                ? JSON.stringify(ocrResult.structured_scheme)
+                : ''
 
             const lessonId = await lessonDb.createLesson(
-                lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText
+                lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText, structuredScheme
             )
+
+            const parsedScheme  = ocrResult.structured_scheme ?? {}
+            const paperType     = parsedScheme.paper_type ?? 'single'
+            const questionsList = (parsedScheme.questions ?? []).map(q => ({
+                question_number: q.question_number,
+                marks:           q.marks,
+                description:     q.description,
+            }))
 
             emit({
                 type: 'done',
-                data: { id: lessonId, class_id: classId, class_name: cls.class_name },
+                data: {
+                    id:         lessonId,
+                    class_id:   classId,
+                    class_name: cls.class_name,
+                    paper_type: paperType,
+                    questions:  questionsList,
+                },
             })
         } catch (err) {
             logOcrFailed(req, err)

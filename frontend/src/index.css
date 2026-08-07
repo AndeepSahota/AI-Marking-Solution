@@ -3650,6 +3650,64 @@ body::after {
   color: var(--text-primary);
 }
 
+/* ── Question picker ─────────────────────────────────────────────────────── */
+
+.question-picker-hint {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.question-picker-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.question-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+
+.question-card:hover:not(.question-card--disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transform: translateY(-1px);
+}
+
+.question-card--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.question-card-number {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent-2);
+}
+
+.question-card-desc {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.question-card-marks {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.1rem;
+}
+
 .mc-icon-btn-danger:hover {
   background: rgba(239, 68, 68, 0.1);
   color: var(--error);

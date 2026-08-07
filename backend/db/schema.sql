@@ -150,6 +150,29 @@ BEGIN
 END;
 GO
 
+-- Added later: holds the LLM-extracted {paper_type, questions[]} JSON produced
+-- once per mark scheme upload, so per-student marking calls can reuse it
+-- instead of re-extracting. ALTER, not part of CREATE TABLE above, because
+-- IF OBJECT_ID(...) IS NULL only guards table creation — it has no effect on
+-- a table that already exists live, so this needs its own guard.
+IF COL_LENGTH('dbo.teacher_ocr', 'structured_scheme') IS NULL
+BEGIN
+    ALTER TABLE dbo.teacher_ocr
+        ADD structured_scheme NVARCHAR(MAX) NOT NULL
+            CONSTRAINT DF_teacher_ocr_structured_scheme DEFAULT N'';
+END;
+GO
+
+-- Added later: which question (index into structured_scheme's questions[])
+-- the teacher picked, for multi-question papers. NULL until they choose —
+-- single-question papers never need this set at all.
+IF COL_LENGTH('dbo.teacher_ocr', 'selected_question_index') IS NULL
+BEGIN
+    ALTER TABLE dbo.teacher_ocr
+        ADD selected_question_index INT NULL;
+END;
+GO
+
 -- UNIQUE(lesson_id, student_id): a student can't be graded twice in one lesson.
 IF OBJECT_ID(N'dbo.marking_results', N'U') IS NULL
 BEGIN

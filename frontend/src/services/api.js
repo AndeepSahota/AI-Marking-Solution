@@ -38,12 +38,19 @@ export async function getLessonOcr(lessonId) {
     return data.ocr_text
 }
 
+export async function getLessonQuestions(lessonId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/questions`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to load questions')
+    return data
+}
+
 // onEvent(event) fires for each streamed progress event:
 //   { type: 'security_pass' }
 //   { type: 'ai_dispatched' }
 //   { type: 'ocr_file_type', fileType, pageCount }
 //   { type: 'ocr_page', index, totalPages }
-//   { type: 'done', data: { id, class_id, class_name } }
+//   { type: 'done', data: { id, class_id, class_name, paper_type, questions } }
 //   { type: 'error', message, detail, code, status }
 export async function createLesson(classId, markSchemeFile, onEvent = () => {}) {
     const formData = new FormData()
@@ -89,6 +96,18 @@ export async function createLesson(classId, markSchemeFile, onEvent = () => {}) 
 
     if (!result) throw new Error('Lesson creation did not complete')
     return result
+}
+
+export async function selectQuestion(lessonId, selectedQuestionIndex) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/select-question`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ selectedQuestionIndex }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to select question')
+    return data
 }
 
 export async function createClass(className, students) {

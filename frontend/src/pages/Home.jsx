@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getClasses, getLessons, createLesson } from '../services/api'
 
+// "Previous mark schemes" / "Previous marking sessions" — kept but disabled.
+// Andeep's version removed this feature entirely; we're retaining the code
+// rather than deleting it, to be properly reworked and re-enabled later.
+const SHOW_LESSON_HISTORY = false
+
 const PROGRESS = {
   security_pass:  10,
   ai_dispatched:  10,
@@ -60,7 +65,7 @@ function Home() {
 
   useEffect(() => {
     getClasses().then(setClasses).catch(() => {})
-    getLessons().then(setLessons).catch(() => {})
+    if (SHOW_LESSON_HISTORY) getLessons().then(setLessons).catch(() => {})
   }, [])
 
   const handleFileChange = (e) => {
@@ -123,7 +128,12 @@ function Home() {
         markScheme,
         (event) => handleProgressEvent(event, totalPagesRef)
       )
-      navigate(`/student-marking/${result.id}`)
+
+      if (result.paper_type === 'multi' && result.questions?.length > 1) {
+        navigate(`/select-question/${result.id}`)
+      } else {
+        navigate(`/student-marking/${result.id}`)
+      }
     } catch (err) {
       setError(err.message)
       setLoading(false)
@@ -187,7 +197,7 @@ function Home() {
             </div>
           </section>
 
-          {lessons.length > 0 && (
+          {SHOW_LESSON_HISTORY && lessons.length > 0 && (
             <>
               <CollapsiblePanel
                 title="Previous mark schemes"

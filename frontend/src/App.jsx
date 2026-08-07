@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import CreateClass from './pages/CreateClass'
 import StudentMarking from './pages/StudentMarking'
+import SelectQuestion from './pages/SelectQuestion'
 import './App.css'
 
 function ProtectedRoute({ children }) {
@@ -106,6 +107,7 @@ function AppContent() {
                 <Route path="/"             element={<ProtectedRoute><Home /></ProtectedRoute>} />
                 <Route path="/create-class"          element={<ProtectedRoute><CreateClass /></ProtectedRoute>} />
                 <Route path="/student-marking/:lessonId" element={<ProtectedRoute><StudentMarking /></ProtectedRoute>} />
+                <Route path="/select-question/:lessonId" element={<ProtectedRoute><SelectQuestion /></ProtectedRoute>} />
                 <Route path="*"                      element={<Navigate to="/" replace />} />
             </Routes>
         </>
