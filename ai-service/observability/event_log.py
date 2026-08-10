@@ -51,3 +51,21 @@ def log_security_stripped(matches: list[str]) -> None:
     logger.warning(
         f"[SECURITY] Stripped delimiter-shaped content before it could reach the LLM: {matches}"
     )
+
+
+# ── Extraction events ─────────────────────────────────────────────────────
+
+def log_extraction_refusal(reason: str) -> None:
+    logger.error(f"[EXTRACTION] Model refused to extract mark scheme: {reason}")
+
+
+def log_extraction_truncated(detail: str) -> None:
+    logger.error(f"[EXTRACTION] Response truncated before completion (hit length limit): {detail}")
+
+
+def log_extraction_filtered() -> None:
+    logger.error("[EXTRACTION] Response blocked by OpenAI's content filter")
+
+
+def log_extraction_empty() -> None:
+    logger.error("[EXTRACTION] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")
