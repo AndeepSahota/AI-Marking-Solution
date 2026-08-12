@@ -1,15 +1,19 @@
 import os
-import json
 from openai import OpenAI, LengthFinishReasonError, ContentFilterFinishReasonError
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from security.ms_ocr_sanitisation import verify_token
 from schemas.ms_schema import MarkSchemeExtraction
+from schemas.marking_result_schema import MarkingResult
 from observability.event_log import (
     log_extraction_refusal,
     log_extraction_truncated,
     log_extraction_filtered,
     log_extraction_empty,
+    log_marking_refusal,
+    log_marking_truncated,
+    log_marking_filtered,
+    log_marking_empty,
 )
 
 
@@ -119,45 +123,58 @@ def extract_mark_scheme(scheme_text, expected_token):
     return result.model_dump(exclude={"delimiter_token"})
 
 
-def generate_llm_response(question, essay, rubric, max_score=6, exemplars=None):
+def generate_llm_response(question, essay, rubric, expected_token, max_score=6, exemplars=None):
     user_prompt = build_user_prompt(question, essay, rubric, exemplars=exemplars)
-    
-    # This is the actual API call to OPEN AI 
-    # Think of it like sending a letter - System prompt is in the rulebook,
-    # user prompt is the actual request 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        temperature=0.0,
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": user_prompt
-            }
-        ]
-    )
-    
-    # The response comes back as an object - we need to dig into it 
-    # to get the actual text the LLM produced 
-    raw_text = response.choices[0].message.content
-    
-    # The LLM returns a string - but we told it to write JSON 
-    # json.loads() converts that JSON string to a python dictionary 
-    # So we can use it like: result["score"], results["strengths"] etc.
-    # GPT-4o sometimes wraps response in markdown code blocks
-    # This strips them out before parsing
-    cleaned = raw_text.strip()
-    if cleaned.startswith("```"):
-        # Remove first line (```json) and last line (```)
-        cleaned = "\n".join(cleaned.split("\n")[1:-1])
 
+    # Structured Outputs + delimiter-token verification, same setup as
+    # extract_mark_scheme() above: the SDK checks finish_reason itself and
+    # raises these two directly from inside .parse() — they never reach the
+    # .refusal check below, so they need their own try/except around the
+    # call itself, not a field check on the response afterward.
     try:
-        results = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM returned invalid JSON: {e}\nRaw: {cleaned[:300]}")
+        response = client.chat.completions.parse(
+            model="gpt-4o",
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_prompt}
+            ],
+            response_format=MarkingResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+
+    message = response.choices[0].message
+
+    # A refusal does not populate .parsed — checked first, before anything
+    # downstream assumes a result exists at all.
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+
+    # Backstop: none of the checks above explain why, but there's still no
+    # result. Fails loudly here with a clear reason instead of crashing a
+    # few lines further down with an unrelated-looking AttributeError.
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No parsed result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    # delimiter_token is an integrity check, not part of the marking result
+    # the rest of the app expects back. Raises TokenMismatchError on failure,
+    # which the caller does not catch — a mismatch means we can't trust this
+    # result reflects the genuine student-response boundary, so the request
+    # should fail rather than return something unverified.
+    verify_token(expected_token, result.delimiter_token)
+
+    results = result.model_dump(exclude={"delimiter_token"})
 
     detected_max = results.get("max_score_detected") or max_score
     breakdown = results.get("rubric_breakdown", [])
@@ -168,5 +185,3 @@ def generate_llm_response(question, essay, rubric, max_score=6, exemplars=None):
     results["maxScore"] = detected_max
 
     return results
-    
-    

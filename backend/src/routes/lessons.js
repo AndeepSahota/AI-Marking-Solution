@@ -1,9 +1,13 @@
 import express from 'express'
 import multer from 'multer'
-import { lessonDb } from '../db/index.js'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { lessonDb, markingDb, classDb } from '../db/index.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
-import { getOcrFromAI } from '../services/aiService.js'
+import { getOcrFromAI, getMarkFromAIWithSchemeText } from '../services/aiService.js'
+import { sanitizeAIResult } from '../utils/sanitize.js'
 import { sanitiseOcrText } from '../middleware/inputSecurity.js'
 import {
     logOcrStart, logFileInfo, logAiDispatched,
@@ -13,12 +17,46 @@ import {
 
 const router = express.Router()
 
+// TEMP DEBUG — ad-hoc inspection of the raw AI service response, before
+// sanitizeAIResult() transforms anything. backend/.tmp/ is git-ignored.
+// Remove this block (and its one call site below) once done inspecting.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const DEBUG_DIR = path.join(__dirname, '..', '..', '.tmp')
+function debugDumpAiResult(label, data) {
+    try {
+        if (!fs.existsSync(DEBUG_DIR)) fs.mkdirSync(DEBUG_DIR, { recursive: true })
+        const file = path.join(DEBUG_DIR, `${label}-${Date.now()}.json`)
+        fs.writeFileSync(file, JSON.stringify(data, null, 2))
+        console.log(`[debug] raw AI result written to ${file}`)
+    } catch (err) {
+        console.error('[debug] failed to write AI result dump:', err.message)
+    }
+}
+
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 },
 })
 
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
+const STUDENT_MARK_SLOTS = [{ field: 'studentWork', label: 'Student Work' }]
+
+// Picks out the question-specific slice of structured_scheme the teacher
+// selected on the question-picker page, so only that question's AOs/bands go
+// to the LLM — not the whole paper — for multi-question mark schemes. Falls
+// back to the raw OCR text if there's no structured_scheme to parse at all.
+function resolveScheme(ocrRow) {
+    if (!ocrRow.structured_scheme) return ocrRow.ocr_text
+    let parsed
+    try { parsed = JSON.parse(ocrRow.structured_scheme) } catch { return ocrRow.structured_scheme }
+
+    const questions = parsed.questions
+    if (!Array.isArray(questions) || questions.length === 0) return ocrRow.structured_scheme
+
+    const idx = ocrRow.selected_question_index ?? 0
+    const question = questions[idx] ?? questions[0]
+    return JSON.stringify(question)
+}
 
 // GET /lessons — all lessons belonging to the logged-in teacher, newest first.
 router.get('/', async (req, res, next) => {
@@ -191,6 +229,82 @@ router.post('/',
         }
 
         res.end()
+    }
+)
+
+// GET /lessons/:lessonId/results — all marking results for this lesson,
+// scoped to the teacher's own classes via markingDb.getResults' join.
+router.get('/:lessonId/results', async (req, res, next) => {
+    try {
+        const lessonId = parseInt(req.params.lessonId)
+        const rows      = await markingDb.getResults(lessonId, req.user.id)
+        const results   = rows.map(r => ({
+            studentId: r.student_id,
+            markedAt:  r.marked_at,
+            result:    JSON.parse(r.student_grade),
+        }))
+        res.json({ results })
+    } catch (err) {
+        next(err)
+    }
+})
+
+// POST /lessons/:lessonId/mark-student — upload one student's work, get AI
+// marking against the already-extracted scheme, persist the result.
+router.post('/:lessonId/mark-student',
+    upload.fields([{ name: 'studentWork', maxCount: 1 }]),
+    makeFileSecurity(STUDENT_MARK_SLOTS),
+    makeValidateFile(STUDENT_MARK_SLOTS),
+    async (req, res) => {
+        const lessonId  = parseInt(req.params.lessonId)
+        const studentId = parseInt(req.body.studentId)
+
+        if (!studentId) return res.status(400).json({ error: 'Student ID is required' })
+
+        const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
+        if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
+        // ocrRow.question: no source column for this in the current schema
+        // yet (see lessons table) — always empty until one exists. Ported
+        // as Andeep had it rather than silently dropped, so this activates
+        // for free the moment that column and a capture path are added.
+        const question = ocrRow.question ?? ''
+        const scheme    = resolveScheme(ocrRow)
+
+        const valid = await markingDb.validateStudent(studentId, lessonId, req.user.id)
+        if (!valid) return res.status(404).json({ error: 'Student not found in this lesson' })
+
+        const file = req.files.studentWork[0]
+
+        // Plain request/response, not streamed — this route only ever
+        // produces one terminal event (result or error), never intermediate
+        // progress, so there was nothing streaming actually bought here. The
+        // frontend already re-fetches from GET /results after this resolves
+        // rather than trust a payload carried over a stream; see
+        // refreshResults() in StudentMarking.jsx.
+        try {
+            const aiResult = await getMarkFromAIWithSchemeText(file, scheme, question)
+            debugDumpAiResult('mark-student', aiResult)
+
+            // sanitizeAIResult()'s field allowlist now matches the real
+            // response shape (was stale, silently dropping strengths/
+            // improvements/annotations/etc. — fixed in utils/sanitize.js).
+            const sanitized = sanitizeAIResult(aiResult)
+
+            await markingDb.markStudent(
+                studentId, lessonId,
+                file.originalname, file.mimetype,
+                aiResult.student_ocr_text ?? '',
+                JSON.stringify(sanitized)
+            )
+
+            res.json({ ok: true })
+        } catch (err) {
+            res.status(err.aiStatus ?? 500).json({
+                error:  'Marking failed',
+                detail: err.aiBody      ?? err.message ?? null,
+                code:   err.aiErrorCode ?? null,
+            })
+        }
     }
 )
 

@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --env-file=.env src/server.js"
+    "dev": "nodemon --env-file=.env src/server.js",
+    "db:init": "node --env-file=.env db/apply-schema.mjs"
   },
   "keywords": [],
   "author": "",

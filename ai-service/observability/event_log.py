@@ -69,3 +69,21 @@ def log_extraction_filtered() -> None:
 
 def log_extraction_empty() -> None:
     logger.error("[EXTRACTION] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")
+
+
+# ── Marking events ────────────────────────────────────────────────────────
+
+def log_marking_refusal(reason: str) -> None:
+    logger.error(f"[MARKING] Model refused to mark student response: {reason}")
+
+
+def log_marking_truncated(detail: str) -> None:
+    logger.error(f"[MARKING] Response truncated before completion (hit length limit): {detail}")
+
+
+def log_marking_filtered() -> None:
+    logger.error("[MARKING] Response blocked by OpenAI's content filter")
+
+
+def log_marking_empty() -> None:
+    logger.error("[MARKING] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")

@@ -49,6 +49,9 @@ npm-debug.log*
 backend/logs/*
 !backend/logs/.gitkeep
 
+# Ad-hoc debug output — temporary inspection only, never committed.
+backend/.tmp/
+
 # OS
 **/.DS_Store
 Thumbs.db

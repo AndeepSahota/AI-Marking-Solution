@@ -1,7 +1,6 @@
 import os
 import sys
 import json as _json
-import asyncio
 from pathlib import Path
 
 # Load local.env before any model imports.
@@ -14,10 +13,7 @@ if _env_file.exists():
             os.environ.setdefault(_k.strip(), _v.strip())
 
 from contextlib import asynccontextmanager
-import fitz
-from rapidfuzz import process, fuzz
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import StreamingResponse
 
 # Add parent directory to path so we can find llm_service and ocr_service
 sys.path.append(str(Path(__file__).parent))
@@ -90,15 +86,35 @@ async def mark_with_scheme_text(
     scheme_text:  str        = Form(...),
     question:     str        = Form(default='')
 ):
-    student_bytes   = await student_work.read()
-    student_text    = extract_text_from_file(student_bytes, student_work.filename)
+    student_bytes = await student_work.read()
+    raw_text      = extract_text_from_file(student_bytes, student_work.filename)
+
+    # Same treatment as /ocr gives the mark scheme, run BEFORE sanitize() for
+    # the same reason: sanitize()'s HTML-tag stripping (<[^>]*>) matches from
+    # the first < to the first >, which mangles a <<<...>>> triple-bracket
+    # sequence rather than leaving it intact. Strips rather than just flags —
+    # anything matching our delimiter shape is removed here, so it never
+    # reaches wrap_for_prompt() or the LLM at all.
+    raw_text, lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(raw_text)
+    if lookalikes:
+        log_security_stripped(lookalikes)
+
+    # Post-OCR sanitisation + delimiting for the student's raw OCR text, same
+    # as /ocr does for the mark scheme. Only student_work goes through this
+    # here — scheme_text and question have already passed through their own
+    # sanitisation earlier in the pipeline (scheme_text via /ocr) by the time
+    # they reach this endpoint.
+    student_text                        = ms_ocr_sanitisation.sanitize(raw_text)
+    wrapped_student_text, expected_token = ms_ocr_sanitisation.wrap_for_prompt(student_text)
+
     question_number = _question_number_from_scheme(scheme_text)
     exemplars       = get_similar(student_text, question_number, n=3)
 
     raw = generate_llm_response(
         question=question,
-        essay=student_text,
+        essay=wrapped_student_text,
         rubric=scheme_text,
+        expected_token=expected_token,
         max_score=100,
         exemplars=exemplars or None,
     )
@@ -115,103 +131,6 @@ async def mark_with_scheme_text(
         "question_mismatch_reason": raw.get("question_mismatch_reason", None),
         "annotations":              raw.get("annotations", []),
     }
-
-# ── Bulk helpers ──────────────────────────────────────────────────────────────
-
-def _split_pdf(pdf_bytes: bytes, pages_per_student: int):
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    sections = []
-    for start in range(0, len(doc), pages_per_student):
-        end = min(start + pages_per_student, len(doc)) - 1
-        out = fitz.open()
-        out.insert_pdf(doc, from_page=start, to_page=end)
-        sections.append(out.tobytes())
-        out.close()
-    doc.close()
-    return sections
-
-def _match_name(text: str, student_names):
-    result = process.extractOne(
-        text[:400],
-        student_names,
-        scorer=fuzz.partial_ratio,
-        score_cutoff=65,
-    )
-    if result:
-        _, score, idx = result
-        return idx, score
-    return -1, 0.0
-
-# ── POST /bulk-mark-with-scheme-text ──────────────────────────────────────────
-@app.post("/bulk-mark-with-scheme-text")
-async def bulk_mark_with_scheme_text(
-    pdf_file:          UploadFile = File(...),
-    scheme_text:       str        = Form(...),
-    question:          str        = Form(default=''),
-    pages_per_student: int        = Form(...),
-    students:          str        = Form(...),
-):
-    pdf_bytes     = await pdf_file.read()
-    students_list = _json.loads(students)
-    student_names = [s['name'] for s in students_list]
-
-    async def generate():
-        sections = _split_pdf(pdf_bytes, pages_per_student)
-        yield _json.dumps({"type": "split", "total": len(sections)}) + "\n"
-
-        # OCR all sections concurrently
-        ocr_results = await asyncio.gather(
-            *[asyncio.to_thread(extract_text_from_file, sec, f"student_{i}.pdf")
-              for i, sec in enumerate(sections)],
-            return_exceptions=True,
-        )
-        yield _json.dumps({"type": "ocr_complete"}) + "\n"
-
-        for i, text_or_err in enumerate(ocr_results):
-            if isinstance(text_or_err, Exception):
-                yield _json.dumps({"type": "error", "paper": i + 1, "message": str(text_or_err)}) + "\n"
-                continue
-
-            text = text_or_err
-            idx, conf = _match_name(text, student_names)
-            student = students_list[idx] if idx >= 0 else {"id": None, "name": f"Unmatched paper {i + 1}"}
-
-            try:
-                question_number = _question_number_from_scheme(scheme_text)
-                exemplars       = get_similar(text, question_number, n=3)
-                raw = generate_llm_response(
-                    question=question, essay=text, rubric=scheme_text,
-                    max_score=100, exemplars=exemplars or None,
-                )
-
-                yield _json.dumps({
-                    "type":                     "result",
-                    "student_id":               student["id"],
-                    "student_name":             student["name"],
-                    "match_confidence":         conf,
-                    "score":                    raw.get("score", 0),
-                    "maxScore":                 raw.get("maxScore"),
-                    "strengths":                raw.get("strengths", []),
-                    "improvements":             raw.get("improvements", []),
-                    "actionable_steps":         raw.get("actionable_steps", []),
-                    "student_ocr_text":         text,
-                    "teacher_review_required":  raw.get("teacher_review_required", False),
-                    "question_mismatch":        raw.get("question_mismatch", False),
-                    "question_mismatch_reason": raw.get("question_mismatch_reason", None),
-                    "annotations":              raw.get("annotations", []),
-                }) + "\n"
-
-            except Exception as e:
-                yield _json.dumps({
-                    "type":         "error",
-                    "student_name": student["name"],
-                    "message":      str(e),
-                }) + "\n"
-
-        yield _json.dumps({"type": "done"}) + "\n"
-
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
-
 
 # ── Exemplar management ───────────────────────────────────────────────────────
 

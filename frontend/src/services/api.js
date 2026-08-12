@@ -110,6 +110,40 @@ export async function selectQuestion(lessonId, selectedQuestionIndex) {
     return data
 }
 
+export async function getMarkingResults(lessonId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/results`, { credentials: 'include' })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to fetch results')
+    return data.results
+}
+
+// Plain request/response — the backend route only ever returns one terminal
+// result (never intermediate progress), and the caller re-fetches the actual
+// result from GET /results afterward rather than trust this response's
+// payload directly. See refreshResults() in StudentMarking.jsx.
+export async function submitStudentWork(lessonId, studentId, studentWorkFile) {
+    const formData = new FormData()
+    formData.append('studentWork', studentWorkFile)
+    formData.append('studentId', String(studentId))
+
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/mark-student`, {
+        method:      'POST',
+        credentials: 'include',
+        body:        formData,
+    })
+
+    if (response.status === 401) throw new Error('Your session has expired. Please sign in again.')
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) {
+        throw new Error(`Server error (${response.status}) — is the backend running?`)
+    }
+
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Marking failed')
+    return data
+}
+
 export async function createClass(className, students) {
     const response = await fetch(`${API_BASE}/classes`, {
         method: 'POST',

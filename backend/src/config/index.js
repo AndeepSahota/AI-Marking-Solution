@@ -30,6 +30,13 @@ export default {
         if (!process.env.SQL_DATABASE) throw new Error('SQL_DATABASE environment variable is not set')
         return process.env.SQL_DATABASE
     })(),
+    // Local-only alternative to the Entra ID path above: set both to use SQL
+    // authentication against the docker-compose SQL Server container instead
+    // (see docker-compose.yml and backend/db/apply-schema.mjs). Optional, not
+    // required like SQL_SERVER/SQL_DATABASE above — production never sets
+    // these, so db/index.js always falls through to Entra ID there, unchanged.
+    SQL_USER: process.env.SQL_USER || null,
+    SQL_PASSWORD: process.env.SQL_PASSWORD || null,
     MAX_FILE_SIZE_MB: 5,
     MAX_PDF_PAGES: 30,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],

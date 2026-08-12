@@ -24,7 +24,3 @@ pytesseract==0.3.13
 Pillow==10.4.0
 pdf2image==1.17.0
 requests==2.34.2
-
-# Bulk marking (PDF splitting + fuzzy student-name matching)
-pymupdf==1.28.0
-rapidfuzz==3.14.5

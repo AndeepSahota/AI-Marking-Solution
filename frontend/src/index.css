@@ -3712,3 +3712,221 @@ body::after {
   background: rgba(239, 68, 68, 0.1);
   color: var(--error);
 }
+
+/* ─── Student marking — upload & result elements ─── */
+
+.student-mark-actions {
+  display: flex;
+  align-items: center;
+}
+
+.student-upload-btn {
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.student-upload-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.student-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.student-result-score {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent-2);
+  min-width: 44px;
+}
+
+.student-expand-btn {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.student-expand-btn:hover {
+  color: var(--accent-2);
+}
+
+.student-remark-btn {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.student-remark-btn:hover {
+  color: var(--text-secondary);
+}
+
+.student-mark-error {
+  font-size: 0.82rem;
+  color: var(--error);
+  margin-right: 8px;
+}
+
+.student-result-expanded {
+  grid-column: 1 / -1;
+  padding-top: 16px;
+}
+
+/* ── Annotated Essay ────────────────────────────────────────────────────── */
+.annotated-essay-wrap {
+  margin-top: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.annotated-essay-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 0;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .annotated-essay-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.annotated-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+.annotated-essay-text {
+  padding: 24px;
+  border-right: 1px solid var(--border);
+}
+
+.annotated-essay-prose {
+  font-size: 0.88rem;
+  line-height: 1.85;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.annotated-highlight {
+  border-radius: 3px;
+  padding: 1px 0;
+  cursor: default;
+}
+
+.annotated-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: white;
+  margin-left: 2px;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
+.annotated-essay-sidebar {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.annotation-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.annotation-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.annotation-card-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.annotation-card-type {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.annotation-type-strength {
+  color: #10b981;
+}
+
+.annotation-type-improvement {
+  color: #f59e0b;
+}
+
+.annotation-card-comment {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.annotation-card-unfound {
+  opacity: 0.65;
+}
+
+.annotation-card-quote {
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border-left: 2px solid var(--border);
+  padding: 3px 8px;
+  margin: 4px 0 6px;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+

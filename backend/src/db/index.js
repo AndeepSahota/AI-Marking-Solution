@@ -2,22 +2,45 @@ import sql from 'mssql'
 import config from '../config/index.js'
 
 // Azure SQL connection pool. Authentication uses Entra ID through
-// DefaultAzureCredential: the Container App's managed identity in Azure, or an
-// authenticated developer identity locally. No database password is stored in
-// source code or environment variables.
-const dbConfig = {
-    server: config.SQL_SERVER,
-    database: config.SQL_DATABASE,
-    authentication: { type: 'azure-active-directory-default' },
-    options: {
-        encrypt: true,
-        trustServerCertificate: false,
-    },
-    connectionTimeout: 30000,
-    // Keeping no idle connections open allows an Azure SQL serverless database
-    // to auto-pause when the application is quiet.
-    pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
-}
+// DefaultAzureCredential by default: the Container App's managed identity in
+// Azure, or an authenticated developer identity locally. No database password
+// is stored in source code or environment variables for that path.
+//
+// Local-only exception: if SQL_USER/SQL_PASSWORD are set (only true in a
+// local .env, pointing at the docker-compose SQL Server container — see
+// docker-compose.yml and db/apply-schema.mjs), SQL authentication is used
+// instead, so local development doesn't depend on the live Azure SQL server
+// being reachable. Production never sets these two variables, so it always
+// takes the Entra ID branch below — this file behaves identically to before
+// in that case, not just similarly.
+const dbConfig = (config.SQL_USER && config.SQL_PASSWORD)
+    ? {
+        server: config.SQL_SERVER,
+        database: config.SQL_DATABASE,
+        user: config.SQL_USER,
+        password: config.SQL_PASSWORD,
+        options: {
+            encrypt: true,
+            // The container's TLS cert is self-signed — there's no CA to
+            // validate it against locally, unlike Azure SQL's real cert.
+            trustServerCertificate: true,
+        },
+        connectionTimeout: 30000,
+        pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
+    }
+    : {
+        server: config.SQL_SERVER,
+        database: config.SQL_DATABASE,
+        authentication: { type: 'azure-active-directory-default' },
+        options: {
+            encrypt: true,
+            trustServerCertificate: false,
+        },
+        connectionTimeout: 30000,
+        // Keeping no idle connections open allows an Azure SQL serverless database
+        // to auto-pause when the application is quiet.
+        pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
+    }
 
 export const pool = new sql.ConnectionPool(dbConfig)
 export const poolConnect = pool.connect()
@@ -211,6 +234,102 @@ export const lessonDb = {
 
             return lesson.id
         }),
+}
+
+// Least-privilege application accessor for a student's marked work.
+export const markingDb = {
+    // Confirms the student belongs to a class that owns this lesson, and that
+    // the lesson belongs to this teacher — ownership chain check before
+    // marking runs, not just trusted from the request body.
+    validateStudent: async (studentId, lessonId, teacherId, e = pool) =>
+        (await exec(e, `
+            SELECT s.id
+            FROM dbo.students AS s
+            JOIN dbo.classes AS c ON c.id = s.class_id
+            JOIN dbo.lessons AS l ON l.class_id = c.id
+            WHERE s.id = @studentId AND l.id = @lessonId AND c.teacher_id = @teacherId
+        `, [
+            intParam('studentId', studentId),
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+        ])).recordset[0],
+
+    // Transaction: upsert a student's mark — delete any previous result for
+    // this student/lesson pair (re-marking replaces, it doesn't accumulate),
+    // then insert the new file, OCR, and grade rows in FK order.
+    markStudent: async (studentId, lessonId, fileName, mimeType, ocrText, gradeJson) =>
+        inTransaction(async (transaction) => {
+            const existing = (await exec(transaction, `
+                SELECT mr.ocr_id, so.file_id
+                FROM dbo.marking_results AS mr
+                JOIN dbo.student_ocr AS so ON so.id = mr.ocr_id
+                WHERE mr.lesson_id = @lessonId AND mr.student_id = @studentId
+            `, [
+                intParam('lessonId', lessonId),
+                intParam('studentId', studentId),
+            ])).recordset
+
+            if (existing.length > 0) {
+                const { ocr_id, file_id } = existing[0]
+
+                await exec(transaction, `
+                    DELETE FROM dbo.marking_results
+                    WHERE lesson_id = @lessonId AND student_id = @studentId
+                `, [
+                    intParam('lessonId', lessonId),
+                    intParam('studentId', studentId),
+                ])
+                await exec(transaction, `
+                    DELETE FROM dbo.student_ocr WHERE id = @ocrId
+                `, [intParam('ocrId', ocr_id)])
+                await exec(transaction, `
+                    DELETE FROM dbo.student_files WHERE id = @fileId
+                `, [intParam('fileId', file_id)])
+            }
+
+            const file = (await exec(transaction, `
+                INSERT INTO dbo.student_files (student_id, lesson_id, file_name, mime_type)
+                OUTPUT INSERTED.id
+                VALUES (@studentId, @lessonId, @fileName, @mimeType)
+            `, [
+                intParam('studentId', studentId),
+                intParam('lessonId', lessonId),
+                textParam('fileName', 255, fileName),
+                textParam('mimeType', 100, mimeType),
+            ])).recordset[0]
+
+            const ocr = (await exec(transaction, `
+                INSERT INTO dbo.student_ocr (file_id, ocr_text)
+                OUTPUT INSERTED.id
+                VALUES (@fileId, @ocrText)
+            `, [
+                intParam('fileId', file.id),
+                textParam('ocrText', sql.MAX, ocrText),
+            ])).recordset[0]
+
+            await exec(transaction, `
+                INSERT INTO dbo.marking_results (lesson_id, student_id, ocr_id, student_grade)
+                VALUES (@lessonId, @studentId, @ocrId, @grade)
+            `, [
+                intParam('lessonId', lessonId),
+                intParam('studentId', studentId),
+                intParam('ocrId', ocr.id),
+                textParam('grade', sql.MAX, gradeJson),
+            ])
+        }),
+
+    // Fetch all marking results for a lesson, scoped to the teacher's own classes.
+    getResults: async (lessonId, teacherId, e = pool) =>
+        (await exec(e, `
+            SELECT mr.student_id, mr.student_grade, mr.marked_at
+            FROM dbo.marking_results AS mr
+            JOIN dbo.lessons AS l ON l.id = mr.lesson_id
+            JOIN dbo.classes AS c ON c.id = l.class_id
+            WHERE mr.lesson_id = @lessonId AND c.teacher_id = @teacherId
+        `, [
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+        ])).recordset,
 }
 
 // Every class/student method keeps the same optional executor signature so the
