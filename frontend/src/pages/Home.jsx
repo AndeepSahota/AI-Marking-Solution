@@ -129,7 +129,7 @@ function Home() {
         (event) => handleProgressEvent(event, totalPagesRef)
       )
 
-      if (result.paper_type === 'multi' && result.questions?.length > 1) {
+      if (result.has_multiple_questions) {
         navigate(`/select-question/${result.id}`)
       } else {
         navigate(`/student-marking/${result.id}`)

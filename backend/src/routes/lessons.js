@@ -199,22 +199,21 @@ router.post('/',
                 lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText, structuredScheme
             )
 
-            const parsedScheme  = ocrResult.structured_scheme ?? {}
-            const paperType     = parsedScheme.paper_type ?? 'single'
-            const questionsList = (parsedScheme.questions ?? []).map(q => ({
-                question_number: q.question_number,
-                marks:           q.marks,
-                description:     q.description,
-            }))
+            // Just enough to decide where Home.jsx navigates next — the full
+            // question list itself lives in structured_scheme (already
+            // persisted above) and is read back DB-side by SelectQuestion.jsx
+            // via GET /:id/questions, not carried through this one-time stream.
+            const parsedScheme         = ocrResult.structured_scheme ?? {}
+            const hasMultipleQuestions = parsedScheme.paper_type === 'multi'
+                && (parsedScheme.questions ?? []).length > 1
 
             emit({
                 type: 'done',
                 data: {
-                    id:         lessonId,
-                    class_id:   classId,
-                    class_name: cls.class_name,
-                    paper_type: paperType,
-                    questions:  questionsList,
+                    id:                     lessonId,
+                    class_id:               classId,
+                    class_name:             cls.class_name,
+                    has_multiple_questions: hasMultipleQuestions,
                 },
             })
         } catch (err) {
