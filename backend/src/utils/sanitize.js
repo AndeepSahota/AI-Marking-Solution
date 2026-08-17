@@ -116,15 +116,26 @@ export function sanitizeAIResult(raw) {
 
     const studentOcrText = safeText(raw.student_ocr_text ?? '', { maxLength: 20000 })
 
-    const annotations = Array.isArray(raw.annotations)
-        ? raw.annotations
-              .filter(a => a && typeof a === 'object' && a.quote && a.comment)
-              .slice(0, 10)
-              .map(a => ({
-                  quote:   safeText(a.quote,   { maxLength: 500 }),
-                  comment: safeText(a.comment, { maxLength: 1000 }),
-                  type:    a.type === 'strength' ? 'strength' : 'improvement',
-              }))
+    // Evidence is nested inside each AO's "evidence" array in the AI's response
+    // (not a separate top-level field) — flatten it here, tagging each piece
+    // with its parent AO so the frontend can label/group it.
+    const annotations = Array.isArray(raw.rubric_breakdown)
+        ? raw.rubric_breakdown
+              .filter(item => item && typeof item === 'object' && Array.isArray(item.evidence))
+              .flatMap(item => {
+                  const ao = safeText(item.criterion, { maxLength: 50, fallback: '' })
+                  return item.evidence
+                      .filter(a => a && typeof a === 'object' && a.quote && a.comment)
+                      .map(a => ({
+                          ao,
+                          quote:        safeText(a.quote,   { maxLength: 500 }),
+                          comment:      safeText(a.comment, { maxLength: 1000 }),
+                          type:         a.type === 'strength' ? 'strength' : 'improvement',
+                          marksImpact:  safeInt(a.marks_impact, { min: 0, max: 100, fallback: 0 }),
+                          howToImprove: safeText(a.how_to_improve ?? '', { maxLength: 300 }),
+                      }))
+              })
+              .slice(0, 20)
         : []
 
     return { score, maxScore, percentage, breakdown, strengths, improvements, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, annotations }

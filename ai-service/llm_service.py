@@ -35,55 +35,53 @@ def extract_mark_scheme(scheme_text):
     except json.JSONDecodeError as e:
         raise ValueError(f"Extraction returned invalid JSON: {e}\nRaw: {cleaned[:300]}")
 
-
-def generate_llm_response(question, essay, rubric, max_score=6, exemplars=None):
+def _mark_samples(question, essay, rubric, max_score, exemplars, temperature, n):
     user_prompt = build_user_prompt(question, essay, rubric, exemplars=exemplars)
-    
-    # This is the actual API call to OPEN AI 
-    # Think of it like sending a letter - System prompt is in the rulebook,
-    # user prompt is the actual request 
+
     response = client.chat.completions.create(
         model="gpt-4o",
-        temperature=0.0,
+        temperature=temperature,
+        n=n,
         messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": user_prompt
-            }
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
         ]
     )
-    
-    # The response comes back as an object - we need to dig into it 
-    # to get the actual text the LLM produced 
-    raw_text = response.choices[0].message.content
-    
-    # The LLM returns a string - but we told it to write JSON 
-    # json.loads() converts that JSON string to a python dictionary 
-    # So we can use it like: result["score"], results["strengths"] etc.
-    # GPT-4o sometimes wraps response in markdown code blocks
-    # This strips them out before parsing
-    cleaned = raw_text.strip()
-    if cleaned.startswith("```"):
-        # Remove first line (```json) and last line (```)
-        cleaned = "\n".join(cleaned.split("\n")[1:-1])
 
-    try:
-        results = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM returned invalid JSON: {e}\nRaw: {cleaned[:300]}")
+    results_list = []
+    last_error = None
 
-    detected_max = results.get("max_score_detected") or max_score
-    breakdown = results.get("rubric_breakdown", [])
-    results["score"]    = min(
-        sum(min(ao.get("score_awarded", 0), ao.get("max_marks", detected_max)) for ao in breakdown),
-        detected_max
-    )
-    results["maxScore"] = detected_max
+    for choice in response.choices:
+        raw_text = choice.message.content
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[1:-1])
 
-    return results
+        try:
+            results = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            last_error = f"LLM returned invalid JSON: {e}\nRaw: {cleaned[:300]}"
+            continue
+
+        detected_max = results.get("max_score_detected") or max_score
+        breakdown = results.get("rubric_breakdown", [])
+        results["score"] = min(
+            sum(min(ao.get("score_awarded", 0), ao.get("max_marks", detected_max)) for ao in breakdown),
+            detected_max
+        )
+        results["maxScore"] = detected_max
+
+        if not breakdown or any(not ao.get("evidence") for ao in breakdown):
+            results["teacher_review_required"] = True
+
+        results_list.append(results)
+
+    return results_list, last_error
+
+def generate_llm_response(question, essay, rubric, max_score=6, exemplars=None):
+    results_list, last_error = _mark_samples(question, essay, rubric, max_score, exemplars, temperature=0.0, n=1)
+    if not results_list:
+        raise ValueError(last_error)
+    return results_list[0]
     
     

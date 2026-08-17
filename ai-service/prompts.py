@@ -124,9 +124,11 @@ COMMON EXAMINER MISTAKES TO AVOID:
 - Do not reward ambitious writing that is also inaccurate (Language AO6)
 - Do not reward general knowledge — only what directly answers the question
 - Do not be generous because the student tried hard or wrote a lot
+- Do not credit generic, formulaic, or clichéd writing as if it were sophisticated or engaging — e.g. an "In today's society/world..." opener, or a plain topic sentence used as if it were evidence of skilled structure. A feature only counts as a strength if it is genuinely well-executed, not merely present.
+
 
 FEEDBACK RULES:
-- Quote directly from the student response to justify every mark decision
+- Quote directly from the student response to justify every mark decision — the quote must genuinely demonstrate the specific quality being claimed, not just be the right type of sentence (an opening line, a topic sentence) that happens to be topically related to it
 - Feedback must be specific — "develop your analysis" is not acceptable feedback
 - Tell the student exactly what they need to do differently with a concrete example of how
 - Actionable steps must be things the student can act on in their next draft
@@ -183,27 +185,32 @@ Return your response as a JSON object with exactly this structure:
     "actionable_steps": [<list of 2-3 concrete things the student can do in their next draft>],
     "rubric_breakdown": [
         {{
-            "criterion": <name of the criterion from the rubric>,
+            "criterion": <the Assessment Objective code, e.g. "AO5" or "AO6">,
             "score_awarded": <marks given for this criterion>,
             "max_marks": <total marks available for this criterion as stated in the mark scheme>,
-            "reason": <one sentence explanation quoting directly from the essay>
+            "reason": <a detailed explanation, quoting directly from the essay, that justifies the specific band and mark awarded for this AO — reference multiple pieces of evidence where the band decision rests on more than one thing, not just a single quote>,
+            "evidence": [
+                {{
+                    "quote": <exact verbatim phrase copied character-for-character from the student response>,
+                    "comment": <1-2 sentences explaining what this shows and why it earns or loses marks for THIS specific AO>,
+                    "type": <"strength" or "improvement">,
+                    "marks_impact": <an approximate, illustrative estimate of how many of this AO's marks this specific point represents — for a strength, roughly how many marks it helped earn; for an improvement, roughly how many marks were lost because of it. This is an illustrative estimate to help the student understand where marks come from, not a precise formula>,
+                    "how_to_improve": <for "improvement" only — one concrete, specific action the student could take next time to gain these marks, e.g. what to add, change, or do differently. Use null for "strength" type>
+                }}
+            ]
         }}
     ],
     "teacher_review_required": <true if you are less than 80% confident, else false>,
     "question_mismatch": <true if the provided question clearly does not match the mark scheme, else false>,
-    "question_mismatch_reason": <one sentence explaining the mismatch, or null if no mismatch>,
-    "annotations": [
-        {{
-            "quote": <exact verbatim phrase copied character-for-character from the student response — the system uses exact string matching to highlight it>,
-            "comment": <1-2 sentences explaining what this shows and why it earns or loses marks>,
-            "type": <"strength" or "improvement">
-        }}
-    ]
+    "question_mismatch_reason": <one sentence explaining the mismatch, or null if no mismatch>
 }}
 
-ANNOTATION RULES:
-- Include 4-6 annotations total, covering both strengths and improvements
+EVIDENCE RULES:
+- Every AO in "rubric_breakdown" must have at least one entry in its own "evidence" array — do not leave any AO's evidence empty, even if the essay is short or weak overall. A weak AO performance still needs a specific quoted example explaining why it's weak, not just a general comment in "reason".
 - Every quote must be copied verbatim from the student response — do not paraphrase or alter punctuation
-- Choose phrases that are representative of the marking decision, not just any quote
-- Annotations are displayed visually on the student response, so pick meaningful excerpts
+- Choose phrases that are representative of the marking decision for that specific AO, not just any quote
+- Evidence is displayed visually on the student response, so pick meaningful excerpts
+- Do not select a transition phrase or template sentence (e.g. 'on the one hand/on the other hand', a generic conclusion) as a strength just because it signals structure — the substance around it must genuinely earn the label.
+- The same sentence may appear as evidence for more than one AO if it genuinely earns credit under both (e.g. an opening line can be both engaging content AND technically well-controlled) — in that case, include it in both AOs' evidence arrays with a comment specific to each AO's angle.
+- Every "improvement" entry must include a specific "how_to_improve" action — not a vague instruction like "develop your analysis", but something the student could concretely do differently, e.g. "replace the repeated phrase 'on the one hand' with a specific example from a real news story to give the argument substance".
 """

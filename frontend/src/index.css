@@ -3800,6 +3800,39 @@ body::after {
   color: #f59e0b;
 }
 
+.annotation-card-ao {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 1px 8px;
+  margin-left: auto;
+}
+
+.annotation-card-marks {
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.annotation-marks-strength {
+  color: #10b981;
+}
+
+.annotation-marks-improvement {
+  color: #f59e0b;
+}
+
+.annotation-card-fix {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 2px solid #f59e0b;
+  padding: 6px 10px;
+  margin: 8px 0 0;
+}
+
 .annotation-card-comment {
   font-size: 0.8rem;
   line-height: 1.55;

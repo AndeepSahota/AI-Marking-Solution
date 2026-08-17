@@ -87,6 +87,7 @@ async def mark_with_scheme_text(
         "teacher_review_required":  raw.get("teacher_review_required", False),
         "question_mismatch":        raw.get("question_mismatch", False),
         "question_mismatch_reason": raw.get("question_mismatch_reason", None),
+        "rubric_breakdown":         raw.get("rubric_breakdown", []),
         "annotations":              raw.get("annotations", []),
     }
 
@@ -172,6 +173,7 @@ async def bulk_mark_with_scheme_text(
                     "teacher_review_required":  raw.get("teacher_review_required", False),
                     "question_mismatch":        raw.get("question_mismatch", False),
                     "question_mismatch_reason": raw.get("question_mismatch_reason", None),
+                    "rubric_breakdown":         raw.get("rubric_breakdown", []),
                     "annotations":              raw.get("annotations", []),
                 }) + "\n"
 

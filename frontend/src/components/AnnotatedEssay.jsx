@@ -169,8 +169,17 @@ function AnnotatedEssay({ text, annotations }) {
                 <span className={`annotation-card-type annotation-type-${ann.type}`}>
                   {ann.type === 'strength' ? 'Strength' : 'Improvement'}
                 </span>
+                {ann.marksImpact > 0 && (
+                  <span className={`annotation-card-marks annotation-marks-${ann.type}`}>
+                    {ann.type === 'strength' ? '+' : '−'}{ann.marksImpact} marks
+                  </span>
+                )}
+                {ann.ao && <span className="annotation-card-ao">{ann.ao}</span>}
               </div>
               <p className="annotation-card-comment">{ann.comment}</p>
+              {ann.type === 'improvement' && ann.howToImprove && (
+                <p className="annotation-card-fix"><strong>How to improve:</strong> {ann.howToImprove}</p>
+              )}
             </div>
           ))}
           {unfound.map((ann, i) => (
@@ -182,11 +191,20 @@ function AnnotatedEssay({ text, annotations }) {
                 <span className={`annotation-card-type annotation-type-${ann.type}`}>
                   {ann.type === 'strength' ? 'Strength' : 'Improvement'}
                 </span>
+                {ann.marksImpact > 0 && (
+                  <span className={`annotation-card-marks annotation-marks-${ann.type}`}>
+                    {ann.type === 'strength' ? '+' : '−'}{ann.marksImpact} marks
+                  </span>
+                )}
+                {ann.ao && <span className="annotation-card-ao">{ann.ao}</span>}
               </div>
               {ann.quote && (
                 <p className="annotation-card-quote">"{ann.quote}"</p>
               )}
               <p className="annotation-card-comment">{ann.comment}</p>
+              {ann.type === 'improvement' && ann.howToImprove && (
+                <p className="annotation-card-fix"><strong>How to improve:</strong> {ann.howToImprove}</p>
+              )}
             </div>
           ))}
         </div>
