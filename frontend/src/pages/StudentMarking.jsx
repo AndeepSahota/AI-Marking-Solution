@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { getStudents, getLessonOcr, getMarkingResults, submitStudentWork, bulkMarkStudents } from '../services/api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  getLesson, getStudents, getLessonOcr,
+  getMarkingResults, submitStudentWork, bulkMarkStudents,
+} from '../services/api'
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
 
-const CIRCUMFERENCE = 2 * Math.PI * 26
+const CIRCUMFERENCE = 2 * Math.PI * 26 // r=26 → ≈163.4
 
 function ProgressRing({ marked, total }) {
   const progress = total > 0 ? (marked / total) * CIRCUMFERENCE : 0
+
   return (
     <div className="progress-ring">
       <svg viewBox="0 0 60 60" className="progress-ring-svg">
@@ -33,15 +37,13 @@ function ProgressRing({ marked, total }) {
 
 function StudentMarking() {
   const { lessonId } = useParams()
-  const { state }    = useLocation()
   const navigate     = useNavigate()
 
-  const classId   = state?.classId
-  const className = state?.className
-
+  const [lesson,   setLesson]   = useState(null)
   const [students, setStudents] = useState([])
   const [ocrText,  setOcrText]  = useState(null)
   const [ocrError, setOcrError] = useState(null)
+  const [notFound, setNotFound] = useState(false)
 
   // { [studentId]: { status: 'marking'|'done'|'error', result?, error? } }
   const [markStates, setMarkStates] = useState({})
@@ -51,39 +53,59 @@ function StudentMarking() {
   const bulkInputRef   = useRef(null)
   const pendingStudent = useRef(null)
 
-  const [bulkModal,        setBulkModal]        = useState(false)
-  const [bulkPages,        setBulkPages]        = useState('')
-  const [bulkStatus,       setBulkStatus]       = useState(null)  // null | 'ocr' | 'marking' | 'done'
-  const [bulkProgress,     setBulkProgress]     = useState({ done: 0, total: 0, current: '' })
-  const [bulkError,        setBulkError]        = useState(null)
-  const [bulkFile,         setBulkFile]         = useState(null)
+  const [bulkModal,    setBulkModal]    = useState(false)
+  const [bulkPages,    setBulkPages]    = useState('')
+  const [bulkStatus,   setBulkStatus]   = useState(null)  // null | 'ocr' | 'marking' | 'done'
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0, current: '' })
+  const [bulkError,    setBulkError]    = useState(null)
+  const [bulkFile,     setBulkFile]     = useState(null)
 
+  // Fetch lesson metadata first, then use its class_id to fetch students.
+  // Both lesson and OCR fetches fire immediately since both only need lessonId.
+  // DB-backed from lessonId alone (not passed via router state) so this page
+  // works from a direct visit or a refresh, not just immediately after
+  // navigating here from Home.
   useEffect(() => {
-    if (!classId) return
-    getStudents(classId).then(setStudents).catch(() => {})
-  }, [classId])
+    if (!lessonId) { navigate('/', { replace: true }); return }
 
-  useEffect(() => {
-    if (!lessonId) return
+    getLesson(lessonId)
+      .then(l => {
+        setLesson(l)
+        return getStudents(l.class_id)
+      })
+      .then(setStudents)
+      .catch(() => setNotFound(true))
+
     getLessonOcr(lessonId)
       .then(setOcrText)
       .catch(err => setOcrError(err.message))
   }, [lessonId])
 
-  useEffect(() => {
-    if (!lessonId) return
-    getMarkingResults(lessonId)
-      .then(results => {
-        const map = {}
-        for (const r of results) {
-          map[r.studentId] = { status: 'done', result: r.result }
-        }
-        setMarkStates(map)
-      })
-      .catch(() => {})
+  // Single source of truth for anything displayed as a result: always a read
+  // from marking_results, never the API response of whichever request just
+  // finished. Merges into existing state rather than replacing it wholesale,
+  // so it can't clobber another student's still-in-flight 'marking' status —
+  // getMarkingResults only ever returns rows that have actually been
+  // persisted, so a student mid-upload elsewhere just wouldn't be in it yet.
+  const refreshResults = useCallback(async () => {
+    const results = await getMarkingResults(lessonId)
+    setMarkStates(prev => {
+      const next = { ...prev }
+      for (const r of results) {
+        next[r.studentId] = { status: 'done', result: r.result }
+      }
+      return next
+    })
   }, [lessonId])
 
-  if (!classId) {
+  // Load any marking results already persisted for this lesson, so a
+  // refresh (or coming back later) shows existing marks, not a blank list.
+  useEffect(() => {
+    if (!lessonId) return
+    refreshResults().catch(() => {})
+  }, [lessonId, refreshResults])
+
+  if (notFound) {
     navigate('/', { replace: true })
     return null
   }
@@ -104,8 +126,11 @@ function StudentMarking() {
     setMarkStates(prev => ({ ...prev, [studentId]: { status: 'marking' } }))
 
     try {
-      const result = await submitStudentWork(lessonId, studentId, file, () => {})
-      setMarkStates(prev => ({ ...prev, [studentId]: { status: 'done', result } }))
+      // Plain request now, not streamed — its response is only used to know
+      // marking finished (or failed). What's displayed comes from
+      // refreshResults(), a fresh read of what actually got persisted.
+      await submitStudentWork(lessonId, studentId, file)
+      await refreshResults()
       setExpanded(prev => ({ ...prev, [studentId]: true }))
     } catch (err) {
       setMarkStates(prev => ({ ...prev, [studentId]: { status: 'error', error: err.message } }))
@@ -254,12 +279,15 @@ function StudentMarking() {
           </svg>
           Back
         </button>
+
         <div className="marking-header-centre">
-          <h2 className="marking-class-name">{className}</h2>
+          <h2 className="marking-class-name">{lesson?.class_name ?? '…'}</h2>
         </div>
+
         <button className="bulk-upload-btn" onClick={() => setBulkModal(true)}>
           Bulk upload
         </button>
+
         <ProgressRing marked={markedCount} total={students.length} />
       </div>
 
@@ -284,8 +312,8 @@ function StudentMarking() {
           <p className="student-marking-empty">Loading students…</p>
         ) : (
           students.map(s => {
-            const st       = markStates[s.id]
-            const status   = st?.status
+            const st         = markStates[s.id]
+            const status     = st?.status
             const isExpanded = expanded[s.id]
 
             return (

@@ -1,14 +1,41 @@
+# Local development services.
+#
+# Local stand-in for Azure SQL Database — same engine (SQL Server), same
+# T-SQL dialect, so backend/db/schema.sql and every query in backend/src/db
+# apply unchanged. Only used when the local .env sets SQL_USER/SQL_PASSWORD
+# (see backend/src/db/index.js) — production never sets those, so it always
+# authenticates against the real Azure SQL server with Entra ID instead,
+# completely unaffected by this container's existence.
+#
+#   docker compose up -d mssql      # start the container
+#   cd backend && npm run db:init   # then, once: create the DB + apply schema.sql
+#
+# MSSQL_PID=Developer — the free, full-featured edition, licensed for
+# non-production use only (fine here, this never runs in Azure).
+
 services:
-  db:
-    image: postgres:16
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: aimira-mssql
     environment:
-      POSTGRES_USER: aimira
-      POSTGRES_PASSWORD: aimira
-      POSTGRES_DB: aimira
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      # Matches backend/.env's SQL_PASSWORD — local-dev only, never used in Azure.
+      MSSQL_SA_PASSWORD: "AimiraLocalDev_2026!"
     ports:
-      - "5432:5432"
+      - "1433:1433"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - mssqldata:/var/opt/mssql
+    healthcheck:
+      # Plain TCP probe rather than sqlcmd — the exact sqlcmd path
+      # (mssql-tools vs mssql-tools18) has changed across image versions, a
+      # TCP check works the same regardless. start_period gives the engine
+      # room for its slow first-boot initialization before failures count.
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/1433' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
 volumes:
-  pgdata:
+  mssqldata:

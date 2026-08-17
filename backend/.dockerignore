@@ -1,0 +1,24 @@
+# Keep the build context small; never copy secrets, deps, or host-specific files.
+
+# Env — secrets AND example templates, never bake into the image
+.env
+.env.*
+
+# Deps — reinstalled in the image; never copy the host's
+node_modules
+
+# Secrets / local data on disk
+src/data/pepper.json
+src/data/users.json
+src/data/*.sqlite*
+
+# Local logs — the container writes its own
+logs
+
+# Git, IDE, OS
+.git
+.gitignore
+.dockerignore
+.vscode
+.DS_Store
+npm-debug.log*

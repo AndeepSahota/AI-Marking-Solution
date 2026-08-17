@@ -1,10 +1,15 @@
 # Dependencies
 **/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/.pnpm-store/
 
-# Environment files — contain secrets, never commit
+# Environment files — never commit (secrets AND example templates)
 **/.env
-**/.env.local
-**/.env.*.local
+**/.env.*
+**/local.env
+**/local.env.*
 
 # User credentials store — contains hashed passwords
 backend/src/data/users.json
@@ -22,19 +27,19 @@ ai-service/data/*.sqlite-journal
 ai-service/data/*.sqlite-wal
 ai-service/data/*.sqlite-shm
 
-# Python virtual environment (both naming conventions)
-ai-service/venv/
-.venv/
-ai-service/__pycache__/
-ai-service/**/__pycache__/
-**/*.pyc
+# Python — virtualenvs, bytecode, and tool caches
+**/venv/
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 
 # Frontend build output
 frontend/dist/
 frontend/dist-ssr/
-
-# Local dev environment config (machine-specific device and model settings)
-ai-service/local.env
 
 # IDE settings (local to each developer)
 .vscode/
@@ -48,8 +53,11 @@ npm-debug.log*
 backend/logs/*
 !backend/logs/.gitkeep
 
+# Ad-hoc debug output — temporary inspection only, never committed.
+backend/.tmp/
+
 # OS
-.DS_Store
+**/.DS_Store
 Thumbs.db
 
 #env 

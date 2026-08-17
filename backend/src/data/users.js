@@ -1,17 +1,12 @@
-import { readFileSync } from 'fs'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
 import { createHmac } from 'crypto'
 import bcrypt from 'bcrypt'
 import { teacherDb } from '../db/index.js'
+import config from '../config/index.js'
 
-const __dirname   = dirname(fileURLToPath(import.meta.url))
 const BCRYPT_COST = 12
 const NAME_MAX    = 100
 
-const { passwordPepper: PASSWORD_PEPPER, emailPepper: EMAIL_PEPPER } = JSON.parse(
-    readFileSync(join(__dirname, 'pepper.json'), 'utf-8')
-)
+const { PASSWORD_PEPPER, EMAIL_PEPPER } = config
 
 // Emails use HMAC-SHA256 (deterministic) so login lookup remains possible.
 function hashEmail(email) {
@@ -23,17 +18,15 @@ function applyPasswordPepper(password) {
     return createHmac('sha256', PASSWORD_PEPPER).update(password).digest('hex')
 }
 
-export async function findByEmail(email) {
-    return await teacherDb.findByEmailHash(hashEmail(email))
+export function findByEmail(email) {
+    return teacherDb.findByEmailHash(hashEmail(email))
 }
-
 
 export async function createUser({ name, email, password }) {
     if (name.length > NAME_MAX) throw new Error('Name must not exceed 100 characters')
     const passwordHash = await bcrypt.hash(applyPasswordPepper(password), BCRYPT_COST)
     const result = await teacherDb.insert(name.trim(), hashEmail(email), passwordHash)
     return { id: result.id, name: name.trim() }
-    
 }
 
 export async function verifyPassword(plaintext, hash) {

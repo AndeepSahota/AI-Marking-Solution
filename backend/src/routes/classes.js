@@ -62,7 +62,7 @@ router.post('/', async (req, res, next) => {
         }
 
         const yearGroupId = parseYear(className.trim())
-        const validYear   = yearGroupId ? classDb.validateYear(yearGroupId) : null
+        const validYear   = yearGroupId ? await classDb.validateYear(yearGroupId) : null
         if (!validYear) {
             logClassFailed(req, 'validation', `Invalid year parsed from class name: ${className}`)
             return res.status(400).json({ error: 'Class name must include a valid year (7–11), e.g. "Year 10 Set 3" or "10e"' })
@@ -70,7 +70,7 @@ router.post('/', async (req, res, next) => {
 
         const result = await classDb.transaction(async (client) => {
             const existing = await classDb.findClassByName(className.trim(), teacherId, client)
-        
+
             let classId, isNew
             if (existing) {
                 classId = existing.id
@@ -81,19 +81,23 @@ router.post('/', async (req, res, next) => {
                 isNew   = true
                 logClassCreated(req, className.trim(), yearGroupId)
             }
-        
-            const trimmedNames    = students.map(n => n.trim())
-            const existsChecks    = await Promise.all(trimmedNames.map(name => classDb.findStudentByName(name, classId, client)))
-            const conflicts       = trimmedNames.filter((_, i) => existsChecks[i])
-        
+            // Sequential, not Promise.all — mssql only allows one in-flight
+            // request per transaction connection; concurrent queries on the
+            // same `client` throw "Can't acquire connection for the request."
+            const trimmedNames = students.map(n => n.trim())
+            const conflicts    = []
+            for (const name of trimmedNames) {
+                if (await classDb.findStudentByName(name, classId, client)) conflicts.push(name)
+            }
+
             if (conflicts.length) return { conflict: true, conflicts }
-        
+
             const added = []
             for (const trimmed of trimmedNames) {
                 const { id: studentId } = await classDb.insertStudent(trimmed, classId, client)
                 added.push({ id: studentId, student_name: trimmed })
             }
-        
+
             logStudentsAdded(req, added.map(s => s.student_name))
             logClassDone(req, classId, added.length)
         

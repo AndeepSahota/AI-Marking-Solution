@@ -1,6 +1,7 @@
 import requests
 import os
 import time
+from observability.event_log import log_ocr_sending, log_ocr_job_submitted, log_ocr_polling, log_ocr_done
 
 def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     """
@@ -16,7 +17,7 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     if not api_key:
         raise ValueError("DATALAB_API_KEY not found in environment variables")
     
-    print(f"[OCR] Sending {filename} to Datalab API...")
+    log_ocr_sending(filename)
     
     # Send the file to Datalab's OCR endpoint
     response = requests.post(
@@ -44,7 +45,7 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
     if not check_url:
         raise Exception("No check URL returned from Datalab API")
     
-    print(f"[OCR] Job submitted, polling for results...")
+    log_ocr_job_submitted()
     
     # Poll until done
     max_attempts = 20
@@ -60,10 +61,10 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
         
         if result_data.get("status") == "complete":
             text = result_data.get("markdown", "")
-            print(f"[OCR] Done — extracted {len(text)} characters")
+            log_ocr_done(len(text))
             return text
-        
-        print(f"[OCR] Still processing... attempt {attempt + 1}/{max_attempts}")
+
+        log_ocr_polling(attempt + 1, max_attempts)
     
     raise Exception("Datalab OCR timed out after 40 seconds")
 

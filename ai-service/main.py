@@ -25,6 +25,8 @@ sys.path.append(str(Path(__file__).parent))
 from llm_service import generate_llm_response, extract_mark_scheme
 from ocr_service import extract_text_from_file
 from rag_service import add_exemplar, get_similar, list_exemplars, delete_exemplar
+from security import ms_ocr_sanitisation
+from observability.event_log import log_security_stripped
 
 # When Umar's Chandra OCR is available, swap these two lines back in:
 # from model.marker import run_marking
@@ -37,16 +39,33 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# Runs the same strip -> sanitize -> wrap sequence /ocr and /mark-with-scheme-text
+# already used on a piece of raw OCR text, so bulk-mark's per-student text gets
+# the identical prompt-injection defense rather than a quieter, unprotected path.
+def _secure_wrap(raw_text: str):
+    stripped, lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(raw_text)
+    if lookalikes:
+        log_security_stripped(lookalikes)
+    clean_text = ms_ocr_sanitisation.sanitize(stripped)
+    wrapped_text, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
+    return clean_text, wrapped_text, token
+
 # ── POST /ocr ─────────────────────────────────────────────────────────────────
 # Call 1: OCR the mark scheme, then extract its structure with the LLM.
 # Runs once per lesson — the structured result is stored so marking calls
 # receive clean JSON rather than raw OCR text on every student submission.
 @app.post("/ocr")
 async def ocr_file(file: UploadFile = File(...)):
-    file_bytes        = await file.read()
-    text              = extract_text_from_file(file_bytes, file.filename)
-    structured_scheme = extract_mark_scheme(text)
-    return {"text": text, "structured_scheme": structured_scheme}
+    file_bytes = await file.read()
+    raw_text   = extract_text_from_file(file_bytes, file.filename)
+
+    # clean_text (not wrapped_text) is what gets returned/stored — the
+    # delimiter markers are a prompt-construction detail for the extraction
+    # call only, never part of the mark scheme content itself.
+    clean_text, wrapped_text, token = _secure_wrap(raw_text)
+    structured_scheme = extract_mark_scheme(wrapped_text, token)
+
+    return {"text": clean_text, "structured_scheme": structured_scheme}
 
 def _question_number_from_scheme(scheme_text: str):
     try:
@@ -64,15 +83,24 @@ async def mark_with_scheme_text(
     scheme_text:  str        = Form(...),
     question:     str        = Form(default='')
 ):
-    student_bytes   = await student_work.read()
-    student_text    = extract_text_from_file(student_bytes, student_work.filename)
+    student_bytes = await student_work.read()
+    raw_text      = extract_text_from_file(student_bytes, student_work.filename)
+
+    # Post-OCR sanitisation + delimiting for the student's raw OCR text, same
+    # as /ocr does for the mark scheme. Only student_work goes through this
+    # here — scheme_text and question have already passed through their own
+    # sanitisation earlier in the pipeline (scheme_text via /ocr) by the time
+    # they reach this endpoint.
+    student_text, wrapped_student_text, expected_token = _secure_wrap(raw_text)
+
     question_number = _question_number_from_scheme(scheme_text)
     exemplars       = get_similar(student_text, question_number, n=3)
 
     raw = generate_llm_response(
         question=question,
-        essay=student_text,
+        essay=wrapped_student_text,
         rubric=scheme_text,
+        expected_token=expected_token,
         max_score=100,
         exemplars=exemplars or None,
     )
@@ -88,7 +116,6 @@ async def mark_with_scheme_text(
         "question_mismatch":        raw.get("question_mismatch", False),
         "question_mismatch_reason": raw.get("question_mismatch_reason", None),
         "rubric_breakdown":         raw.get("rubric_breakdown", []),
-        "annotations":              raw.get("annotations", []),
     }
 
 # ── Bulk helpers ──────────────────────────────────────────────────────────────
@@ -147,15 +174,22 @@ async def bulk_mark_with_scheme_text(
                 yield _json.dumps({"type": "error", "paper": i + 1, "message": str(text_or_err)}) + "\n"
                 continue
 
-            text = text_or_err
-            idx, conf = _match_name(text, student_names)
+            raw_text = text_or_err
+            idx, conf = _match_name(raw_text, student_names)
             student = students_list[idx] if idx >= 0 else {"id": None, "name": f"Unmatched paper {i + 1}"}
 
             try:
+                # Same strip -> sanitize -> wrap treatment as the single-student
+                # path — every piece of OCR'd text that reaches the LLM goes
+                # through the same prompt-injection defense, not just the ones
+                # on the more-used endpoint.
+                text, wrapped_text, expected_token = _secure_wrap(raw_text)
+
                 question_number = _question_number_from_scheme(scheme_text)
                 exemplars       = get_similar(text, question_number, n=3)
                 raw = generate_llm_response(
-                    question=question, essay=text, rubric=scheme_text,
+                    question=question, essay=wrapped_text, rubric=scheme_text,
+                    expected_token=expected_token,
                     max_score=100, exemplars=exemplars or None,
                 )
 
@@ -174,7 +208,6 @@ async def bulk_mark_with_scheme_text(
                     "question_mismatch":        raw.get("question_mismatch", False),
                     "question_mismatch_reason": raw.get("question_mismatch_reason", None),
                     "rubric_breakdown":         raw.get("rubric_breakdown", []),
-                    "annotations":              raw.get("annotations", []),
                 }) + "\n"
 
             except Exception as e:
@@ -187,7 +220,6 @@ async def bulk_mark_with_scheme_text(
         yield _json.dumps({"type": "done"}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
-
 
 # ── Exemplar management ───────────────────────────────────────────────────────
 

@@ -15,9 +15,23 @@ import {
 
 const router = express.Router()
 
-// Extracts the correct question-specific scheme from an ocrRow.
-// For multi-question papers the teacher picks a question index; we send only
-// that question's AOs and bands to the LLM rather than the whole paper.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+})
+
+const bulkUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 100 * 1024 * 1024 },
+})
+
+const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
+const STUDENT_MARK_SLOTS = [{ field: 'studentWork', label: 'Student Work' }]
+
+// Picks out the question-specific slice of structured_scheme the teacher
+// selected on the question-picker page, so only that question's AOs/bands go
+// to the LLM — not the whole paper — for multi-question mark schemes. Falls
+// back to the raw OCR text if there's no structured_scheme to parse at all.
 function resolveScheme(ocrRow) {
     if (!ocrRow.structured_scheme) return ocrRow.ocr_text
     let parsed
@@ -31,17 +45,26 @@ function resolveScheme(ocrRow) {
     return JSON.stringify(question)
 }
 
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024 },
+// GET /lessons — all lessons belonging to the logged-in teacher, newest first.
+router.get('/', async (req, res, next) => {
+    try {
+        res.json(await lessonDb.listLessons(req.user.id))
+    } catch (err) {
+        next(err)
+    }
 })
 
-const bulkUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 100 * 1024 * 1024 },
+// GET /lessons/:id — return lesson metadata (title, class_id, class_name) for a lesson
+// owned by this teacher. Used by StudentMarking to bootstrap itself from the URL alone.
+router.get('/:id', async (req, res, next) => {
+    try {
+        const lesson = await lessonDb.findLesson(req.params.id, req.user.id)
+        if (!lesson) return res.status(404).json({ error: 'Lesson not found' })
+        res.json(lesson)
+    } catch (err) {
+        next(err)
+    }
 })
-
-const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
 
 // GET /lessons/:id/ocr — return the stored OCR text and question for a lesson owned by this teacher.
 router.get('/:id/ocr', async (req, res, next) => {
@@ -54,16 +77,43 @@ router.get('/:id/ocr', async (req, res, next) => {
     }
 })
 
+// GET /lessons/:id/questions — return the extracted {paper_type, questions[]} for
+// a lesson owned by this teacher, read back from storage rather than trusting
+// whatever was streamed at upload time. Backs the question-picker page so it
+// works from a direct visit or a refresh, not just immediately after upload.
+router.get('/:id/questions', async (req, res, next) => {
+    try {
+        const row = await lessonDb.getOcrText(req.params.id, req.user.id)
+        if (!row) return res.status(404).json({ error: 'Lesson not found' })
 
-// PATCH /lessons/:id/select-question — store which question from a multi-question paper this lesson marks
-router.patch('/:id/select-question', express.json(), async (req, res, next) => {
+        let parsedScheme = {}
+        try { parsedScheme = row.structured_scheme ? JSON.parse(row.structured_scheme) : {} }
+        catch { parsedScheme = {} }
+
+        const paperType     = parsedScheme.paper_type ?? 'single'
+        const questionsList = (parsedScheme.questions ?? []).map(q => ({
+            question_number: q.question_number,
+            marks:           q.marks,
+            description:     q.description,
+        }))
+
+        res.json({ paper_type: paperType, questions: questionsList })
+    } catch (err) {
+        next(err)
+    }
+})
+
+// PATCH /lessons/:id/select-question — store which question from a multi-question
+// paper this lesson marks. Ownership is enforced inside updateSelectedQuestion,
+// via the same lessons -> classes -> teacher_id join every other lessonDb method uses.
+router.patch('/:id/select-question', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.id)
         const { selectedQuestionIndex } = req.body
         if (selectedQuestionIndex === undefined || selectedQuestionIndex === null) {
             return res.status(400).json({ error: 'selectedQuestionIndex is required' })
         }
-        await lessonDb.updateSelectedQuestion (lessonId, req.user.id, selectedQuestionIndex)
+        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex)
         res.json({ ok: true })
     } catch (err) {
         next(err)
@@ -127,8 +177,8 @@ router.post('/',
             logOcrDone(req, meta?.page_count ?? stages.length, meta?.total_chars ?? 0, Date.now() - ocrStart)
 
             const lessonTitle      = file.originalname.replace(/\.[^.]+$/, '')
-            const cleanOcrText    = sanitiseOcrText(ocrResult.text ?? '')
-            const question        = (req.body.question ?? '').trim()
+            const cleanOcrText     = sanitiseOcrText(ocrResult.text ?? '')
+            const question         = (req.body.question ?? '').trim()
             const structuredScheme = ocrResult.structured_scheme
                 ? JSON.stringify(ocrResult.structured_scheme)
                 : ''
@@ -137,22 +187,21 @@ router.post('/',
                 lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText, question, structuredScheme
             )
 
-            const parsedScheme  = ocrResult.structured_scheme ?? {}
-            const paperType     = parsedScheme.paper_type ?? 'single'
-            const questionsList = (parsedScheme.questions ?? []).map(q => ({
-                question_number: q.question_number,
-                marks:           q.marks,
-                description:     q.description,
-            }))
+            // Just enough to decide where Home.jsx navigates next — the full
+            // question list itself lives in structured_scheme (already
+            // persisted above) and is read back DB-side by SelectQuestion.jsx
+            // via GET /:id/questions, not carried through this one-time stream.
+            const parsedScheme         = ocrResult.structured_scheme ?? {}
+            const hasMultipleQuestions = parsedScheme.paper_type === 'multi'
+                && (parsedScheme.questions ?? []).length > 1
 
             emit({
                 type: 'done',
                 data: {
-                    id:         lessonId,
-                    class_id:   classId,
-                    class_name: cls.class_name,
-                    paper_type: paperType,
-                    questions:  questionsList,
+                    id:                     lessonId,
+                    class_id:               classId,
+                    class_name:             cls.class_name,
+                    has_multiple_questions: hasMultipleQuestions,
                 },
             })
         } catch (err) {
@@ -170,14 +219,13 @@ router.post('/',
     }
 )
 
-const STUDENT_MARK_SLOTS = [{ field: 'studentWork', label: 'Student Work' }]
-
-// GET /lessons/:lessonId/results — all marking results for this lesson
+// GET /lessons/:lessonId/results — all marking results for this lesson,
+// scoped to the teacher's own classes via markingDb.getResults' join.
 router.get('/:lessonId/results', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.lessonId)
-        const rows     = await markingDb.getResults(lessonId, req.user.id)
-        const results  = rows.map(r => ({
+        const rows      = await markingDb.getResults(lessonId, req.user.id)
+        const results   = rows.map(r => ({
             studentId: r.student_id,
             markedAt:  r.marked_at,
             result:    JSON.parse(r.student_grade),
@@ -188,7 +236,8 @@ router.get('/:lessonId/results', async (req, res, next) => {
     }
 })
 
-// POST /lessons/:lessonId/mark-student — upload student work, get AI marking, persist result
+// POST /lessons/:lessonId/mark-student — upload one student's work, get AI
+// marking against the already-extracted scheme, persist the result.
 router.post('/:lessonId/mark-student',
     upload.fields([{ name: 'studentWork', maxCount: 1 }]),
     makeFileSecurity(STUDENT_MARK_SLOTS),
@@ -199,10 +248,10 @@ router.post('/:lessonId/mark-student',
 
         if (!studentId) return res.status(400).json({ error: 'Student ID is required' })
 
-        const ocrRow   = await lessonDb.getOcrText(lessonId, req.user.id)
+        const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
         if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
         const question = ocrRow.question ?? ''
-        const scheme   = resolveScheme(ocrRow)
+        const scheme    = resolveScheme(ocrRow)
 
         const valid = await markingDb.validateStudent(studentId, lessonId, req.user.id)
         if (!valid) return res.status(404).json({ error: 'Student not found in this lesson' })

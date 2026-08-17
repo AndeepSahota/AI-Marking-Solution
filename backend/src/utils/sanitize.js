@@ -61,15 +61,18 @@ export function safeText(value, { maxLength = 5000, fallback = '' } = {}) {
  * Sanitize the full AI marking result.
  *
  * Enforces the exact schema expected by the frontend:
- *   { score, maxScore, percentage, breakdown[], feedback }
+ *   { score, maxScore, percentage, breakdown[], strengths[], improvements[],
+ *     actionableSteps[], teacherReviewRequired, questionMismatch,
+ *     questionMismatchReason, studentOcrText, annotations[] }
  *
  * Any field the AI returns that isn't listed here is dropped.
  * Any field that is the wrong type is coerced to the right type.
- * This is the point to extend when the real model adds new fields
- * (e.g. ocrText, criteriaDetails, etc.).
+ * This is the point to extend when the model's response shape changes again.
  *
  * @param {unknown} raw - The raw parsed JSON from the AI service.
- * @returns {{ score, maxScore, percentage, breakdown, feedback }}
+ * @returns {{ score, maxScore, percentage, breakdown, strengths, improvements,
+ *   actionableSteps, teacherReviewRequired, questionMismatch,
+ *   questionMismatchReason, studentOcrText, annotations }}
  * @throws {Error} if `raw` is not an object (caller will catch and return 500).
  */
 export function sanitizeAIResult(raw) {
