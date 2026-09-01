@@ -63,7 +63,8 @@ export function safeText(value, { maxLength = 5000, fallback = '' } = {}) {
  * Enforces the exact schema expected by the frontend:
  *   { score, maxScore, percentage, breakdown[], strengths[], improvements[],
  *     actionableSteps[], teacherReviewRequired, questionMismatch,
- *     questionMismatchReason, studentOcrText, annotations[] }
+ *     questionMismatchReason, studentOcrText, annotations[], confidence,
+ *     lowConfidenceWords[], missingAos[] }
  *
  * Any field the AI returns that isn't listed here is dropped.
  * Any field that is the wrong type is coerced to the right type.
@@ -72,7 +73,8 @@ export function safeText(value, { maxLength = 5000, fallback = '' } = {}) {
  * @param {unknown} raw - The raw parsed JSON from the AI service.
  * @returns {{ score, maxScore, percentage, breakdown, strengths, improvements,
  *   actionableSteps, teacherReviewRequired, questionMismatch,
- *   questionMismatchReason, studentOcrText, annotations }}
+ *   questionMismatchReason, studentOcrText, annotations, confidence,
+ *   lowConfidenceWords, missingAos }}
  * @throws {Error} if `raw` is not an object (caller will catch and return 500).
  */
 export function sanitizeAIResult(raw) {
@@ -117,6 +119,14 @@ export function sanitizeAIResult(raw) {
     const questionMismatch       = raw.question_mismatch === true
     const questionMismatchReason = safeText(raw.question_mismatch_reason ?? '', { maxLength: 500 })
 
+    // From self-consistency (marking the same essay n times, n>1) — how much
+    // the samples agreed, not a type coerced-to-0 the way safeInt would: a
+    // genuinely absent/unmeasurable confidence (e.g. only one sample came
+    // back usable) stays null rather than silently reading as "0% confident".
+    const confidence = typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
+        ? Math.max(0, Math.min(1, raw.confidence))
+        : null
+
     const studentOcrText = safeText(raw.student_ocr_text ?? '', { maxLength: 20000 })
 
     // Evidence is nested inside each AO's "evidence" array in the AI's response
@@ -141,5 +151,30 @@ export function sanitizeAIResult(raw) {
               .slice(0, 20)
         : []
 
-    return { score, maxScore, percentage, breakdown, strengths, improvements, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, annotations }
+    // Words Datalab's OCR wasn't confident it read correctly — surfaced so
+    // the teacher knows specifically what to double-check against the
+    // original handwriting, not just that "something" might be off.
+    const lowConfidenceWords = Array.isArray(raw.low_confidence_words)
+        ? raw.low_confidence_words
+              .filter(w => w && typeof w === 'object' && typeof w.word === 'string')
+              .map(w => ({
+                  word:       safeText(w.word, { maxLength: 100 }),
+                  confidence: typeof w.confidence === 'number' && Number.isFinite(w.confidence)
+                      ? Math.max(0, Math.min(1, w.confidence))
+                      : 0,
+              }))
+              .slice(0, 50)
+        : []
+
+    // AO codes the mark scheme required that never appeared as their own
+    // entry in rubric_breakdown at all — distinct from a present-but-
+    // unevidenced AO (already caught via teacherReviewRequired).
+    const missingAos = Array.isArray(raw.missing_aos)
+        ? raw.missing_aos
+              .filter(ao => ao && typeof ao === 'string')
+              .map(ao => safeText(ao, { maxLength: 50 }))
+              .slice(0, 20)
+        : []
+
+    return { score, maxScore, percentage, breakdown, strengths, improvements, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, annotations, confidence, lowConfidenceWords, missingAos }
 }

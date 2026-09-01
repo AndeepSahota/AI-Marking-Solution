@@ -39,7 +39,11 @@ function ResultCard({ result }) {
           </svg>
           <div>
             <strong>Teacher review recommended</strong>
-            <span> — The AI was less than 80% confident in this result. Please check the mark before returning it to the student.</span>
+            {result.confidence != null ? (
+              <span> — marking this essay 3 times independently only agreed {Math.round(result.confidence * 100)}% of the time. Please check the mark before returning it to the student.</span>
+            ) : (
+              <span> — the AI flagged this result as uncertain. Please check the mark before returning it to the student.</span>
+            )}
           </div>
         </div>
       )}
@@ -59,6 +63,31 @@ function ResultCard({ result }) {
           </div>
         </div>
       )}
+
+      {result.missingAos?.length > 0 && (
+        <div className="result-missing-ao-warning">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <div>
+            <strong>Assessment Objective{result.missingAos.length === 1 ? '' : 's'} not assessed</strong>
+            <span> — the mark scheme requires {result.missingAos.join(', ')}, but the AI's breakdown didn't include {result.missingAos.length === 1 ? 'it' : 'them'} at all. Please check the mark before returning it to the student.</span>
+          </div>
+        </div>
+      )}
+
+      {result.lowConfidenceWords?.length > 0 && (
+        <div className="result-ocr-warning">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <div>
+            <strong>Possible OCR misreads</strong>
+            <span> — the scanner wasn't confident it read {result.lowConfidenceWords.length === 1 ? 'this word' : 'these words'} correctly: {result.lowConfidenceWords.map(w => `"${w.word}"`).join(', ')}. Please check against the original handwriting before relying on this mark.</span>
+          </div>
+        </div>
+      )}
       <div className="result-header">
         <div className="result-title-group">
           <span className="result-label">Marking Result</span>
@@ -67,6 +96,11 @@ function ResultCard({ result }) {
         <div className="result-grade-group">
           <span className={getBadgeClass(percentage)}>{getGradeLabel(percentage)}</span>
           <span className="result-grade-note">Boundaries vary by paper & year</span>
+          {result.confidence != null && (
+            <span className="result-grade-note">
+              {Math.round(result.confidence * 100)}% consistent across 3 marking passes
+            </span>
+          )}
         </div>
       </div>
 

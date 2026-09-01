@@ -62,6 +62,19 @@ const textParam = (name, length, value) => {
     return { name, type: sql.NVarChar(length), value }
 }
 
+// Raw file bytes — VARBINARY(MAX) columns like lessons.mark_scheme_file and
+// student_files.file_content. Interim storage in the database; the column
+// itself doesn't need to change when this later moves to Blob Storage.
+// null is allowed (not just Buffer) — bulk-mark's per-student PDF sections
+// never leave the ai-service process, so there's genuinely no file to save
+// on that path; the column stays NULL for those rows, same as it is today.
+const bufferParam = (name, value) => {
+    if (value !== null && !Buffer.isBuffer(value)) {
+        throw new TypeError(`${name} must be a Buffer or null`)
+    }
+    return { name, type: sql.VarBinary(sql.MAX), value }
+}
+
 // Execute against either the shared pool or an mssql Transaction. Accessor
 // method signatures remain unchanged: methods use the pool by default, while
 // transactional callers pass their Transaction as the optional executor `e`.
@@ -143,7 +156,7 @@ const SQL_LESSON_CLASS_CHECK = `
 // once here, reused by every endpoint that needs any piece of this data
 // (GET /:id/ocr, GET /:id/questions) rather than each running its own query.
 const SQL_LESSON_OCR_TEXT = `
-    SELECT t.ocr_text, t.structured_scheme, t.selected_question_index, l.question
+    SELECT t.ocr_text, t.structured_scheme, t.selected_question_indices, l.question
     FROM dbo.teacher_ocr AS t
     JOIN dbo.lessons AS l ON t.lesson_id = l.id
     JOIN dbo.classes AS c ON l.class_id = c.id
@@ -186,19 +199,19 @@ export const lessonDb = {
             intParam('teacherId', teacherId),
         ])).recordset[0],
 
-    // Saves which question index the teacher selected for a multi-question paper.
-    // Ownership enforced via the same lessons -> classes -> teacher_id join used
-    // everywhere else in this file, not just trusted from the request.
-    updateSelectedQuestion: async (lessonId, teacherId, index, e = pool) =>
+    // Saves which question indices the teacher selected for a multi-question
+    // paper, as a JSON array. Ownership enforced via the same lessons ->
+    // classes -> teacher_id join used everywhere else in this file.
+    updateSelectedQuestion: async (lessonId, teacherId, indices, e = pool) =>
         exec(e, `
             UPDATE t
-            SET t.selected_question_index = @index
+            SET t.selected_question_indices = @indices
             FROM dbo.teacher_ocr AS t
             JOIN dbo.lessons AS l ON t.lesson_id = l.id
             JOIN dbo.classes AS c ON l.class_id = c.id
             WHERE l.id = @lessonId AND c.teacher_id = @teacherId
         `, [
-            intParam('index', index),
+            textParam('indices', sql.MAX, JSON.stringify(indices)),
             intParam('lessonId', lessonId),
             intParam('teacherId', teacherId),
         ]),
@@ -207,7 +220,7 @@ export const lessonDb = {
     // comes from the mark-scheme extraction step (main.py's /ocr, via
     // extract_mark_scheme) — stored so per-student marking calls can reuse it
     // instead of re-extracting.
-    createLesson: async (lessonTitle, classId, fileName, mimeType, ocrText, question, structuredScheme) =>
+    createLesson: async (lessonTitle, classId, fileName, mimeType, fileBuffer, ocrText, question, structuredScheme) =>
         inTransaction(async (transaction) => {
             const lesson = (await exec(transaction, `
                 INSERT INTO dbo.lessons (
@@ -215,15 +228,17 @@ export const lessonDb = {
                     class_id,
                     mark_scheme_file_name,
                     mark_scheme_mime_type,
+                    mark_scheme_file,
                     question
                 )
                 OUTPUT INSERTED.id
-                VALUES (@lessonTitle, @classId, @fileName, @mimeType, @question)
+                VALUES (@lessonTitle, @classId, @fileName, @mimeType, @fileBuffer, @question)
             `, [
                 textParam('lessonTitle', 255, lessonTitle),
                 intParam('classId', classId),
                 textParam('fileName', 255, fileName),
                 textParam('mimeType', 100, mimeType),
+                bufferParam('fileBuffer', fileBuffer),
                 textParam('question', sql.MAX, question ?? ''),
             ])).recordset[0]
 
@@ -271,7 +286,7 @@ export const markingDb = {
     // Transaction: upsert a student's mark — delete any previous result for
     // this student/lesson pair (re-marking replaces, it doesn't accumulate),
     // then insert the new file, OCR, and grade rows in FK order.
-    markStudent: async (studentId, lessonId, fileName, mimeType, ocrText, gradeJson) =>
+    markStudent: async (studentId, lessonId, fileName, mimeType, fileBuffer, ocrText, gradeJson) =>
         inTransaction(async (transaction) => {
             const existing = (await exec(transaction, `
                 SELECT mr.ocr_id, so.file_id
@@ -302,14 +317,15 @@ export const markingDb = {
             }
 
             const file = (await exec(transaction, `
-                INSERT INTO dbo.student_files (student_id, lesson_id, file_name, mime_type)
+                INSERT INTO dbo.student_files (student_id, lesson_id, file_name, mime_type, file_content)
                 OUTPUT INSERTED.id
-                VALUES (@studentId, @lessonId, @fileName, @mimeType)
+                VALUES (@studentId, @lessonId, @fileName, @mimeType, @fileBuffer)
             `, [
                 intParam('studentId', studentId),
                 intParam('lessonId', lessonId),
                 textParam('fileName', 255, fileName),
                 textParam('mimeType', 100, mimeType),
+                bufferParam('fileBuffer', fileBuffer),
             ])).recordset[0]
 
             const ocr = (await exec(transaction, `

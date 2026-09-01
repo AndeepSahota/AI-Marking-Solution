@@ -165,12 +165,12 @@ export async function deleteStudent(classId, studentId) {
 // attaches the httpOnly aimira_token cookie automatically.
 // The token never touches JavaScript — it is set and cleared by the backend.
 
-export async function selectQuestion(lessonId, selectedQuestionIndex) {
+export async function selectQuestion(lessonId, selectedQuestionIndices) {
     const response = await fetch(`${API_BASE}/lessons/${lessonId}/select-question`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ selectedQuestionIndex }),
+        body: JSON.stringify({ selectedQuestionIndices }),
     })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Failed to select question')

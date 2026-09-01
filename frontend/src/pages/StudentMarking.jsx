@@ -7,6 +7,11 @@ import {
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
 
+// Bulk upload (whole-class PDF split + fuzzy name-matching) — kept, not
+// removed. Backend route and ai-service endpoint are still live; this just
+// hides the entry point until we're ready to progress with it.
+const SHOW_BULK_UPLOAD = false
+
 const CIRCUMFERENCE = 2 * Math.PI * 26 // r=26 → ≈163.4
 
 function ProgressRing({ marked, total }) {
@@ -202,7 +207,7 @@ function StudentMarking() {
       />
 
       {/* Bulk upload modal */}
-      {bulkModal && (
+      {SHOW_BULK_UPLOAD && bulkModal && (
         <div className="bulk-modal-overlay" onClick={closeBulkModal}>
           <div className="bulk-modal" onClick={e => e.stopPropagation()}>
             <div className="bulk-modal-header">
@@ -284,9 +289,11 @@ function StudentMarking() {
           <h2 className="marking-class-name">{lesson?.class_name ?? '…'}</h2>
         </div>
 
-        <button className="bulk-upload-btn" onClick={() => setBulkModal(true)}>
-          Bulk upload
-        </button>
+        {SHOW_BULK_UPLOAD && (
+          <button className="bulk-upload-btn" onClick={() => setBulkModal(true)}>
+            Bulk upload
+          </button>
+        )}
 
         <ProgressRing marked={markedCount} total={students.length} />
       </div>

@@ -177,7 +177,7 @@ outside the JSON. Just the JSON object.
 """
 
 
-def build_user_prompt(question, essay, rubric, exemplars=None):
+def build_user_prompt(question, essay, rubric, exemplars=None, other_questions=None):
     if question:
         question_section = f"QUESTION:\n{question}"
     else:
@@ -186,6 +186,26 @@ def build_user_prompt(question, essay, rubric, exemplars=None):
             "[Not provided — read the mark scheme below to determine what question "
             "is being assessed, then mark accordingly]"
         )
+
+    # Only relevant when this essay is being marked against more than one
+    # selected question — tells the model the other question(s) it should
+    # NOT be marking right now, so it can identify where in the essay this
+    # question's answer actually starts and ends before marking only that part.
+    segmentation_section = ""
+    if other_questions:
+        other_list = "\n".join(f"- {q}" for q in other_questions)
+        segmentation_section = f"""
+IMPORTANT — MULTIPLE QUESTIONS IN ONE RESPONSE:
+This single student response may contain answers to more than one question.
+You are marking ONLY the question below — do not mark or award marks for any
+other question. The other question(s) answered in this same response are:
+{other_list}
+
+Before marking, identify and quote the portion of the response that answers
+THIS question specifically, distinguishing it from any other question's
+answer, and place it in "answer_excerpt". Then mark only that portion against
+the rubric below.
+"""
 
     exemplar_section = ""
     if exemplars:
@@ -207,7 +227,7 @@ def build_user_prompt(question, essay, rubric, exemplars=None):
 
     return f"""
 Please mark the following student response.
-
+{segmentation_section}
 MARK SCHEME / RUBRIC:
 {rubric}
 {exemplar_section}
@@ -242,7 +262,8 @@ Return your response as a JSON object with exactly this structure:
     ],
     "teacher_review_required": <true if you are less than 80% confident, else false>,
     "question_mismatch": <true if the provided question clearly does not match the mark scheme, else false>,
-    "question_mismatch_reason": <one sentence explaining the mismatch, or null if no mismatch>
+    "question_mismatch_reason": <one sentence explaining the mismatch, or null if no mismatch>,
+    "answer_excerpt": <if instructed above to identify which part of the response answers this specific question, the quoted portion you identified — otherwise null>
 }}
 
 EVIDENCE RULES:

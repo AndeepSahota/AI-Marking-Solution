@@ -87,3 +87,17 @@ def log_marking_filtered() -> None:
 
 def log_marking_empty() -> None:
     logger.error("[MARKING] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")
+
+
+def log_marking_scheme_mismatch(extracted_marks, detected_max) -> None:
+    logger.warning(
+        f"[MARKING] max_score_detected ({detected_max}) doesn't match this question's "
+        f"extracted marks ({extracted_marks}) — flagged for teacher review"
+    )
+
+
+def log_marking_missing_aos(missing_aos: list[str]) -> None:
+    logger.warning(
+        f"[MARKING] rubric_breakdown is missing {len(missing_aos)} AO(s) required by "
+        f"the mark scheme: {missing_aos} — flagged for teacher review"
+    )

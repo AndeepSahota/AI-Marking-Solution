@@ -1,0 +1,5 @@
+# Dev/test tooling only — never installed into the production Docker image
+# (that only ever reads requirements.txt). Keeps the runtime image lean and
+# out of pytest/ruff's own dependency/security surface.
+pytest==9.1.1
+ruff==0.16.5

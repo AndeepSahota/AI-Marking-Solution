@@ -61,6 +61,8 @@ function Home() {
   const [progress, setProgress]             = useState(0)
   const [progressLabel, setProgressLabel]   = useState('')
   const [error, setError]                   = useState(null)
+  const [schemeWarnings, setSchemeWarnings] = useState(null)
+  const [pendingResult, setPendingResult]   = useState(null)
   const fileInputRef = useRef(null)
   const navigate = useNavigate()
 
@@ -83,7 +85,7 @@ function Home() {
     setError(null)
   }
 
-  const handleProgressEvent = (event, totalPagesRef) => {
+  const handleProgressEvent = (event, totalPagesRef, warningsRef) => {
     if (event.type === 'security_pass') {
       setProgress(PROGRESS.security_pass)
       setProgressLabel(PROGRESS_LABELS.security_pass)
@@ -102,6 +104,13 @@ function Home() {
       setProgressLabel(
         PROGRESS_LABELS.ocr_page.replace('{index}', event.index).replace('{total}', total)
       )
+    } else if (event.type === 'extraction_warning') {
+      // Doesn't stop the flow — the lesson still gets created either way —
+      // but held onto here (a ref, not just state) so handleBeginMarking can
+      // check it synchronously the moment the stream finishes, before ever
+      // deciding whether to navigate away.
+      warningsRef.current = event.warnings
+      setSchemeWarnings(event.warnings)
     } else if (event.type === 'done') {
       setProgress(100)
       setProgressLabel(PROGRESS_LABELS.done)
@@ -119,17 +128,29 @@ function Home() {
 
     setLoading(true)
     setError(null)
+    setSchemeWarnings(null)
+    setPendingResult(null)
     setProgress(0)
     setProgressLabel('Running security checks…')
 
     const totalPagesRef = { current: 1 }
+    const warningsRef    = { current: null }
     try {
       const result = await createLesson(
         selectedClassId,
         question.trim(),
         markScheme,
-        (event) => handleProgressEvent(event, totalPagesRef)
+        (event) => handleProgressEvent(event, totalPagesRef, warningsRef)
       )
+
+      // The lesson is already created either way — this just decides whether
+      // to walk straight on, or stop and let the teacher actually read the
+      // warning and choose, rather than navigating past it before they can.
+      if (warningsRef.current) {
+        setLoading(false)
+        setPendingResult(result)
+        return
+      }
 
       if (result.has_multiple_questions) {
         navigate(`/select-question/${result.id}`)
@@ -369,28 +390,67 @@ function Home() {
 
           {error && <p className="home-error">{error}</p>}
 
-          {loading && (
-            <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
-              <div className="ocr-progress-track">
-                <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="ocr-progress-meta">
-                <span className="ocr-progress-label">{progressLabel}</span>
-                <span className="ocr-progress-value">{Math.round(progress)}%</span>
+          {pendingResult ? (
+            <div className="home-error">
+              <strong>This mark scheme's marks don't quite add up:</strong>
+              <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+                {schemeWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+              <p style={{ margin: '6px 0' }}>
+                You can continue anyway, or upload a different file and try again.
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="home-begin-btn"
+                  onClick={() => {
+                    const r = pendingResult
+                    setPendingResult(null)
+                    if (r.has_multiple_questions) navigate(`/select-question/${r.id}`)
+                    else navigate(`/student-marking/${r.id}`)
+                  }}
+                >
+                  Continue anyway
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingResult(null)
+                    setSchemeWarnings(null)
+                    setMarkScheme(null)
+                    if (fileInputRef.current) fileInputRef.current.value = ''
+                  }}
+                >
+                  Try a different file
+                </button>
               </div>
             </div>
-          )}
+          ) : (
+            <>
+              {loading && (
+                <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+                  <div className="ocr-progress-track">
+                    <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="ocr-progress-meta">
+                    <span className="ocr-progress-label">{progressLabel}</span>
+                    <span className="ocr-progress-value">{Math.round(progress)}%</span>
+                  </div>
+                </div>
+              )}
 
-          <button
-            className="home-begin-btn"
-            onClick={handleBeginMarking}
-            disabled={loading}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
-            </svg>
-            <span>{loading ? 'Analysing mark scheme…' : 'Begin marking'}</span>
-          </button>
+              <button
+                className="home-begin-btn"
+                onClick={handleBeginMarking}
+                disabled={loading}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
+                </svg>
+                <span>{loading ? 'Analysing mark scheme…' : 'Begin marking'}</span>
+              </button>
+            </>
+          )}
         </section>
       </div>
 

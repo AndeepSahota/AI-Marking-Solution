@@ -10,7 +10,7 @@ import { sanitiseOcrText } from '../middleware/inputSecurity.js'
 import {
     logOcrStart, logFileInfo, logAiDispatched,
     logOcrFileType, logOcrDims, logOcrPage,
-    logOcrDone, logOcrFailed,
+    logOcrDone, logOcrFailed, logExtractionWarning,
 } from '../logging/ocrLogger.js'
 
 const router = express.Router()
@@ -28,21 +28,26 @@ const bulkUpload = multer({
 const SLOTS = [{ field: 'markScheme', label: 'Mark Scheme' }]
 const STUDENT_MARK_SLOTS = [{ field: 'studentWork', label: 'Student Work' }]
 
-// Picks out the question-specific slice of structured_scheme the teacher
-// selected on the question-picker page, so only that question's AOs/bands go
+// Picks out the question-specific slices of structured_scheme the teacher
+// selected on the question-picker page, so only those questions' AOs/bands go
 // to the LLM — not the whole paper — for multi-question mark schemes. Falls
 // back to the raw OCR text if there's no structured_scheme to parse at all.
-function resolveScheme(ocrRow) {
-    if (!ocrRow.structured_scheme) return ocrRow.ocr_text
+// Returns an array — one { index, scheme } entry per selected question, even
+// for the single-question case (an array of one) — so every caller loops
+// the same way regardless of how many questions were selected.
+function resolveSelectedQuestions(ocrRow) {
+    if (!ocrRow.structured_scheme) return [{ index: 0, scheme: ocrRow.ocr_text }]
     let parsed
-    try { parsed = JSON.parse(ocrRow.structured_scheme) } catch { return ocrRow.structured_scheme }
+    try { parsed = JSON.parse(ocrRow.structured_scheme) } catch { return [{ index: 0, scheme: ocrRow.structured_scheme }] }
 
     const questions = parsed.questions
-    if (!Array.isArray(questions) || questions.length === 0) return ocrRow.structured_scheme
+    if (!Array.isArray(questions) || questions.length === 0) return [{ index: 0, scheme: ocrRow.structured_scheme }]
 
-    const idx = ocrRow.selected_question_index ?? 0
-    const question = questions[idx] ?? questions[0]
-    return JSON.stringify(question)
+    let indices
+    try { indices = ocrRow.selected_question_indices ? JSON.parse(ocrRow.selected_question_indices) : null } catch { indices = null }
+    if (!Array.isArray(indices) || indices.length === 0) indices = [0]   // same default as the old `?? 0`
+
+    return indices.map(idx => ({ index: idx, scheme: JSON.stringify(questions[idx] ?? questions[0]) }))
 }
 
 // GET /lessons — all lessons belonging to the logged-in teacher, newest first.
@@ -109,11 +114,11 @@ router.get('/:id/questions', async (req, res, next) => {
 router.patch('/:id/select-question', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.id)
-        const { selectedQuestionIndex } = req.body
-        if (selectedQuestionIndex === undefined || selectedQuestionIndex === null) {
-            return res.status(400).json({ error: 'selectedQuestionIndex is required' })
+        const { selectedQuestionIndices } = req.body
+        if (!Array.isArray(selectedQuestionIndices) || selectedQuestionIndices.length === 0) {
+            return res.status(400).json({ error: 'selectedQuestionIndices must be a non-empty array' })
         }
-        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex)
+        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndices)
         res.json({ ok: true })
     } catch (err) {
         next(err)
@@ -176,6 +181,16 @@ router.post('/',
 
             logOcrDone(req, meta?.page_count ?? stages.length, meta?.total_chars ?? 0, Date.now() - ocrStart)
 
+            // Pure arithmetic on the extracted structure itself (e.g. total_marks
+            // doesn't match what the per-question breakdown sums to) — surfaced
+            // immediately, while the teacher can still easily re-upload if the
+            // mark scheme was genuinely misread. Not persisted — this is a
+            // point-in-time check shown once at upload, not stored on the lesson.
+            if (ocrResult.extraction_warnings?.length) {
+                logExtractionWarning(req, ocrResult.extraction_warnings)
+                emit({ type: 'extraction_warning', warnings: ocrResult.extraction_warnings })
+            }
+
             const lessonTitle      = file.originalname.replace(/\.[^.]+$/, '')
             const cleanOcrText     = sanitiseOcrText(ocrResult.text ?? '')
             const question         = (req.body.question ?? '').trim()
@@ -184,7 +199,7 @@ router.post('/',
                 : ''
 
             const lessonId = await lessonDb.createLesson(
-                lessonTitle, classId, file.originalname, file.mimetype, cleanOcrText, question, structuredScheme
+                lessonTitle, classId, file.originalname, file.mimetype, file.buffer, cleanOcrText, question, structuredScheme
             )
 
             // Just enough to decide where Home.jsx navigates next — the full
@@ -251,7 +266,10 @@ router.post('/:lessonId/mark-student',
         const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
         if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
         const question = ocrRow.question ?? ''
-        const scheme    = resolveScheme(ocrRow)
+        // Interim: only marks the first selected question until markingDb
+        // (Phase 5) supports storing a result per selected question. Wrapped
+        // in an array since getMarkFromAIWithSchemeText always takes a list.
+        const questions = [resolveSelectedQuestions(ocrRow)[0]]
 
         const valid = await markingDb.validateStudent(studentId, lessonId, req.user.id)
         if (!valid) return res.status(404).json({ error: 'Student not found in this lesson' })
@@ -264,12 +282,13 @@ router.post('/:lessonId/mark-student',
         const file = req.files.studentWork[0]
 
         try {
-            const aiResult  = await getMarkFromAIWithSchemeText(file, scheme, question)
+            const aiResults = await getMarkFromAIWithSchemeText(file, questions, question, ocrRow.ocr_text ?? '')
+            const aiResult  = aiResults[0]
             const sanitized = sanitizeAIResult(aiResult)
 
             await markingDb.markStudent(
                 studentId, lessonId,
-                file.originalname, file.mimetype,
+                file.originalname, file.mimetype, file.buffer,
                 aiResult.student_ocr_text ?? '',
                 JSON.stringify(sanitized)
             )
@@ -302,7 +321,9 @@ router.post('/:lessonId/bulk-mark',
 
         const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
         if (!ocrRow) return res.status(404).json({ error: 'Lesson not found' })
-        const bulkScheme = resolveScheme(ocrRow)
+        // Bulk-mark doesn't support multiple selected questions — always
+        // marks against the first one only.
+        const bulkScheme = resolveSelectedQuestions(ocrRow)[0].scheme
 
         const lessonClass = await lessonDb.getClassId(lessonId, req.user.id)
         if (!lessonClass) return res.status(404).json({ error: 'Lesson class not found' })
@@ -325,6 +346,7 @@ router.post('/:lessonId/bulk-mark',
         })
         form.append('scheme_text',       bulkScheme)
         form.append('question',          ocrRow.question ?? '')
+        form.append('mark_scheme_text',  ocrRow.ocr_text ?? '')
         form.append('pages_per_student', String(pagesPerStudent))
         form.append('students',          JSON.stringify(students.map(s => ({ id: s.id, name: s.student_name }))))
 
@@ -360,7 +382,7 @@ router.post('/:lessonId/bulk-mark',
                     const sanitized = sanitizeAIResult(event)
                     await markingDb.markStudent(
                         event.student_id, lessonId,
-                        'bulk_upload.pdf', 'application/pdf',
+                        'bulk_upload.pdf', 'application/pdf', null,   // per-student PDF section never leaves the ai-service process
                         event.student_ocr_text ?? '',
                         JSON.stringify(sanitized)
                     )

@@ -2006,6 +2006,42 @@ body::after {
   stroke: #ef4444;
 }
 
+.result-missing-ao-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.result-missing-ao-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  stroke: #ef4444;
+}
+
+.result-ocr-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(59, 130, 246, 0.1);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.result-ocr-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  stroke: #3b82f6;
+}
+
 .result-header {
   padding: 28px 28px 20px;
   border-bottom: 1px solid var(--border);

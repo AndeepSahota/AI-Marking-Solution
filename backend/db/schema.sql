@@ -121,6 +121,19 @@ BEGIN
 END;
 GO
 
+-- Added later: the actual mark scheme file bytes. Previously only the file's
+-- name/type were kept (mark_scheme_file_name/mark_scheme_mime_type) — the
+-- upload itself was used once for OCR, then discarded. NULL by default so
+-- existing lessons (uploaded before this column existed) are unaffected.
+-- Interim storage until this moves to Blob Storage — kept in the database
+-- for now, same column either way from the app's point of view.
+IF COL_LENGTH('dbo.lessons', 'mark_scheme_file') IS NULL
+BEGIN
+    ALTER TABLE dbo.lessons
+        ADD mark_scheme_file VARBINARY(MAX) NULL;
+END;
+GO
+
 /* ---- File & OCR tables ---------------------------------------------------- */
 IF OBJECT_ID(N'dbo.student_files', N'U') IS NULL
 BEGIN
@@ -133,6 +146,15 @@ BEGIN
         uploaded_at NVARCHAR(30)  NOT NULL
             CONSTRAINT DF_student_files_uploaded_at DEFAULT (CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120))
     );
+END;
+GO
+
+-- Added later: the actual student essay file bytes — same reasoning as
+-- lessons.mark_scheme_file above. NULL by default; existing rows unaffected.
+IF COL_LENGTH('dbo.student_files', 'file_content') IS NULL
+BEGIN
+    ALTER TABLE dbo.student_files
+        ADD file_content VARBINARY(MAX) NULL;
 END;
 GO
 
@@ -181,6 +203,16 @@ IF COL_LENGTH('dbo.teacher_ocr', 'selected_question_index') IS NULL
 BEGIN
     ALTER TABLE dbo.teacher_ocr
         ADD selected_question_index INT NULL;
+END;
+GO
+
+-- Added later: replaces selected_question_index for multi-question support —
+-- a JSON array of indices (e.g. "[0,2]") instead of one number. The old
+-- column is left in place, unused, rather than dropped (add-only migrations).
+IF COL_LENGTH('dbo.teacher_ocr', 'selected_question_indices') IS NULL
+BEGIN
+    ALTER TABLE dbo.teacher_ocr
+        ADD selected_question_indices NVARCHAR(MAX) NULL;
 END;
 GO
 

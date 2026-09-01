@@ -39,3 +39,8 @@ class MarkingResult(StrictBaseModel):
     teacher_review_required: bool
     question_mismatch: bool
     question_mismatch_reason: str | None
+    # Only filled in when this essay is being marked against one of several
+    # selected questions sharing the same response — the portion of the essay
+    # the model identified as answering THIS question, so that attribution is
+    # checkable rather than assumed. Null for the ordinary single-question case.
+    answer_excerpt: str | None

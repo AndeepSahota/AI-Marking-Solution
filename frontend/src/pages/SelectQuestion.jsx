@@ -13,7 +13,12 @@ function SelectQuestion() {
   const [questions, setQuestions] = useState(null)
   const [error, setError] = useState(null)
   const [notFound, setNotFound] = useState(false)
+  const [selectedIndices, setSelectedIndices] = useState(new Set())
   const [pickingQuestion, setPickingQuestion] = useState(false)
+
+  
+
+
 
   useEffect(() => {
     if (!lessonId) { navigate('/', { replace: true }); return }
@@ -28,17 +33,26 @@ function SelectQuestion() {
     return null
   }
 
-  const handleSelectQuestion = async (index) => {
-    if (pickingQuestion) return
+  const toggleQuestion = (index) => {
+    setSelectedIndices(prev => {
+      const next = new Set(prev)
+      next.has(index) ? next.delete(index) : next.add(index)
+      return next
+    })
+  }
+  
+  const handleConfirm = async () => {
+    if (selectedIndices.size === 0 || pickingQuestion) return
     setPickingQuestion(true)
     try {
-      await selectQuestion(lessonId, index)
+      await selectQuestion(lessonId, [...selectedIndices])
       navigate(`/student-marking/${lessonId}`)
     } catch (err) {
       setError(err.message)
       setPickingQuestion(false)
     }
   }
+  
 
   return (
     <div className="home-page">
@@ -80,8 +94,9 @@ function SelectQuestion() {
                 {questions.map((q, i) => (
                   <button
                     key={i}
-                    className={`question-card${pickingQuestion ? ' question-card--disabled' : ''}`}
-                    onClick={() => handleSelectQuestion(i)}
+                    className={`question-card${selectedIndices.has(i) ? ' is-selected' : ''}${pickingQuestion ? ' question-card--disabled' : ''}`}
+                    onClick={() => toggleQuestion(i)}
+
                     disabled={pickingQuestion}
                   >
                     <span className="question-card-number">{q.question_number}</span>
@@ -90,6 +105,13 @@ function SelectQuestion() {
                   </button>
                 ))}
               </div>
+              {selectedIndices.size > 0 && (
+                <button className="bulk-start-btn" onClick={handleConfirm} disabled={pickingQuestion}>
+                  Confirm selection ({selectedIndices.size})
+                </button>
+              )}
+
+
             </>
           )}
         </section>

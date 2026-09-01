@@ -1,4 +1,5 @@
 import os
+import json
 from openai import OpenAI, LengthFinishReasonError, ContentFilterFinishReasonError
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
@@ -14,6 +15,8 @@ from observability.event_log import (
     log_marking_truncated,
     log_marking_filtered,
     log_marking_empty,
+    log_marking_scheme_mismatch,
+    log_marking_missing_aos,
 )
 
 
@@ -68,6 +71,10 @@ load_dotenv()
 # It automatically looks for OPEN_AI_KEY in your enviroment variables
 # This is why the key is never hardcoded - it is pulled securly from .env
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _normalize_ao(name: str) -> str:
+    return (name or "").strip().casefold()
 
 
 def extract_mark_scheme(scheme_text, expected_token):
@@ -134,8 +141,8 @@ def extract_mark_scheme(scheme_text, expected_token):
 # inspected individually — so unlike a per-choice refusal or token mismatch,
 # either of those aborts the ENTIRE batch, not just one sample. Not yet
 # confirmed against a real n>1 response that actually hits this path.
-def _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature, n):
-    user_prompt = build_user_prompt(question, essay, rubric, exemplars=exemplars)
+def _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature, n, other_questions=None):
+    user_prompt = build_user_prompt(question, essay, rubric, exemplars=exemplars, other_questions=other_questions)
 
     try:
         response = client.chat.completions.parse(
@@ -188,6 +195,41 @@ def _mark_samples(question, essay, rubric, expected_token, max_score, exemplars,
         )
         results["maxScore"] = detected_max
 
+        # Cross-check against what extraction already determined for this
+        # specific question — catches the marking-time model misreading or
+        # miscalculating even when handed the correct number. Narrower than
+        # an extraction-time misread (main.py's _check_scheme_consistency
+        # catches that instead) since this only re-reads the already-
+        # extracted JSON, not the original document — see the plan notes on
+        # why the two aren't as independent as they first sound.
+        try:
+            scheme = json.loads(rubric)
+        except Exception:
+            scheme = {}
+
+        extracted_marks = scheme.get("marks")
+        if extracted_marks is not None and extracted_marks != detected_max:
+            log_marking_scheme_mismatch(extracted_marks, detected_max)
+            results["teacher_review_required"] = True
+
+        # Completeness check: every AO the mark scheme lists must appear as
+        # its own rubric_breakdown entry — the evidence check below only
+        # validates what already made it into breakdown, not what's missing
+        # from it entirely. "General" (points-based schemes with no real
+        # AOs) is skipped — it's a placeholder meaning "no real AOs," not a
+        # code the prompt tells the model to echo back verbatim.
+        scheme_aos      = [ao.get("ao", "") for ao in scheme.get("assessment_objectives", []) if ao.get("ao")]
+        is_general_only = len(scheme_aos) == 1 and _normalize_ao(scheme_aos[0]) == "general"
+
+        missing_aos = []
+        if scheme_aos and not is_general_only:
+            returned_aos = {_normalize_ao(ao.get("criterion", "")) for ao in breakdown}
+            missing_aos  = [ao for ao in scheme_aos if _normalize_ao(ao) not in returned_aos]
+            if missing_aos:
+                log_marking_missing_aos(missing_aos)
+                results["teacher_review_required"] = True
+        results["missing_aos"] = missing_aos
+
         # Deterministic safety net: every AO must carry at least one piece of
         # evidence, or this specific sample gets flagged for teacher review —
         # a measured signal (the model didn't do its job properly this time),
@@ -200,8 +242,86 @@ def _mark_samples(question, essay, rubric, expected_token, max_score, exemplars,
     return results_list, last_error
 
 
-def generate_llm_response(question, essay, rubric, expected_token, max_score=6, exemplars=None):
-    results_list, last_error = _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature=0.0, n=1)
+def generate_llm_response(question, essay, rubric, expected_token, max_score=6, exemplars=None, other_questions=None):
+    results_list, last_error = _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature=0.0, n=1, other_questions=other_questions)
     if not results_list:
         raise ValueError(last_error)
     return results_list[0]
+
+
+# Marks the same essay n_samples times (temperature=0.5 — genuine diversity
+# between samples, unlike the single-call path's 0.0, which barely varies)
+# and turns how much the scores actually DISAGREE into a real, measured
+# confidence number — replacing the model's self-reported guess about its
+# own confidence with something grounded in observed behaviour.
+#
+# The qualitative content shown to the teacher (strengths, evidence, feedback)
+# all comes from ONE sample — the median-scored one — never blended across
+# samples. Only the score itself is a vote across all of them.
+def generate_llm_response_consistent(
+    question, essay, rubric, expected_token, max_score=6, exemplars=None,
+    other_questions=None, n_samples=3, temperature=0.5,
+):
+    results_list, last_error = _mark_samples(
+        question, essay, rubric, expected_token, max_score, exemplars,
+        temperature=temperature, n=n_samples, other_questions=other_questions,
+    )
+    if not results_list:
+        raise ValueError(last_error)
+
+    # Only one sample survived (refusal/truncation/mismatch took the rest) —
+    # nothing to compare against, so there's no spread to measure. Flag for
+    # review rather than silently presenting a single unverified sample as
+    # if it had been checked.
+    if len(results_list) == 1:
+        result = dict(results_list[0])
+        result["teacher_review_required"] = True
+        result["confidence"] = None
+        result["score_spread"] = None
+        return result
+
+    sorted_by_score = sorted(results_list, key=lambda r: r["score"])
+    scores = [r["score"] for r in sorted_by_score]
+    spread = max(scores) - min(scores)
+    detected_max = sorted_by_score[len(sorted_by_score) // 2].get("maxScore") or max_score
+    confidence = max(0.0, min(1.0, 1 - (spread / detected_max))) if detected_max else 0.0
+
+    if len(results_list) == 2:
+        # No true median with only two samples — take the lower (more
+        # conservative) score as the representative, and always flag for
+        # review since a same-essay disagreement this small a sample can't
+        # confirm is genuine noise vs one bad sample.
+        representative = dict(sorted_by_score[0])
+        representative["teacher_review_required"] = True
+    else:
+        mid = len(sorted_by_score) // 2
+        representative = dict(sorted_by_score[mid])
+        representative["teacher_review_required"] = (
+            confidence < 0.85 or representative.get("teacher_review_required", False)
+        )
+
+    # A safety flag, not a scoring nuance — if ANY sample raised it, it wins,
+    # rather than getting outvoted by samples that happened not to notice.
+    mismatched = [r for r in results_list if r.get("question_mismatch")]
+    representative["question_mismatch"] = bool(mismatched)
+    if mismatched and not representative.get("question_mismatch_reason"):
+        representative["question_mismatch_reason"] = mismatched[0].get("question_mismatch_reason")
+
+    # Same rationale as question_mismatch above: a dropped AO is a
+    # structural safety signal, not a scoring nuance that should get
+    # outvoted just because the chosen representative sample happened not
+    # to drop it.
+    seen, all_missing = set(), []
+    for r in results_list:
+        for ao in r.get("missing_aos") or []:
+            key = _normalize_ao(ao)
+            if key not in seen:
+                seen.add(key)
+                all_missing.append(ao)
+    representative["missing_aos"] = all_missing
+    if all_missing:
+        representative["teacher_review_required"] = True
+
+    representative["confidence"] = confidence
+    representative["score_spread"] = spread
+    return representative

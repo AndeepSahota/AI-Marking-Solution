@@ -1,0 +1,7 @@
+# Narrow, deliberate rule selection — correctness only (syntax errors,
+# undefined names, unused imports), not opinionated style rules. This repo's
+# existing code has established patterns (broad `except Exception`, etc.)
+# that aren't bugs; a wider default ruleset would flag pre-existing style
+# choices unrelated to whatever a given PR actually changed.
+[lint]
+select = ["E9", "F"]

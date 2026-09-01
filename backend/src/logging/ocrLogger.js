@@ -69,6 +69,11 @@ const lineFormat = winston.format.printf(({ timestamp, message, ...meta }) => {
             return `${prefix} | ✗ FAILED | ${code} | ${detail}`
         }
 
+        case 'extraction_warning': {
+            const detail = (meta.warnings ?? []).join('; ').slice(0, 140)
+            return `${prefix} | ⚠ WARN   | mark scheme consistency | ${detail}`
+        }
+
         default:
             return `${prefix} | ${message}`
     }
@@ -159,6 +164,15 @@ export function logOcrDone(req, pageCount, totalChars, totalMs) {
         pages:      pageCount,
         totalChars,
         ms:         totalMs,
+    })
+}
+
+export function logExtractionWarning(req, warnings) {
+    logger.warn('', {
+        event:     'extraction_warning',
+        requestId: req._requestId,
+        userId:    req.user?.id,
+        warnings,
     })
 }
 

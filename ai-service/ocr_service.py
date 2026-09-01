@@ -1,24 +1,77 @@
 import requests
 import os
 import time
+from html.parser import HTMLParser
 from observability.event_log import log_ocr_sending, log_ocr_job_submitted, log_ocr_polling, log_ocr_done
 
-def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+# Starting point only — the only real data point so far is clean typed text
+# scoring 0.99-1.0 per word (confirmed via a live Datalab call). No noisy
+# handwriting sample has been tested against this yet, so treat it as a
+# tunable guess, not a calibrated cutoff.
+OCR_LOW_CONFIDENCE_THRESHOLD = 0.75
+
+
+class _WordConfidenceParser(HTMLParser):
+    """Pulls (word, confidence) pairs out of Datalab's word_bboxes HTML, e.g.
+    <span data-bbox="88 4 148 26" data-confidence="0.993">GCSE</span>.
+    The output is flat — one word per span, no nesting — so tracking just the
+    most recently opened span's confidence and pairing it with the next
+    data() call is enough; no tag stack needed."""
+
+    def __init__(self):
+        super().__init__()
+        self.words = []
+        self._pending_confidence = None
+
+    def handle_starttag(self, tag, attrs):
+        self._pending_confidence = None
+        if tag != "span":
+            return
+        attrs = dict(attrs)
+        if "data-confidence" not in attrs:
+            return
+        try:
+            self._pending_confidence = float(attrs["data-confidence"])
+        except (TypeError, ValueError):
+            self._pending_confidence = None
+
+    def handle_data(self, data):
+        if self._pending_confidence is None:
+            return
+        word = data.strip()
+        if word:
+            self.words.append((word, self._pending_confidence))
+        self._pending_confidence = None
+
+
+def _extract_low_confidence_words(html: str, threshold: float = OCR_LOW_CONFIDENCE_THRESHOLD) -> list[dict]:
+    if not html:
+        return []
+    parser = _WordConfidenceParser()
+    parser.feed(html)
+    return [
+        {"word": word, "confidence": round(confidence, 3)}
+        for word, confidence in parser.words
+        if confidence < threshold
+    ]
+
+
+def extract_text_from_file(file_bytes: bytes, filename: str) -> dict:
     """
-    Takes raw file bytes and returns extracted text.
+    Takes raw file bytes and returns extracted text plus any words the OCR
+    model wasn't confident it read correctly.
     Uses Datalab Chandra OCR API.
-    
-    This replaces the local Tesseract implementation.
-    Same interface — everything else in the codebase stays the same.
+
+    Returns {"text": <markdown>, "low_confidence_words": [{"word", "confidence"}, ...]}.
     """
-    
+
     api_key = os.getenv("DATALAB_API_KEY")
-    
+
     if not api_key:
         raise ValueError("DATALAB_API_KEY not found in environment variables")
-    
+
     log_ocr_sending(filename)
-    
+
     # Send the file to Datalab's OCR endpoint
     response = requests.post(
         "https://www.datalab.to/api/v1/marker",
@@ -26,8 +79,9 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
             "file": (filename, file_bytes, _get_mime_type(filename)),
         },
         data={
-            "output_format": "markdown",
+            "output_format": "markdown,html",
             "use_llm":       False,
+            "word_bboxes":   True,
         },
         headers={"X-Api-Key": api_key},
     )
@@ -61,8 +115,9 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
         
         if result_data.get("status") == "complete":
             text = result_data.get("markdown", "")
+            low_confidence_words = _extract_low_confidence_words(result_data.get("html", ""))
             log_ocr_done(len(text))
-            return text
+            return {"text": text, "low_confidence_words": low_confidence_words}
 
         log_ocr_polling(attempt + 1, max_attempts)
     
