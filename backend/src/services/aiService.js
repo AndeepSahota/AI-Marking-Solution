@@ -2,9 +2,9 @@ import FormData from 'form-data'
 import fetch from 'node-fetch'
 import config from '../config/index.js'
 
-function logThreadExtraction(stage, payload) {
-    console.log(`\n[THREAD EXTRACTION][BACKEND] ${stage}`)
-    console.log(JSON.stringify(payload, null, 2))
+function logThreadExtraction(stage, details = '') {
+    const suffix = details ? ` — ${details}` : ''
+    console.log(`[THREAD EXTRACTION][BACKEND] ${stage}${suffix}`)
 }
 
 // POST /ocr — single-file OCR only, no marking.
@@ -17,12 +17,10 @@ export async function getOcrFromAI(file) {
         contentType: file.mimetype,
     })
 
-    logThreadExtraction('Sending mark scheme to AI service', {
-        endpoint: `${config.AI_SERVICE_URL}/ocr`,
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        bytes: file.size,
-    })
+    logThreadExtraction(
+        '1/5 Sending mark scheme to AI service',
+        `file=${file.originalname}, bytes=${file.size}`
+    )
 
     let response
     try {
@@ -50,10 +48,10 @@ export async function getOcrFromAI(file) {
     }
 
     const result = await response.json()
-    logThreadExtraction('Received AI-service response', {
-        response_keys: Object.keys(result),
-        thread_scheme: result.thread_scheme ?? null,
-    })
+    logThreadExtraction(
+        '2/5 AI-service response received',
+        `thread scheme ${result.thread_scheme ? 'present' : 'missing'}`
+    )
 
     return {
         ...result,

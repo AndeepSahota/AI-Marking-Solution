@@ -51,6 +51,10 @@ def log_ocr_done(char_count: int) -> None:
     logger.info(f"[OCR] Done — extracted {char_count} characters")
 
 
+def log_student_ocr_done(char_count: int) -> None:
+    logger.info(f"[STUDENT OCR] Done — extracted {char_count} handwritten-work characters")
+
+
 # ── Security events ───────────────────────────────────────────────────────
 
 def log_security_stripped(matches: list[str]) -> None:

@@ -276,12 +276,9 @@ router.post('/',
                 ? JSON.stringify(ocrResult.thread_scheme)
                 : ''
 
-            console.log('\n[THREAD EXTRACTION][BACKEND] Prepared SQL payload')
-            console.log(JSON.stringify({
-                thread_scheme_received: ocrResult.thread_scheme ?? null,
-                thread_extraction_characters: threadExtraction.length,
-                thread_extraction_sql_value: threadExtraction,
-            }, null, 2))
+            console.log(
+                `[THREAD EXTRACTION][BACKEND] 3/5 Prepared thread extraction for SQL — characters=${threadExtraction.length}`
+            )
 
             const lessonId = await lessonDb.createLesson(
                 lessonTitle,

@@ -268,12 +268,9 @@ export const lessonDb = {
                 textParam('threadExtraction', sql.MAX, threadExtraction ?? ''),
             ])).recordset[0]
 
-            console.log('\n[THREAD EXTRACTION][BACKEND] Binding SQL thread_extraction input')
-            console.log(JSON.stringify({
-                teacher_ocr_id: ocr.id,
-                thread_extraction_characters: (threadExtraction ?? '').length,
-                thread_extraction_sql_value: threadExtraction ?? '',
-            }, null, 2))
+            console.log(
+                `[THREAD EXTRACTION][BACKEND] 4/5 Inserting thread extraction into teacher_ocr — ocr_id=${ocr.id}, characters=${(threadExtraction ?? '').length}`
+            )
 
             const storedThreadExtraction = (await exec(transaction, `
                 SELECT
@@ -285,8 +282,9 @@ export const lessonDb = {
                 intParam('ocrId', ocr.id),
             ])).recordset[0]
 
-            console.log('[THREAD EXTRACTION][BACKEND] SQL readback after INSERT')
-            console.log(JSON.stringify(storedThreadExtraction, null, 2))
+            console.log(
+                `[THREAD EXTRACTION][BACKEND] 5/5 SQL readback confirmed — ocr_id=${ocr.id}, stored_bytes=${storedThreadExtraction?.thread_extraction_bytes ?? 0}`
+            )
 
             await exec(transaction, `
                 UPDATE dbo.lessons

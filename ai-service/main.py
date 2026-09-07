@@ -28,6 +28,7 @@ from llm_service import (
     generate_segmentation_response,
 )
 from ocr_service import extract_text_from_file
+from student_ocr_service import extract_student_ocr
 from rag_service import add_exemplar, get_similar, list_exemplars, delete_exemplar
 from security import ms_ocr_sanitisation
 from validation.descriptor_id_enrichment import add_descriptor_ids
@@ -41,6 +42,7 @@ from observability.event_log import (
     log_descriptor_validation_issues,
     log_mark_total_corrections,
     log_security_stripped,
+    log_student_ocr_done,
 )
 
 # When Umar's Chandra OCR is available, swap these two lines back in:
@@ -55,12 +57,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-def _log_thread_extraction(stage: str, payload) -> None:
-    print(
-        f"\n[THREAD EXTRACTION] {stage}\n"
-        f"{_json.dumps(payload, ensure_ascii=False, indent=2, default=str)}\n",
-        flush=True,
-    )
+def _log_thread_extraction(stage: str) -> None:
+    print(f"[THREAD EXTRACTION] {stage}", flush=True)
 
 
 # ── POST /ocr ─────────────────────────────────────────────────────────────────
@@ -132,14 +130,12 @@ async def ocr_file(file: UploadFile = File(...)):
         log_mark_total_corrections(corrections)
 
     _log_thread_extraction(
-        "Validated mark-scheme extraction complete; starting transformation",
-        structured_scheme,
+        "Validated mark-scheme extraction complete; starting transformation"
     )
 
     thread_scheme_input = transform_segment_mark_scheme(structured_scheme)
     _log_thread_extraction(
-        "Transformation complete; sending this thread scheme to the LLM",
-        thread_scheme_input,
+        "Transformation complete; sending thread scheme to the LLM"
     )
 
     thread_scheme_text = _json.dumps(thread_scheme_input, ensure_ascii=False)
@@ -157,8 +153,7 @@ async def ocr_file(file: UploadFile = File(...)):
         thread_token,
     )
     _log_thread_extraction(
-        "Thread-description response converted back to the keyed application shape",
-        thread_scheme,
+        "Thread-description response converted back to the keyed application shape"
     )
 
     return {
@@ -185,7 +180,9 @@ async def mark_with_scheme_text(
     question:          str        = Form(default='')
 ):
     student_bytes = await student_work.read()
-    raw_text      = extract_text_from_file(student_bytes, student_work.filename)
+    structured_ocr = extract_student_ocr(student_bytes, student_work.filename)
+    raw_text       = structured_ocr.get("handwritten_work", "")
+    log_student_ocr_done(len(raw_text))
 
     # Same treatment as /ocr gives the mark scheme, run BEFORE sanitize() for
     # the same reason: sanitize()'s HTML-tag stripping (<[^>]*>) matches from
