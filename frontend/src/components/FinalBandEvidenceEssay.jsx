@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { renderOcrText } from '../utils/renderOcrText'
 
 const COLORS = [
   { bg: 'rgba(99,102,241,0.20)', border: '#818cf8' },
@@ -11,8 +12,7 @@ const COLORS = [
 
 function normalise(value) {
   return String(value ?? '')
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/[“”«»]/g, '"')
+    .replace(/[‘’ʼ“”«»'"]/g, '"')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -32,8 +32,7 @@ function buildNormalisedText(text, { omitStruckThroughText = false } = {}) {
     if (insideStruckThroughText) continue
 
     let character = text[index]
-    if (character === '‘' || character === '’' || character === 'ʼ') character = "'"
-    if (character === '“' || character === '”' || character === '«' || character === '»') character = '"'
+    if (/[‘’ʼ“”«»'"]/.test(character)) character = '"'
 
     if (/\s/.test(character)) {
       if (!previousWasSpace) {
@@ -212,7 +211,9 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
           <div className="annotated-section-label">Student Response</div>
           <div className="annotated-essay-prose">
             {segments.map((segment, index) => {
-              if (segment.type === 'text') return <span key={index}>{segment.content}</span>
+              if (segment.type === 'text') {
+                return <span key={index}>{renderOcrText(segment.content, `text-${index}`)}</span>
+              }
               const card = segment.card
               const color = COLORS[card.colorIndex % COLORS.length]
               return (
@@ -226,7 +227,7 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
                   style={{ background: color.bg, borderBottomColor: color.border }}
                   title={`${card.descriptorId ?? 'No secure final band'}: ${card.band ?? 'not securely met'}`}
                 >
-                  {segment.content}
+                  {renderOcrText(segment.content, `highlight-${card.id}`)}
                   <span className="descriptor-evidence-badge" style={{ background: color.border }}>
                     {card.colorIndex + 1}
                   </span>

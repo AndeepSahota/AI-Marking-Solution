@@ -4264,6 +4264,11 @@ body::after {
   word-break: break-word;
 }
 
+.ocr-crossed-out {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
 .annotated-highlight {
   border-radius: 3px;
   padding: 1px 0;

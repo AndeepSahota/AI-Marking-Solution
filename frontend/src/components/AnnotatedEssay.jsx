@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { renderOcrText } from '../utils/renderOcrText'
 
 const COLORS = [
   { bg: 'rgba(99,102,241,0.2)',  border: '#6366f1' },
@@ -13,23 +14,29 @@ const COLORS = [
 // smart quotes → straight, whitespace runs → single space.
 function norm(str) {
   return str
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/[“”«»]/g, '"')
+    .replace(/[‘’ʼ“”«»'"]/g, '"')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
 // Build a parallel normalised version of `text` plus a character map so we
 // can convert a match position in the normalised string back to the original.
-function buildNormMap(text) {
+function buildNormMap(text, { omitStruckThroughText = false } = {}) {
   const chars = []   // normalised characters
   const map   = []   // map[i] = index of chars[i] in the original text
   let prevSpace = false
+  let insideStruckThroughText = false
 
   for (let i = 0; i < text.length; i++) {
+    if (omitStruckThroughText && text.slice(i, i + 2) === '~~') {
+      insideStruckThroughText = !insideStruckThroughText
+      i++
+      continue
+    }
+    if (insideStruckThroughText) continue
+
     let c = text[i]
-    if (c === '‘' || c === '’' || c === 'ʼ') c = "'"
-    if (c === '“' || c === '”' || c === '«' || c === '»') c = '"'
+    if (/[‘’ʼ“”«»'"]/.test(c)) c = '"'
 
     if (/\s/.test(c)) {
       if (!prevSpace) { chars.push(' '); map.push(i); prevSpace = true }
@@ -42,8 +49,9 @@ function buildNormMap(text) {
 
 // Find `quote` inside `text`. Returns { pos, len } in original-text coordinates,
 // or null if no match is found.
-// Attempts: 1) exact  2) normalised case-sensitive  3) normalised case-insensitive
-function findBestMatch(text, quote, normText, charMap) {
+// Attempts: 1) exact  2) normalised source  3) normalised source with
+// ~~crossed-out content~~ omitted, each case-sensitive then case-insensitive.
+function findBestMatch(text, quote, normalisedSources) {
   if (!quote) return null
 
   // 1. Exact match — fastest path
@@ -54,25 +62,32 @@ function findBestMatch(text, quote, normText, charMap) {
   const nq = norm(quote)
   if (!nq) return null
 
-  let nPos = normText.indexOf(nq)
-  if (nPos === -1) nPos = normText.toLowerCase().indexOf(nq.toLowerCase())
-  if (nPos === -1) return null
+  for (const { normText, map: charMap } of normalisedSources) {
+    let nPos = normText.indexOf(nq)
+    if (nPos === -1) nPos = normText.toLowerCase().indexOf(nq.toLowerCase())
+    if (nPos === -1) continue
 
-  const origStart = charMap[nPos]
-  const normEnd   = nPos + nq.length - 1
-  if (normEnd >= charMap.length) return null
-  const origEnd   = charMap[normEnd] + 1
-  if (origStart >= origEnd) return null
+    const origStart = charMap[nPos]
+    const normEnd   = nPos + nq.length - 1
+    if (normEnd >= charMap.length) continue
+    const origEnd   = charMap[normEnd] + 1
+    if (origStart >= origEnd) continue
 
-  return { pos: origStart, len: origEnd - origStart }
+    return { pos: origStart, len: origEnd - origStart }
+  }
+
+  return null
 }
 
 function buildSegments(text, annotations) {
-  const { normText, map: charMap } = buildNormMap(text)
+  const normalisedSources = [
+    buildNormMap(text),
+    buildNormMap(text, { omitStruckThroughText: true }),
+  ]
 
   const positioned = annotations
     .map((a, i) => {
-      const match = findBestMatch(text, a.quote, normText, charMap)
+      const match = findBestMatch(text, a.quote, normalisedSources)
       return match ? { ...a, idx: i, pos: match.pos, len: match.len } : { ...a, idx: i, pos: -1 }
     })
     .filter(a => a.pos !== -1)
@@ -133,7 +148,7 @@ function AnnotatedEssay({ text, annotations }) {
           <div className="annotated-essay-prose">
             {segments.map((seg, i) => {
               if (seg.type === 'text') {
-                return <span key={i}>{seg.content}</span>
+                return <span key={i}>{renderOcrText(seg.content, `text-${i}`)}</span>
               }
               renderNum++
               const num = renderNum
@@ -144,7 +159,7 @@ function AnnotatedEssay({ text, annotations }) {
                   className="annotated-highlight"
                   style={{ background: color.bg, borderBottom: `2px solid ${color.border}` }}
                 >
-                  {seg.content}
+                  {renderOcrText(seg.content, `highlight-${i}`)}
                   <span
                     className="annotated-badge"
                     style={{ background: color.border }}
