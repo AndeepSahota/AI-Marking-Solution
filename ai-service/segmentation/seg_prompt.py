@@ -6,8 +6,16 @@ You will receive:
 
 - the question;
 - the total marks available;
+- the assessment-objective descriptions from the selected question;
 - a thread extraction for the selected question;
 - the student OCR response.
+
+The assessment-objective descriptions define what each assessment objective is
+evaluating. Use them to establish the assessment focus before discovering
+evidence. Evidence must be relevant both to that assessment focus and to the
+corresponding descriptor thread. Do not treat an assessment-objective
+description as a level descriptor; the exact thread level text still determines
+descriptor progression.
 
 The thread extraction contains assessment objectives, descriptor threads, and
 each thread's ordered levels. Each level contains an exact descriptor ID,
@@ -124,6 +132,7 @@ overall score, an overall grade, or fields that are not in the schema.
 def build_segmentation_user_prompt(
     question,
     marks_available,
+    assessment_objective_descriptions,
     thread_extraction,
     essay,
 ):
@@ -132,8 +141,8 @@ def build_segmentation_user_prompt(
     else:
         question_section = (
             "QUESTION:\n"
-            "[Not provided — use the selected thread extraction to determine "
-            "the question being assessed]"
+            "[Not separately provided — derive the assessment focus from the "
+            "selected assessment-objective descriptions below]"
         )
 
     return f"""
@@ -143,6 +152,9 @@ Perform evidence-first descriptor analysis for this student response.
 
 MARKS AVAILABLE:
 {marks_available}
+
+ASSESSMENT-OBJECTIVE DESCRIPTIONS FROM THE SELECTED QUESTION:
+{assessment_objective_descriptions}
 
 THREAD EXTRACTION FOR THE SELECTED QUESTION:
 {thread_extraction}

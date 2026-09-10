@@ -57,37 +57,54 @@ function overlaps(range, ranges) {
   ))
 }
 
-function findAvailableMatch(text, quote, normalisedSources, usedRanges) {
-  if (!quote) return null
+function quoteMatchVariants(quote) {
+  const exactQuote = String(quote ?? '')
+  if (!exactQuote) return []
 
-  let searchFrom = 0
-  while (searchFrom < text.length) {
-    const position = text.indexOf(quote, searchFrom)
-    if (position === -1) break
-    const candidate = { position, length: quote.length }
-    if (!overlaps(candidate, usedRanges)) return candidate
-    searchFrom = position + 1
+  const variants = [exactQuote]
+  if (exactQuote.length > 1 && exactQuote.endsWith('.')) {
+    variants.push(exactQuote.slice(0, -1))
   }
 
-  const normalisedQuote = normalise(quote)
-  if (!normalisedQuote) return null
+  return variants
+}
 
-  for (const source of normalisedSources) {
-    for (const [haystack, needle] of [
-      [source.text, normalisedQuote],
-      [source.text.toLowerCase(), normalisedQuote.toLowerCase()],
-    ]) {
-      let searchPosition = 0
-      while (searchPosition < haystack.length) {
-        const normalisedPosition = haystack.indexOf(needle, searchPosition)
-        if (normalisedPosition === -1) break
+function findAvailableMatch(text, quote, normalisedSources, usedRanges) {
+  const quoteVariants = quoteMatchVariants(quote)
+  if (quoteVariants.length === 0) return null
 
-        const normalisedEnd = normalisedPosition + needle.length - 1
-        const position = source.sourceIndexes[normalisedPosition]
-        const end = source.sourceIndexes[normalisedEnd] + 1
-        const candidate = { position, length: end - position }
-        if (!overlaps(candidate, usedRanges)) return candidate
-        searchPosition = normalisedPosition + 1
+  for (const quoteVariant of quoteVariants) {
+    let searchFrom = 0
+    while (searchFrom < text.length) {
+      const position = text.indexOf(quoteVariant, searchFrom)
+      if (position === -1) break
+      const candidate = { position, length: quoteVariant.length }
+      if (!overlaps(candidate, usedRanges)) return candidate
+      searchFrom = position + 1
+    }
+  }
+
+  for (const quoteVariant of quoteVariants) {
+    const normalisedQuote = normalise(quoteVariant)
+    if (!normalisedQuote) continue
+
+    for (const source of normalisedSources) {
+      for (const [haystack, needle] of [
+        [source.text, normalisedQuote],
+        [source.text.toLowerCase(), normalisedQuote.toLowerCase()],
+      ]) {
+        let searchPosition = 0
+        while (searchPosition < haystack.length) {
+          const normalisedPosition = haystack.indexOf(needle, searchPosition)
+          if (normalisedPosition === -1) break
+
+          const normalisedEnd = normalisedPosition + needle.length - 1
+          const position = source.sourceIndexes[normalisedPosition]
+          const end = source.sourceIndexes[normalisedEnd] + 1
+          const candidate = { position, length: end - position }
+          if (!overlaps(candidate, usedRanges)) return candidate
+          searchPosition = normalisedPosition + 1
+        }
       }
     }
   }
@@ -95,22 +112,24 @@ function findAvailableMatch(text, quote, normalisedSources, usedRanges) {
   return null
 }
 
-function flattenFinalBandEvidence(segmentationResult) {
-  return (segmentationResult?.threads ?? [])
-    .flatMap((thread, threadIndex) => (
-      (thread.evidence ?? []).map((evidence, evidenceIndex) => {
-        const finalBand = evidence.finalBand ?? evidence.final_band ?? {}
-        const evidenceId = evidence.evidenceId ?? evidence.evidence_id ?? null
-        return {
-          id: `${thread.threadId ?? thread.thread_id ?? threadIndex}-${evidenceId ?? evidenceIndex}`,
-          evidenceId,
-          quote: evidence.quote ?? '',
-          descriptorId: finalBand.descriptorId ?? finalBand.descriptor_id ?? null,
-          band: finalBand.band ?? null,
-          justification: finalBand.justification ?? '',
-        }
-      })
-    ))
+function descriptorIdsForEvidence(evidence) {
+  const descriptorIds = evidence.descriptorIds ?? evidence.descriptor_ids
+  if (Array.isArray(descriptorIds)) {
+    return [...new Set(descriptorIds.filter(Boolean).map(String))]
+  }
+
+  const legacyDescriptorId = evidence.descriptorId ?? evidence.descriptor_id
+  return legacyDescriptorId ? [String(legacyDescriptorId)] : []
+}
+
+function flattenAggregationEvidence(aggregationResult) {
+  return (aggregationResult?.evidence ?? [])
+    .map((evidence, evidenceIndex) => ({
+      id: `aggregation-evidence-${evidenceIndex}`,
+      quote: evidence.quote ?? '',
+      explanation: evidence.explanation ?? '',
+      descriptorIds: descriptorIdsForEvidence(evidence),
+    }))
     .map((card, colorIndex) => ({ ...card, colorIndex }))
 }
 
@@ -144,10 +163,10 @@ function buildEvidenceSegments(text, cards) {
   return { cards: positionedCards, segments }
 }
 
-function FinalBandEvidenceEssay({ text, segmentationResult }) {
+function AggregationEvidenceEssay({ text, aggregationResult }) {
   const baseCards = useMemo(
-    () => flattenFinalBandEvidence(segmentationResult),
-    [segmentationResult]
+    () => flattenAggregationEvidence(aggregationResult),
+    [aggregationResult]
   )
   const { cards, segments } = useMemo(
     () => buildEvidenceSegments(text, baseCards),
@@ -201,7 +220,7 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
   }, [cards])
 
   return (
-    <section className="descriptor-evidence-wrap" aria-label="Final-band evidence in student response">
+    <section className="descriptor-evidence-wrap" aria-label="Aggregated evidence in student response">
       <div className="descriptor-evidence-body" ref={containerRef}>
         <svg className="descriptor-evidence-connectors" aria-hidden="true">
           {lines.map(line => <path key={line.id} d={line.d} stroke={line.color} />)}
@@ -225,7 +244,9 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
                     else highlightRefs.current.delete(card.id)
                   }}
                   style={{ background: color.bg, borderBottomColor: color.border }}
-                  title={`${card.descriptorId ?? 'No secure final band'}: ${card.band ?? 'not securely met'}`}
+                  title={card.descriptorIds.length > 0
+                    ? `Descriptors: ${card.descriptorIds.join(', ')}`
+                    : 'Descriptor unavailable'}
                 >
                   {renderOcrText(segment.content, `highlight-${card.id}`)}
                   <span className="descriptor-evidence-badge" style={{ background: color.border }}>
@@ -237,8 +258,8 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
           </div>
         </div>
 
-        <aside className="descriptor-evidence-sidebar" aria-label="Final-band evidence cards">
-          <div className="annotated-section-label">Final-Band Evidence</div>
+        <aside className="descriptor-evidence-sidebar" aria-label="Aggregated evidence cards">
+          <div className="annotated-section-label">Descriptor Evidence</div>
           {cards.map(card => {
             const color = COLORS[card.colorIndex % COLORS.length]
             return (
@@ -255,17 +276,21 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
                   <span className="descriptor-evidence-card-number" style={{ background: color.border }}>
                     {card.colorIndex + 1}
                   </span>
-                  <code className="descriptor-evidence-card-id">
-                    {card.descriptorId ?? 'No secure final band'}
-                  </code>
-                  {card.band && <span className="descriptor-evidence-status">{card.band}</span>}
+                  <div className="descriptor-evidence-card-ids">
+                    {card.descriptorIds.length > 0 ? (
+                      card.descriptorIds.map(descriptorId => (
+                        <code key={descriptorId} className="descriptor-evidence-card-id">
+                          {descriptorId}
+                        </code>
+                      ))
+                    ) : (
+                      <code className="descriptor-evidence-card-id">Descriptor unavailable</code>
+                    )}
+                  </div>
                 </div>
-                <p className="descriptor-evidence-explanation">
-                  Evidence ID: {card.evidenceId ?? 'Unavailable'}
-                </p>
                 <div className="descriptor-evidence-judgement">
-                  <span>Final-band justification</span>
-                  <p>{card.justification || 'No final band was securely met for this evidence.'}</p>
+                  <span>Evidence explanation</span>
+                  <p>{card.explanation || 'No explanation was provided for this evidence.'}</p>
                 </div>
                 {!card.match && (
                   <p className="descriptor-evidence-unmatched-note">
@@ -281,4 +306,4 @@ function FinalBandEvidenceEssay({ text, segmentationResult }) {
   )
 }
 
-export default FinalBandEvidenceEssay
+export default AggregationEvidenceEssay

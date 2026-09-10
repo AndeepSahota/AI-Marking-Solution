@@ -4,6 +4,10 @@ from openai import OpenAI, LengthFinishReasonError, ContentFilterFinishReasonErr
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from segmentation.seg_prompt import SYSTEM_PROMPT as SEGMENTATION_SYSTEM_PROMPT, build_segmentation_user_prompt
+from aggregation.aggregation_prompt import (
+    SYSTEM_PROMPT as AGGREGATION_SYSTEM_PROMPT,
+    build_aggregation_user_prompt,
+)
 from transformations.thread_description_prompt import (
     SYSTEM_PROMPT as THREAD_DESCRIPTION_SYSTEM_PROMPT,
     build_thread_description_prompt,
@@ -12,6 +16,7 @@ from security.ms_ocr_sanitisation import verify_token
 from schemas.ms_schema import MarkSchemeExtraction
 from schemas.marking_result_schema import MarkingResult
 from schemas.segmented_result import SegmentationResult
+from schemas.aggregation_schema import AggregationResult
 from schemas.thread_description_result import ThreadDescriptionResult
 from observability.event_log import (
     log_extraction_refusal,
@@ -316,6 +321,7 @@ def generate_segmentation_response(
     question,
     essay,
     thread_extraction,
+    assessment_objective_descriptions,
     expected_token,
     max_score=6,
     exemplars=None,
@@ -345,6 +351,13 @@ def generate_segmentation_response(
             "Segmentation requires a selected-question thread_extraction object"
         )
 
+    if not isinstance(assessment_objective_descriptions, list) or not (
+        assessment_objective_descriptions
+    ):
+        raise ValueError(
+            "Segmentation requires assessment-objective descriptions from the selected question"
+        )
+
     assessment_objectives = selected_thread_extraction.get("assessment_objectives")
     if not isinstance(assessment_objectives, dict) or not assessment_objectives:
         raise ValueError(
@@ -369,6 +382,10 @@ def generate_segmentation_response(
     user_prompt = build_segmentation_user_prompt(
         question=question,
         marks_available=marks_available,
+        assessment_objective_descriptions=json.dumps(
+            assessment_objective_descriptions,
+            ensure_ascii=False,
+        ),
         thread_extraction=json.dumps(selected_thread_extraction, ensure_ascii=False),
         essay=essay,
     )
@@ -401,6 +418,55 @@ def generate_segmentation_response(
         log_marking_empty()
         raise ExtractionIncompleteError(
             "No segmentation result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    verify_token(expected_token, result.delimiter_token)
+
+    return result.model_dump(exclude={"delimiter_token"})
+
+
+def generate_aggregation_response(
+    question,
+    student_response,
+    extracted_result,
+    mark_scheme_extraction,
+    expected_token,
+):
+    user_prompt = build_aggregation_user_prompt(
+        question=question,
+        student_response=student_response,
+        extracted_result=extracted_result,
+        mark_scheme_extraction=mark_scheme_extraction,
+    )
+
+    try:
+        response = client.chat.completions.parse(
+            model="gpt-4o-mini",
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": AGGREGATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=AggregationResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+
+    message = response.choices[0].message
+
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No aggregation result, refusal, truncation, or content-filter signal was returned"
         )
 
     verify_token(expected_token, result.delimiter_token)

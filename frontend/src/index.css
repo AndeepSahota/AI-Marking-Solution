@@ -4501,6 +4501,14 @@ body::after {
   white-space: nowrap;
 }
 
+.descriptor-evidence-card-ids {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  min-width: 0;
+}
+
 .descriptor-evidence-status {
   margin-left: auto;
   max-width: 120px;

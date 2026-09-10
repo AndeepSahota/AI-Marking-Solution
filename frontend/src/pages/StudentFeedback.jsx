@@ -3,13 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { getLesson, getLessonScheme, getStudents, getMarkingResults } from '../services/api'
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
-import FinalBandEvidenceEssay from '../components/FinalBandEvidenceEssay'
+import AggregationEvidenceEssay from '../components/AggregationEvidenceEssay'
 
-function hasFinalBandEvidence(segmentation) {
-  return segmentation?.status === 'complete'
-    && (segmentation.result?.threads ?? []).some(thread => (
-      Array.isArray(thread.evidence) && thread.evidence.length > 0
-    ))
+function hasAggregationEvidence(aggregation) {
+  return aggregation?.status === 'complete'
+    && Array.isArray(aggregation.result?.evidence)
+    && aggregation.result.evidence.length > 0
 }
 
 function StudentFeedback() {
@@ -116,10 +115,10 @@ function StudentFeedback() {
                   <div className="student-result-expanded">
                     <ResultCard result={r.result} scheme={schemeData?.scheme} />
                     {r.result.studentOcrText && (
-                      hasFinalBandEvidence(r.segmentation) ? (
-                        <FinalBandEvidenceEssay
+                      hasAggregationEvidence(r.aggregation) ? (
+                        <AggregationEvidenceEssay
                           text={r.result.studentOcrText}
-                          segmentationResult={r.segmentation.result}
+                          aggregationResult={r.aggregation.result}
                         />
                       ) : (
                         <AnnotatedEssay

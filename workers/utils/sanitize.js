@@ -174,6 +174,58 @@ export function sanitizeAIResult(raw) {
 
     const segmentation = sanitizeSegmentation(raw.segmentation)
 
+    const sanitizeAggregationResult = (result) => {
+        if (!result || typeof result !== 'object' || Array.isArray(result)) return null
+
+        const evidence = Array.isArray(result.evidence)
+            ? result.evidence
+                .filter(item => (
+                    item
+                    && typeof item === 'object'
+                    && item.quote
+                    && Array.isArray(item.descriptor_ids)
+                    && item.descriptor_ids.length > 0
+                ))
+                .slice(0, 10)
+                .map(item => ({
+                    quote: safeText(item.quote, { maxLength: 5000 }),
+                    explanation: safeText(item.explanation, { maxLength: 2000 }),
+                    descriptor_ids: item.descriptor_ids
+                        .map(id => safeText(id, { maxLength: 100 }))
+                        .filter(Boolean)
+                        .slice(0, 20),
+                }))
+            : []
+
+        return { evidence }
+    }
+
+    const sanitizeAggregation = (value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+        const status = safeText(value.status, { maxLength: 20 }).toLowerCase()
+        if (status === 'complete') {
+            const result = sanitizeAggregationResult(value.result)
+            return result
+                ? { status: 'complete', result }
+                : { status: 'failed', reason: 'Invalid aggregation result' }
+        }
+
+        if (status === 'skipped' || status === 'failed') {
+            return {
+                status,
+                reason: safeText(value.reason, { maxLength: 1000 }),
+            }
+        }
+
+        return {
+            status: 'failed',
+            reason: 'Invalid aggregation status',
+        }
+    }
+
+    const aggregation = sanitizeAggregation(raw.aggregation)
+
     return {
         score,
         maxScore,
@@ -185,5 +237,6 @@ export function sanitizeAIResult(raw) {
         questionMismatchReason,
         studentOcrText,
         ...(segmentation ? { segmentation } : {}),
+        ...(aggregation ? { aggregation } : {}),
     }
 }

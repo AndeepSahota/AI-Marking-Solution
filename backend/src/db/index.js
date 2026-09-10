@@ -62,6 +62,13 @@ const textParam = (name, length, value) => {
     return { name, type: sql.NVarChar(length), value }
 }
 
+const nullableTextParam = (name, length, value) => {
+    if (value !== null && typeof value !== 'string') {
+        throw new TypeError(`${name} must be a string or null`)
+    }
+    return { name, type: sql.NVarChar(length), value }
+}
+
 const uuidParam = (name, value) => {
     if (typeof value !== 'string') {
         throw new TypeError(`${name} must be a UUID string`)
@@ -320,7 +327,16 @@ export const markingDb = {
     // Transaction: upsert a student's mark — delete any previous result for
     // this student/lesson pair (re-marking replaces, it doesn't accumulate),
     // then insert the new file, OCR, and grade rows in FK order.
-    markStudent: async (studentId, lessonId, fileName, mimeType, ocrText, gradeJson) =>
+    markStudent: async (
+        studentId,
+        lessonId,
+        fileName,
+        mimeType,
+        ocrText,
+        gradeJson,
+        segmentationGradeJson = null,
+        aggregationResultJson = null
+    ) =>
         inTransaction(async (transaction) => {
             const existing = (await exec(transaction, `
                 SELECT mr.ocr_id, so.file_id
@@ -371,13 +387,29 @@ export const markingDb = {
             ])).recordset[0]
 
             await exec(transaction, `
-                INSERT INTO dbo.marking_results (lesson_id, student_id, ocr_id, student_grade)
-                VALUES (@lessonId, @studentId, @ocrId, @grade)
+                INSERT INTO dbo.marking_results (
+                    lesson_id,
+                    student_id,
+                    ocr_id,
+                    student_grade,
+                    segmentation_grade,
+                    aggregation_result
+                )
+                VALUES (
+                    @lessonId,
+                    @studentId,
+                    @ocrId,
+                    @grade,
+                    @segmentationGrade,
+                    @aggregationResult
+                )
             `, [
                 intParam('lessonId', lessonId),
                 intParam('studentId', studentId),
                 intParam('ocrId', ocr.id),
                 textParam('grade', sql.MAX, gradeJson),
+                nullableTextParam('segmentationGrade', sql.MAX, segmentationGradeJson),
+                nullableTextParam('aggregationResult', sql.MAX, aggregationResultJson),
             ])
         }),
 
@@ -405,7 +437,8 @@ export const markingDb = {
     // Fetch all marking results for a lesson, scoped to the teacher's own classes.
     getResults: async (lessonId, teacherId, e = pool) =>
         (await exec(e, `
-            SELECT mr.student_id, mr.student_grade, mr.segmentation_grade, mr.marked_at
+            SELECT mr.student_id, mr.student_grade, mr.segmentation_grade,
+                   mr.aggregation_result, mr.marked_at
             FROM dbo.marking_results AS mr
             JOIN dbo.lessons AS l ON l.id = mr.lesson_id
             JOIN dbo.classes AS c ON c.id = l.class_id
