@@ -26,7 +26,6 @@ from llm_service import (
     generate_aggregation_response,
     generate_thread_description_response,
     generate_llm_response,
-    generate_segmentation_response,
 )
 from ocr_service import extract_text_from_file
 from student_ocr_service import extract_student_ocr
@@ -240,9 +239,6 @@ async def mark_with_scheme_text(
     wrapped_student_text, expected_token = ms_ocr_sanitisation.wrap_for_prompt(student_text)
 
     question_number = _question_number_from_scheme(scheme_text)
-    assessment_objective_descriptions = (
-        _assessment_objective_descriptions_from_scheme(scheme_text)
-    )
     exemplars       = get_similar(student_text, question_number, n=3)
 
     raw = generate_llm_response(
@@ -253,31 +249,6 @@ async def mark_with_scheme_text(
         max_score=100,
         exemplars=exemplars or None,
     )
-
-    try:
-        segmentation_result = generate_segmentation_response(
-            question=question,
-            essay=wrapped_student_text,
-            thread_extraction=thread_extraction,
-            assessment_objective_descriptions=assessment_objective_descriptions,
-            expected_token=expected_token,
-            max_score=100,
-            exemplars=exemplars or None,
-        )
-        segmentation = {
-            "status": "complete",
-            "result": segmentation_result,
-        }
-    except ValueError as e:
-        segmentation = {
-            "status": "skipped",
-            "reason": str(e),
-        }
-    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
-        segmentation = {
-            "status": "failed",
-            "reason": str(e),
-        }
 
     try:
         rubric_breakdown = raw.get("rubric_breakdown", [])
@@ -334,7 +305,6 @@ async def mark_with_scheme_text(
         "question_mismatch":        raw.get("question_mismatch", False),
         "question_mismatch_reason": raw.get("question_mismatch_reason", None),
         "annotations":              raw.get("annotations", []),
-        "segmentation":             segmentation,
         "aggregation":              aggregation,
     }
 

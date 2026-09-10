@@ -15,7 +15,7 @@ class AggregationPromptTests(unittest.TestCase):
         self.assertIn("BEST QUOTE AND JUSTIFICATION", SYSTEM_PROMPT)
         self.assertIn("no more than ten quotations", SYSTEM_PROMPT)
         self.assertIn(
-            "Do not stop after finding the first quotation for a descriptor",
+            "Do not stop after finding the first\nquotation for a thread or level",
             SYSTEM_PROMPT,
         )
         self.assertIn(
@@ -24,8 +24,10 @@ class AggregationPromptTests(unittest.TestCase):
             SYSTEM_PROMPT,
         )
         self.assertIn("return `descriptor_ids` as a non-empty list", SYSTEM_PROMPT)
-        self.assertIn("A single\nquotation may demonstrate multiple descriptors", SYSTEM_PROMPT)
-        self.assertIn("not the next higher band", SYSTEM_PROMPT)
+        self.assertIn("A single quotation may demonstrate\nmultiple descriptors", SYSTEM_PROMPT)
+        self.assertIn("below, within, or above the holistic awarded band", SYSTEM_PROMPT)
+        self.assertIn("You may choose descriptor\nIDs from any level", SYSTEM_PROMPT)
+        self.assertIn("does not recalculate or replace the whole-response band", SYSTEM_PROMPT)
         self.assertIn("EVIDENCE QUOTE FIDELITY", SYSTEM_PROMPT)
         self.assertIn("spelling and grammatical mistakes", SYSTEM_PROMPT)
         self.assertIn("`~~` markers", SYSTEM_PROMPT)
@@ -55,6 +57,8 @@ class AggregationPromptTests(unittest.TestCase):
         self.assertIn("whole-response coverage pass", prompt)
         self.assertIn("substantial uncovered sections", prompt)
         self.assertIn('"descriptor_ids"', prompt)
+        self.assertIn("selecting freely\nfrom all levels", prompt)
+        self.assertIn("do not alter the fixed holistic score or band", prompt)
         self.assertNotIn("SEGMENTED RESULT", prompt)
 
     def test_aggregation_schema_limits_evidence_to_ten_items(self):

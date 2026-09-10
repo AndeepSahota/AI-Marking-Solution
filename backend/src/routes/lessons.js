@@ -333,9 +333,6 @@ router.get('/:lessonId/results', async (req, res, next) => {
             studentId: r.student_id,
             markedAt: r.marked_at,
             result: JSON.parse(r.student_grade),
-            segmentation: r.segmentation_grade
-                ? JSON.parse(r.segmentation_grade)
-                : null,
             aggregation: r.aggregation_result
                 ? JSON.parse(r.aggregation_result)
                 : null,

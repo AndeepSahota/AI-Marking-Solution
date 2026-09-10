@@ -106,7 +106,7 @@ export async function processMarkingRequest(job) {
     logMarkAiReturned(job, Date.now() - aiStart)
 
     const sanitized = sanitizeAIResult(aiResult)
-    const { segmentation, aggregation, ...holisticGrade } = sanitized
+    const { aggregation, ...holisticGrade } = sanitized
 
     await markingDb.markStudent(
         jobId,
@@ -117,7 +117,6 @@ export async function processMarkingRequest(job) {
         file.mimetype,
         aiResult.student_ocr_text ?? '',
         JSON.stringify(holisticGrade),
-        segmentation ? JSON.stringify(segmentation) : null,
         aggregation ? JSON.stringify(aggregation) : null
     )
     logMarkStored(job)

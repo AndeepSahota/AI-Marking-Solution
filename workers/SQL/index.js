@@ -212,7 +212,6 @@ export const markingDb = {
         mimeType,
         ocrText,
         gradeJson,
-        segmentationGradeJson,
         aggregationResultJson
     ) =>
         inTransaction(async (transaction) => {
@@ -270,7 +269,6 @@ export const markingDb = {
                     student_id,
                     ocr_id,
                     student_grade,
-                    segmentation_grade,
                     aggregation_result
                 )
                 VALUES (
@@ -278,7 +276,6 @@ export const markingDb = {
                     @studentId,
                     @ocrId,
                     @grade,
-                    @segmentationGrade,
                     @aggregationResult
                 )
             `, [
@@ -286,7 +283,6 @@ export const markingDb = {
                 intParam('studentId', studentId),
                 intParam('ocrId', ocr.id),
                 textParam('grade', sql.MAX, gradeJson),
-                nullableTextParam('segmentationGrade', sql.MAX, segmentationGradeJson),
                 nullableTextParam('aggregationResult', sql.MAX, aggregationResultJson),
             ])
 

@@ -16,12 +16,16 @@ award, alter, or recalculate them.
 
 Use the QUESTION to establish what the student was required to address. Then
 use the fixed holistic score and awarded band in EXTRACTED RESULT together with
-the exact awarded-band descriptors in MARK-SCHEME EXTRACTION.
+the complete descriptor threads and every available level in MARK-SCHEME
+EXTRACTION.
 
 Read the complete STUDENT RESPONSE and select no more than ten quotations that
-best evidence why that holistic score and band were awarded for this question.
-A response may contain fewer than ten useful quotations. Prefer the strongest,
-most relevant and meaningfully distinct examples.
+provide useful evidence of the response's qualities for this question. Evidence
+may demonstrate a descriptor below, within, or above the holistic awarded band.
+The holistic result remains fixed: a local descriptor attached to one quotation
+does not recalculate or replace the whole-response band. A response may contain
+fewer than ten useful quotations. Prefer the strongest, most relevant and
+meaningfully distinct examples.
 
 EVIDENCE QUOTE FIDELITY
 
@@ -65,36 +69,40 @@ around the value is not part of the quotation itself.
 JUSTIFICATION
 
 For each quote, provide an `explanation` that states why the quoted writing is
-relevant to the question and why it evidences the holistic mark, awarded band,
-and every assigned descriptor. The response should be an analysis of the evidence,
-explaining why it demonstrates the band and descriptors given, rather than a summary of
-the content. 
+relevant to the question and why it demonstrates every assigned descriptor at
+the selected level. Explain how this local quality contributes to the response
+as a whole without forcing it to match the holistic awarded band. The response
+should analyse the evidence rather than merely summarising its content.
 
 The explanation should be from the perspective of a GCSE examiner or Teacher, using professional 
 marking language. It should be clear and concise, quoting from the evidence in it's explanation where
 appropriate. This explanation will be for the teacher to understand why the evidence selected is relevant to
-the awarded band.
+the descriptor level assigned to it and to the response as a whole.
 
-DESCRIPTORS
+DESCRIPTORS — CROSS-BAND EXPERIMENT
 
 For each quote, return `descriptor_ids` as a non-empty list containing every
-awarded-band descriptor that the quotation genuinely demonstrates. A single
-quotation may demonstrate multiple descriptors. For example, the same passage
-may both offer a straightforward opinion and select a valid textual reference.
+descriptor that the quotation genuinely demonstrates. You may choose descriptor
+IDs from any level present in the complete descriptor threads, including levels
+below or above the holistic awarded band. A single quotation may demonstrate
+multiple descriptors, and those descriptors may come from different threads or
+different levels. For example, the same passage may demonstrate stronger
+analysis in one thread while using references at a lower level in another.
 
 Every descriptor ID must be copied exactly from the supplied MARK-SCHEME
-EXTRACTION. Do not generate, infer, alter, or reformat descriptor IDs. Every ID
-must belong to the assessment objective and awarded band in EXTRACTED RESULT,
-not the next higher band. Do not return duplicate IDs within a list, and retain
-their order from the mark scheme.
+EXTRACTION. Do not generate, infer, alter, or reformat descriptor IDs. Select
+the most precise level genuinely demonstrated for each relevant descriptor
+thread; do not automatically assign a higher level merely because it is
+available. Do not return duplicate IDs within a list.
 
-Consider every descriptor in the awarded band. Where the student response
-contains genuine evidence for a descriptor, select at least one quotation for
-it. A quotation must not be assigned to a descriptor merely to ensure coverage.
-Do not stop after finding the first quotation for a descriptor. Return multiple
-distinct quotations for the same descriptor when each one provides meaningful
-additional evidence, including evidence from different parts of the response.
-Review the whole student response before finalising the evidence list.
+Consider the full progression of every descriptor thread. Where the student
+response contains genuine evidence for a descriptor at any level, select the
+best-fitting ID for that evidence. A quotation must not be assigned to a
+descriptor merely to ensure coverage. Do not stop after finding the first
+quotation for a thread or level. Return multiple distinct quotations for the
+same descriptor when each one provides meaningful additional evidence,
+including evidence from different parts of the response. Review the whole
+student response before finalising the evidence list.
 
 Prefer one evidence item with multiple `descriptor_ids` when the same contiguous
 quotation genuinely demonstrates those descriptors; do not duplicate the quote
@@ -108,8 +116,8 @@ response section, or substantial run of consecutive sentences that is not yet
 represented by a selected quotation.
 
 For each substantial uncovered section, decide whether it contains genuine
-evidence relevant to the QUESTION and one or more awarded-band descriptors. If
-it does, add its strongest exact quotation and assign every descriptor it
+evidence relevant to the QUESTION and one or more descriptors at any supplied
+level. If it does, add its strongest exact quotation and assign every descriptor it
 demonstrates. Do not ignore relevant later sections merely because stronger or
 similar evidence was already selected from an earlier section.
 
@@ -121,7 +129,7 @@ contain relevant evidence.
 
 Coverage does not mean that every paragraph must be highlighted. Leave a section
 unselected when it is irrelevant, purely repetitive, or does not genuinely
-demonstrate an awarded-band descriptor. Never invent a descriptor match simply
+demonstrate a supplied descriptor. Never invent a descriptor match simply
 to remove an uncovered gap.
 
 STUDENT RESPONSE DELIMITER:
@@ -213,8 +221,10 @@ def build_aggregation_user_prompt(
 
     return f"""
 Select up to ten exact quotations from the student response that best evidence
-the fixed holistic score and awarded band for the supplied question. For each
-quotation, identify every exact awarded-band descriptor ID it demonstrates.
+the qualities of the response for the supplied question. For each quotation,
+identify every exact descriptor ID it genuinely demonstrates, selecting freely
+from all levels in the supplied descriptor threads. Treat these as local
+evidence classifications and do not alter the fixed holistic score or band.
 After the initial selection, complete the required whole-response coverage pass
 and add relevant evidence missed from substantial uncovered sections.
 
@@ -236,8 +246,8 @@ Return this JSON shape:
   "evidence": [
     {{
       "quote": <an exact contiguous substring that may start or end mid-sentence, with all errors, punctuation and crossed-out notation preserved and no boundary punctuation added>,
-      "explanation": <why this quotation is relevant to the question and evidences the fixed holistic score, awarded band, and every selected descriptor>,
-      "descriptor_ids": [<one or more exact descriptor IDs copied from the awarded band in MARK-SCHEME EXTRACTION>]
+      "explanation": <why this quotation is relevant to the question, demonstrates every selected descriptor at its selected level, and contributes to the whole response>,
+      "descriptor_ids": [<one or more exact descriptor IDs copied from any genuinely demonstrated level in MARK-SCHEME EXTRACTION>]
     }}
   ]
 }}
