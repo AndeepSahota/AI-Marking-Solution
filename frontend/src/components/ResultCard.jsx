@@ -12,6 +12,7 @@ function descriptorsForBreakdownItem(scheme, item) {
 
 function ResultCard({ result, scheme }) {
   const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
+  const scoreDeltaLabel = result.delta > 0 ? `+${result.delta}` : String(result.delta)
 
   const getGradeColour = (pct) => {
     if (pct >= 70) return '#10b981'
@@ -50,6 +51,12 @@ function ResultCard({ result, scheme }) {
           <span className="score-max">{result.maxScore}</span>
         </div>
 
+        {Number.isInteger(result.originalScore) && result.delta !== 0 && (
+          <p className="score-adjustment-note">
+            Original score: {result.originalScore} · Delta: {scoreDeltaLabel}
+          </p>
+        )}
+
         <div className="progress-track">
           <div
             className="progress-fill"
@@ -69,6 +76,7 @@ function ResultCard({ result, scheme }) {
       {result.breakdown && result.breakdown.length > 0 && (
         <div className="result-breakdown">
           <div className="section-label">Breakdown</div>
+          {result.summary && <p className="breakdown-summary">{result.summary}</p>}
           {result.breakdown.map((item, index) => {
             const itemPct = Math.round((item.marks / item.maxMarks) * 100)
             const descriptors = descriptorsForBreakdownItem(scheme, item)
@@ -76,6 +84,8 @@ function ResultCard({ result, scheme }) {
               <div key={index} className="breakdown-item">
                 <div className="breakdown-criterion">
                   <span className="breakdown-name">{item.section}</span>
+                  {item.awardedBand && <span className="breakdown-band"> — {item.awardedBand}</span>}
+                  {item.summary && <p className="breakdown-summary">{item.summary}</p>}
                   {descriptors.length > 0 && (
                     <ul className="breakdown-descriptors">
                       {descriptors.map((descriptor, descriptorIndex) => {

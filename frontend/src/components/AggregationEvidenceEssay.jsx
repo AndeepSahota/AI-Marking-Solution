@@ -125,9 +125,10 @@ function descriptorIdsForEvidence(evidence) {
 function flattenAggregationEvidence(aggregationResult) {
   return (aggregationResult?.evidence ?? [])
     .map((evidence, evidenceIndex) => ({
-      id: `aggregation-evidence-${evidenceIndex}`,
+      id: evidence.evidenceId ?? evidence.evidence_id ?? `aggregation-evidence-${evidenceIndex}`,
       quote: evidence.quote ?? '',
       explanation: evidence.explanation ?? '',
+      summary: evidence.summary ?? '',
       descriptorIds: descriptorIdsForEvidence(evidence),
     }))
     .map((card, colorIndex) => ({ ...card, colorIndex }))
@@ -212,6 +213,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
     updateLines()
     const observer = new ResizeObserver(updateLines)
     if (containerRef.current) observer.observe(containerRef.current)
+    for (const card of cardRefs.current.values()) observer.observe(card)
     window.addEventListener('resize', updateLines)
     return () => {
       observer.disconnect()
@@ -220,7 +222,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
   }, [cards])
 
   return (
-    <section className="descriptor-evidence-wrap" aria-label="Aggregated evidence in student response">
+    <section className="descriptor-evidence-wrap" aria-label="Marking evidence in student response">
       <div className="descriptor-evidence-body" ref={containerRef}>
         <svg className="descriptor-evidence-connectors" aria-hidden="true">
           {lines.map(line => <path key={line.id} d={line.d} stroke={line.color} />)}
@@ -258,7 +260,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
           </div>
         </div>
 
-        <aside className="descriptor-evidence-sidebar" aria-label="Aggregated evidence cards">
+        <aside className="descriptor-evidence-sidebar" aria-label="Marking evidence cards">
           <div className="annotated-section-label">Descriptor Evidence</div>
           {cards.map(card => {
             const color = COLORS[card.colorIndex % COLORS.length]
@@ -288,10 +290,25 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                     )}
                   </div>
                 </div>
-                <div className="descriptor-evidence-judgement">
-                  <span>Evidence explanation</span>
-                  <p>{card.explanation || 'No explanation was provided for this evidence.'}</p>
-                </div>
+                {card.summary ? (
+                  <>
+                    <div className="descriptor-evidence-judgement">
+                      <span>At a glance</span>
+                      <p>{card.summary}</p>
+                    </div>
+                    <details className="descriptor-evidence-details">
+                      <summary>View evidence explanation</summary>
+                      <div className="descriptor-evidence-judgement">
+                        <p>{card.explanation}</p>
+                      </div>
+                    </details>
+                  </>
+                ) : (
+                  <div className="descriptor-evidence-judgement">
+                    <span>Evidence explanation</span>
+                    <p>{card.explanation || 'No explanation was provided for this evidence.'}</p>
+                  </div>
+                )}
                 {!card.match && (
                   <p className="descriptor-evidence-unmatched-note">
                     This quote could not be matched in the stored student response.

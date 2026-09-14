@@ -4,12 +4,7 @@ import { getLesson, getLessonScheme, getStudents, getMarkingResults } from '../s
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
 import AggregationEvidenceEssay from '../components/AggregationEvidenceEssay'
-
-function hasAggregationEvidence(aggregation) {
-  return aggregation?.status === 'complete'
-    && Array.isArray(aggregation.result?.evidence)
-    && aggregation.result.evidence.length > 0
-}
+import { feedbackResult } from '../utils/feedbackResult'
 
 function StudentFeedback() {
   const { lessonId } = useParams()
@@ -94,7 +89,7 @@ function StudentFeedback() {
         ) : (
           results.map(r => {
             const isExpanded = expanded[r.studentId]
-            const actionableSteps = r.result.actionableSteps ?? r.result.actionable_steps ?? []
+            const { result, evidenceResult, studentText, actionableSteps, finalUnavailable } = feedbackResult(r)
 
             return (
               <div key={r.studentId} className="student-marking-row">
@@ -103,7 +98,7 @@ function StudentFeedback() {
                 <div className="student-mark-actions">
                   <div className="student-result-row">
                     <span className="student-result-score">
-                      {r.result.score}/{r.result.maxScore}
+                      {result.score}/{result.maxScore}
                     </span>
                     <button className="student-expand-btn" onClick={() => toggleExpanded(r.studentId)}>
                       {isExpanded ? 'Hide' : 'View feedback'}
@@ -113,17 +108,22 @@ function StudentFeedback() {
 
                 {isExpanded && (
                   <div className="student-result-expanded">
-                    <ResultCard result={r.result} scheme={schemeData?.scheme} />
-                    {r.result.studentOcrText && (
-                      hasAggregationEvidence(r.aggregation) ? (
+                    {finalUnavailable && (
+                      <p role="status" className="feedback-notice">
+                        Final marking is unavailable for this result. Showing the earlier mark and feedback.
+                      </p>
+                    )}
+                    <ResultCard result={result} scheme={schemeData?.scheme} />
+                    {studentText && (
+                      evidenceResult?.evidence?.length > 0 ? (
                         <AggregationEvidenceEssay
-                          text={r.result.studentOcrText}
-                          aggregationResult={r.aggregation.result}
+                          text={studentText}
+                          aggregationResult={evidenceResult}
                         />
                       ) : (
                         <AnnotatedEssay
-                          text={r.result.studentOcrText}
-                          annotations={r.result.annotations ?? []}
+                          text={studentText}
+                          annotations={[]}
                         />
                       )
                     )}

@@ -336,6 +336,9 @@ router.get('/:lessonId/results', async (req, res, next) => {
             aggregation: r.aggregation_result
                 ? JSON.parse(r.aggregation_result)
                 : null,
+            finalResult: r.final_result
+                ? JSON.parse(r.final_result)
+                : null,
         }))
         res.json({ results })
     } catch (err) {

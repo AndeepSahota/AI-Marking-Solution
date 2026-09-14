@@ -235,6 +235,7 @@ BEGIN
         ocr_id        INT           NOT NULL UNIQUE REFERENCES dbo.student_ocr(id),
         student_grade NVARCHAR(MAX) NOT NULL,
         aggregation_result NVARCHAR(MAX) NULL,
+        final_result NVARCHAR(MAX) NULL,
         marked_at     NVARCHAR(30)  NOT NULL
             CONSTRAINT DF_marking_results_marked_at DEFAULT (CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120)),
         CONSTRAINT UQ_marking_lesson_student UNIQUE (lesson_id, student_id)
@@ -246,6 +247,13 @@ IF COL_LENGTH(N'dbo.marking_results', N'aggregation_result') IS NULL
 BEGIN
     ALTER TABLE dbo.marking_results
     ADD aggregation_result NVARCHAR(MAX) NULL;
+END;
+GO
+
+IF COL_LENGTH(N'dbo.marking_results', N'final_result') IS NULL
+BEGIN
+    ALTER TABLE dbo.marking_results
+    ADD final_result NVARCHAR(MAX) NULL;
 END;
 GO
 

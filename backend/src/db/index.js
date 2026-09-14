@@ -334,7 +334,8 @@ export const markingDb = {
         mimeType,
         ocrText,
         gradeJson,
-        aggregationResultJson = null
+        aggregationResultJson = null,
+        finalResultJson = null
     ) =>
         inTransaction(async (transaction) => {
             const existing = (await exec(transaction, `
@@ -391,14 +392,16 @@ export const markingDb = {
                     student_id,
                     ocr_id,
                     student_grade,
-                    aggregation_result
+                    aggregation_result,
+                    final_result
                 )
                 VALUES (
                     @lessonId,
                     @studentId,
                     @ocrId,
                     @grade,
-                    @aggregationResult
+                    @aggregationResult,
+                    @finalResult
                 )
             `, [
                 intParam('lessonId', lessonId),
@@ -406,6 +409,7 @@ export const markingDb = {
                 intParam('ocrId', ocr.id),
                 textParam('grade', sql.MAX, gradeJson),
                 nullableTextParam('aggregationResult', sql.MAX, aggregationResultJson),
+                nullableTextParam('finalResult', sql.MAX, finalResultJson),
             ])
         }),
 
@@ -434,7 +438,7 @@ export const markingDb = {
     getResults: async (lessonId, teacherId, e = pool) =>
         (await exec(e, `
             SELECT mr.student_id, mr.student_grade, mr.aggregation_result,
-                   mr.marked_at
+                   mr.final_result, mr.marked_at
             FROM dbo.marking_results AS mr
             JOIN dbo.lessons AS l ON l.id = mr.lesson_id
             JOIN dbo.classes AS c ON c.id = l.class_id

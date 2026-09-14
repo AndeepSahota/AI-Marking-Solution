@@ -22,8 +22,10 @@ from llm_service import (
     DescriptorContentIntegrityError,
     DescriptorValidationError,
     ExtractionError,
+    FinalMarkingValidationError,
     extract_mark_scheme,
     generate_aggregation_response,
+    generate_final_marking_response,
     generate_thread_description_response,
     generate_llm_response,
 )
@@ -39,9 +41,10 @@ from validation.descriptor_validation import validate_descriptor_shapes
 from validation.mark_int_validation import validate_mark_totals
 from transformations.segment_transormation import transform_segment_mark_scheme
 from aggregation.next_band_threads import get_next_band_threads
+from final_marking.context import build_final_marking_context
 from observability.event_log import (
     log_descriptor_validation_issues,
-    log_mark_total_corrections,
+    log_mark_total_validation_event,
     log_security_stripped,
     log_student_ocr_done,
 )
@@ -58,8 +61,8 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-def _log_thread_extraction(stage: str) -> None:
-    print(f"[THREAD EXTRACTION] {stage}", flush=True)
+def _log_thread_extraction_complete() -> None:
+    print("[THREAD EXTRACTION] Complete", flush=True)
 
 
 # ── POST /ocr ─────────────────────────────────────────────────────────────────
@@ -126,18 +129,12 @@ async def ocr_file(file: UploadFile = File(...)):
 
     # This operates after all descriptor transformations so the object returned
     # by /ocr has passed every deterministic post-extraction validation.
-    structured_scheme, corrections = validate_mark_totals(structured_scheme)
-    if corrections:
-        log_mark_total_corrections(corrections)
-
-    _log_thread_extraction(
-        "Validated mark-scheme extraction complete; starting transformation"
+    structured_scheme, _ = validate_mark_totals(
+        structured_scheme,
+        event_handler=log_mark_total_validation_event,
     )
 
     thread_scheme_input = transform_segment_mark_scheme(structured_scheme)
-    _log_thread_extraction(
-        "Transformation complete; sending thread scheme to the LLM"
-    )
 
     thread_scheme_text = _json.dumps(thread_scheme_input, ensure_ascii=False)
     thread_scheme_text, lookalikes = (
@@ -153,9 +150,7 @@ async def ocr_file(file: UploadFile = File(...)):
         wrapped_thread_scheme,
         thread_token,
     )
-    _log_thread_extraction(
-        "Thread-description response converted back to the keyed application shape"
-    )
+    _log_thread_extraction_complete()
 
     return {
         "text": clean_text,
@@ -293,6 +288,38 @@ async def mark_with_scheme_text(
             "reason": str(e),
         }
 
+    try:
+        final_context = build_final_marking_context(
+            aggregation, _json.loads(scheme_text), _json.loads(thread_extraction)
+        )
+        final_input, lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(
+            _json.dumps(final_context, ensure_ascii=False)
+        )
+        if lookalikes:
+            log_security_stripped(lookalikes)
+        wrapped_final_input, final_token = ms_ocr_sanitisation.wrap_for_prompt(
+            ms_ocr_sanitisation.sanitize(final_input)
+        )
+        final_result = {
+            "status": "complete",
+            "result": generate_final_marking_response(
+                wrapped_final_input, final_token, final_context
+            ),
+        }
+    except (ValueError, TypeError) as e:
+        final_result = {"status": "skipped", "reason": str(e)}
+        print("[FINAL MARKING] Skipped: required inputs unavailable", flush=True)
+    except FinalMarkingValidationError as e:
+        final_result = {
+            "status": "failed",
+            "reason": str(e),
+            "model_result": e.model_result,
+        }
+        print("[FINAL MARKING] Failed validation; model result retained", flush=True)
+    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
+        final_result = {"status": "failed", "reason": str(e)}
+        print("[FINAL MARKING] Failed: result could not be verified", flush=True)
+
     return {
         "score":                    raw.get("score", 0),
         "maxScore":                 raw.get("maxScore"),
@@ -306,6 +333,7 @@ async def mark_with_scheme_text(
         "question_mismatch_reason": raw.get("question_mismatch_reason", None),
         "annotations":              raw.get("annotations", []),
         "aggregation":              aggregation,
+        "final_result":             final_result,
     }
 
 # ── Exemplar management ───────────────────────────────────────────────────────

@@ -1,3 +1,5 @@
+import { sanitizeFinalResult } from './sanitizeFinalResult.js'
+
 function safeInt(value, { min = 0, max = Number.MAX_SAFE_INTEGER, fallback = 0 } = {}) {
     const number = Number(value)
     if (!Number.isFinite(number)) return fallback
@@ -135,6 +137,7 @@ export function sanitizeAIResult(raw) {
     }
 
     const aggregation = sanitizeAggregation(raw.aggregation)
+    const finalResult = sanitizeFinalResult(raw.final_result)
 
     return {
         score,
@@ -147,5 +150,6 @@ export function sanitizeAIResult(raw) {
         questionMismatchReason,
         studentOcrText,
         ...(aggregation ? { aggregation } : {}),
+        ...(finalResult ? { finalResult } : {}),
     }
 }

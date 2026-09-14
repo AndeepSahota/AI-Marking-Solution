@@ -1,6 +1,6 @@
 import json
 import os
-from openai import OpenAI, LengthFinishReasonError, ContentFilterFinishReasonError
+from openai import OpenAI, OpenAIError, LengthFinishReasonError, ContentFilterFinishReasonError
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from segmentation.seg_prompt import SYSTEM_PROMPT as SEGMENTATION_SYSTEM_PROMPT, build_segmentation_user_prompt
@@ -17,6 +17,12 @@ from schemas.ms_schema import MarkSchemeExtraction
 from schemas.marking_result_schema import MarkingResult
 from schemas.segmented_result import SegmentationResult
 from schemas.aggregation_schema import AggregationResult
+from schemas.final_marking_result import FinalMarkingResult
+from final_marking.final_prompt import (
+    SYSTEM_PROMPT as FINAL_MARKING_SYSTEM_PROMPT,
+    build_final_marking_user_prompt,
+)
+from final_marking.context import reconcile_final_score, resolve_final_marking_result
 from schemas.thread_description_result import ThreadDescriptionResult
 from observability.event_log import (
     log_extraction_refusal,
@@ -72,6 +78,15 @@ class ExtractionIncompleteError(ExtractionError):
     reason instead of crashing later with an unrelated AttributeError the
     first time something tries to use the missing result."""
     pass
+
+
+class FinalMarkingValidationError(ExtractionError):
+    """Carries a parsed, token-verified final-marking response that failed
+    application validation so it can be retained for diagnosis."""
+
+    def __init__(self, message, model_result):
+        super().__init__(message)
+        self.model_result = model_result
 
 
 class DescriptorValidationError(ExtractionError):
@@ -170,7 +185,6 @@ def extract_mark_scheme(scheme_text, expected_token):
 
 def generate_thread_description_response(scheme_text, expected_token):
     user_prompt = build_thread_description_prompt(scheme_text)
-    print("[THREAD EXTRACTION] Thread-description LLM request started", flush=True)
 
     try:
         response = client.chat.completions.parse(
@@ -203,12 +217,6 @@ def generate_thread_description_response(scheme_text, expected_token):
         )
 
     verify_token(expected_token, result.delimiter_token)
-    list_result = result.model_dump(exclude={"delimiter_token"})
-    print(
-        "[THREAD EXTRACTION] Thread-description LLM returned list response\n"
-        f"{json.dumps(list_result, ensure_ascii=False, indent=2, default=str)}\n",
-        flush=True,
-    )
     return _thread_description_lists_to_keyed_scheme(result)
 
 
@@ -472,3 +480,45 @@ def generate_aggregation_response(
     verify_token(expected_token, result.delimiter_token)
 
     return result.model_dump(exclude={"delimiter_token"})
+
+
+def generate_final_marking_response(delimited_input, expected_token, context):
+    print("[FINAL MARKING] Sending evidence and scheme to the LLM", flush=True)
+    try:
+        response = client.chat.completions.parse(
+            model="gpt-4o-mini",
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": FINAL_MARKING_SYSTEM_PROMPT},
+                {"role": "user", "content": build_final_marking_user_prompt(delimited_input)},
+            ],
+            response_format=FinalMarkingResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+    except OpenAIError as e:
+        raise ExtractionError("Final marking LLM request failed") from e
+    except ValueError as e:
+        raise ExtractionError("Invalid final marking response shape") from e
+
+    message = response.choices[0].message
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError("No final marking result was returned")
+
+    verify_token(expected_token, result.delimiter_token)
+    model_result = reconcile_final_score(result.model_dump(exclude={"delimiter_token"}))
+    try:
+        resolved = resolve_final_marking_result(model_result, context)
+    except ValueError as e:
+        raise FinalMarkingValidationError(str(e), model_result) from e
+    print("[FINAL MARKING] Response verified; evidence quotes attached", flush=True)
+    return resolved

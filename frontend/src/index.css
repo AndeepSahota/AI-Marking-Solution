@@ -2356,6 +2356,13 @@ body::after {
   gap: 6px;
 }
 
+.score-adjustment-note {
+  margin: -6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 .score-number {
   font-size: 4rem;
   font-weight: 800;
@@ -2452,6 +2459,19 @@ body::after {
 .breakdown-criterion {
   flex: 1;
   min-width: 0;
+}
+
+.breakdown-summary,
+.feedback-notice {
+  margin: 6px 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.breakdown-band {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
 }
 
 .breakdown-descriptors {
@@ -4546,6 +4566,16 @@ body::after {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.descriptor-evidence-details {
+  margin-top: 12px;
+}
+
+.descriptor-evidence-details > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
 }
 
 .descriptor-evidence-unmatched-note {

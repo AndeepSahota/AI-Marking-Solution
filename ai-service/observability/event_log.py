@@ -190,33 +190,24 @@ def log_marking_filtered() -> None:
 def log_marking_empty() -> None:
     logger.error("[MARKING] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")
 
-def log_mark_total_corrections(
-    corrections: list[dict],
-) -> None:
-    """
-    Log deterministic mark-total corrections without logging mark-scheme
-    descriptions or other unnecessary source content.
-    """
-    for correction in corrections:
-        allocations = correction.get(
-            "assessment_objectives",
-            [],
-        )
+def log_mark_total_validation_event(event: dict) -> None:
+    """Log one structured decision from deterministic mark-total validation."""
+    if not isinstance(event, dict):
+        return
 
-        allocation_summary = ", ".join(
-            (
-                f"{str(allocation.get('ao', 'unknown'))[:40]!r}="
-                f"{allocation.get('marks_available')!r}"
-            )
-            for allocation in allocations
-            if isinstance(allocation, dict)
-        )
+    status = str(event.get("status", "info")).casefold()
+    rendered = json.dumps(
+        {
+            "message": event.get("message"),
+            "question": event.get("question"),
+            "status": event.get("status", "info"),
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+    message = f"[MARK TOTAL VALIDATION] {rendered}"
 
-        logger.warning(
-            "[VALIDATION] Corrected extracted question marks "
-            f"| rule={correction.get('rule')!r} "
-            f"| question={correction.get('question_number')!r} "
-            f"| declared={correction.get('declared_marks')!r} "
-            f"| corrected={correction.get('computed_marks')!r} "
-            f"| ao_allocations=[{allocation_summary}]"
-        )
+    if status in {"fail", "corrected"}:
+        logger.warning(message)
+    else:
+        logger.info(message)
