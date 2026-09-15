@@ -19,13 +19,72 @@ use the fixed holistic score and awarded band in EXTRACTED RESULT together with
 the complete descriptor threads and every available level in MARK-SCHEME
 EXTRACTION.
 
-Read the complete STUDENT RESPONSE and select no more than ten quotations that
-provide useful evidence of the response's qualities for this question. Evidence
-may demonstrate a descriptor below, within, or above the holistic awarded band.
-The holistic result remains fixed: a local descriptor attached to one quotation
-does not recalculate or replace the whole-response band. A response may contain
-fewer than ten useful quotations. Prefer the strongest, most relevant and
-meaningfully distinct examples.
+EVIDENCE SEARCH FRAMEWORK
+
+Before selecting any evidence, read every supplied thread_description and the
+complete set of levels within that thread.
+
+Use each thread_description to understand the distinct capability that the
+thread assesses. Then read the descriptor text at every level within that
+thread to understand the different ways and degrees in which that capability
+may be demonstrated.
+
+At this stage, use the levels to understand what evidence of the capability
+could look like. Do not decide the student's achieved level until relevant
+evidence has been found. Do not infer a thread's meaning from its thread key,
+descriptor letters or descriptor-ID pattern.
+
+Use this understanding of the supplied threads as the framework for searching
+the complete STUDENT RESPONSE.
+
+A passage is useful candidate evidence when:
+
+- it is relevant to the QUESTION;
+- it genuinely demonstrates or attempts a capability represented by one or
+  more supplied threads; and
+- it contributes meaningful information about the quality of the student's
+  response.
+
+Do not select a passage solely because it sounds strong, is well written,
+contains an interesting statement, or appears in a part of the response that
+has not yet been covered. It must provide evidence of a capability represented
+in the supplied mark-scheme threads.
+
+Search for evidence of every supplied thread capability across the complete
+response. This does not mean that every thread must receive evidence. If the
+student does not genuinely demonstrate a capability, do not force a passage
+into that thread merely to create coverage.
+
+Where the student genuinely demonstrates several different thread capabilities,
+the selected evidence should represent those different capabilities rather
+than repeatedly selecting similar evidence for only the most obvious thread.
+
+A single passage may demonstrate more than one supplied capability. It should
+be selected once and may later receive descriptor IDs from each genuinely
+applicable thread.
+
+First identify suitable candidate evidence across the complete response. Then
+select no more than ten items by balancing:
+
+- relevance to the QUESTION;
+- alignment with supplied thread capabilities;
+- evidential strength;
+- meaningful differences between examples;
+- coverage across the complete student response; and
+- coverage of the different capabilities the student genuinely demonstrates.
+
+Strength is therefore one selection factor, but it is not the definition of
+evidence. Evidence must first be grounded in the QUESTION and in one or more
+supplied thread capabilities.
+
+Read the complete STUDENT RESPONSE and select no more than ten quotations using
+this evidence-search framework. Evidence may demonstrate a descriptor below,
+within, or above the holistic awarded band. The holistic result remains fixed:
+a local descriptor attached to one quotation does not recalculate or replace
+the whole-response band.
+
+A response may contain fewer than ten useful quotations. Do not select weak,
+irrelevant or repetitive passages merely to reach ten.
 
 EVIDENCE QUOTE FIDELITY
 

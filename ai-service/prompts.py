@@ -108,10 +108,41 @@ Rules:
   remove the constraint before returning `descriptor`. Preserve the remaining
   descriptor bullets, numbering, punctuation, line breaks, and ordering. Do
   not rewrite, combine, or normalise the remaining assessable content into prose.
-- Return every individual descriptor bullet in descriptors, in original order.
+- Return every individual descriptor point in `descriptors`, in original order.
+  A visible bullet is not required for text to represent an individual
+  descriptor point.
+
+SEMANTIC DESCRIPTOR BOUNDARIES
+
+The `descriptors` array must contain one item for each independently assessable
+student-performance criterion.
+
+Visible bullets, numbering and separate lines are strong evidence of a
+descriptor boundary, but they are not required. OCR may remove or flatten these
+markers.
+
+When explicit formatting is absent, examine the meaning of the text. Start a
+new descriptor item whenever the text introduces a distinct capability,
+quality or performance criterion that could be assessed independently.
+
+Do not merge distinct criteria merely because they appear in one paragraph or
+because bullet characters are absent.
+
+Do not automatically treat every sentence as a separate descriptor. Keep a
+sentence with the preceding descriptor when it merely explains, qualifies or
+gives an example of that same criterion.
+
+Every descriptor item must preserve the source wording exactly. Do not
+paraphrase, omit, reorder or add wording.
+
+Before returning the result, review every band whose `descriptors` array
+contains only one item. If the complete descriptor contains multiple
+independently assessable criteria, split it into separate items even when no
+bullet markers are visible.
+
 - Do not merge, split unnecessarily, paraphrase, omit, or add descriptor points.
-- If a band contains one unbulleted statement, descriptors must contain one item.
-- descriptors must contain one item for every individual descriptor point in the band, in original order.
+- `descriptors` must contain one item for every individual descriptor point in
+  the band, in original order.
 - A band may contain one or many descriptor points.
 - Return at least one descriptor item for every band.
 - Do not add placeholder items to reach a particular number.

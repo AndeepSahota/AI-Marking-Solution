@@ -62,7 +62,10 @@ function quoteMatchVariants(quote) {
   if (!exactQuote) return []
 
   const variants = [exactQuote]
-  if (exactQuote.length > 1 && exactQuote.endsWith('.')) {
+  // The model can append one punctuation character that is not present in the
+  // OCR source (most commonly a full stop or a closing quotation mark). Keep
+  // this fallback narrow: never discard a letter, number, or whitespace.
+  if (exactQuote.length > 1 && /[.,!?;:'"‘’“”«»)]$/u.test(exactQuote)) {
     variants.push(exactQuote.slice(0, -1))
   }
 

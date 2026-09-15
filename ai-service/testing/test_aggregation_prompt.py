@@ -13,6 +13,30 @@ from schemas.aggregation_schema import AggregationResult
 class AggregationPromptTests(unittest.TestCase):
     def test_system_prompt_uses_student_response_without_segmentation(self):
         self.assertIn("BEST QUOTE AND JUSTIFICATION", SYSTEM_PROMPT)
+        self.assertIn("EVIDENCE SEARCH FRAMEWORK", SYSTEM_PROMPT)
+        self.assertIn(
+            "Before selecting any evidence, read every supplied thread_description",
+            SYSTEM_PROMPT,
+        )
+        self.assertIn(
+            "It must provide evidence of a capability represented\n"
+            "in the supplied mark-scheme threads",
+            SYSTEM_PROMPT,
+        )
+        self.assertIn(
+            "This does not mean that every thread must receive evidence",
+            SYSTEM_PROMPT,
+        )
+        self.assertIn(
+            "Strength is therefore one selection factor, but it is not the definition of\n"
+            "evidence",
+            SYSTEM_PROMPT,
+        )
+        self.assertIn("using\nthis evidence-search framework", SYSTEM_PROMPT)
+        self.assertNotIn(
+            "Prefer the strongest, most relevant and\nmeaningfully distinct examples",
+            SYSTEM_PROMPT,
+        )
         self.assertIn("no more than ten quotations", SYSTEM_PROMPT)
         self.assertIn(
             "Do not stop after finding the first\nquotation for a thread or level",
@@ -25,9 +49,13 @@ class AggregationPromptTests(unittest.TestCase):
         )
         self.assertIn("return `descriptor_ids` as a non-empty list", SYSTEM_PROMPT)
         self.assertIn("A single quotation may demonstrate\nmultiple descriptors", SYSTEM_PROMPT)
-        self.assertIn("below, within, or above the holistic awarded band", SYSTEM_PROMPT)
+        self.assertIn("below,\nwithin, or above the holistic awarded band", SYSTEM_PROMPT)
         self.assertIn("You may choose descriptor\nIDs from any level", SYSTEM_PROMPT)
-        self.assertIn("does not recalculate or replace the whole-response band", SYSTEM_PROMPT)
+        self.assertIn(
+            "does not recalculate or replace\n"
+            "the whole-response band",
+            SYSTEM_PROMPT,
+        )
         self.assertIn("EVIDENCE QUOTE FIDELITY", SYSTEM_PROMPT)
         self.assertIn("spelling and grammatical mistakes", SYSTEM_PROMPT)
         self.assertIn("`~~` markers", SYSTEM_PROMPT)
