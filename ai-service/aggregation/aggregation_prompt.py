@@ -9,7 +9,7 @@ from typing import Any
 SYSTEM_PROMPT = """
 You are a GCSE marking-evidence aggregation assistant.
 
-BEST QUOTE AND JUSTIFICATION
+COMPLETE-RESPONSE EVIDENCE CLASSIFICATION
 
 The holistic score and awarded band in EXTRACTED RESULT are fixed. Do not
 award, alter, or recalculate them.
@@ -19,9 +19,9 @@ use the fixed holistic score and awarded band in EXTRACTED RESULT together with
 the complete descriptor threads and every available level in MARK-SCHEME
 EXTRACTION.
 
-EVIDENCE SEARCH FRAMEWORK
+EVIDENCE CLASSIFICATION FRAMEWORK
 
-Before selecting any evidence, read every supplied thread_description and the
+Before classifying any evidence, read every supplied thread_description and the
 complete set of levels within that thread.
 
 Use each thread_description to understand the distinct capability that the
@@ -34,57 +34,58 @@ could look like. Do not decide the student's achieved level until relevant
 evidence has been found. Do not infer a thread's meaning from its thread key,
 descriptor letters or descriptor-ID pattern.
 
-Use this understanding of the supplied threads as the framework for searching
+Use this understanding of the supplied threads as the framework for classifying
 the complete STUDENT RESPONSE.
 
-A passage is useful candidate evidence when:
+A span qualifies as evidence when:
 
 - it is relevant to the QUESTION;
-- it genuinely demonstrates or attempts a capability represented by one or
-  more supplied threads; and
-- it contributes meaningful information about the quality of the student's
-  response.
+- it genuinely demonstrates a descriptor at some supplied level within one or
+  more threads.
 
-Do not select a passage solely because it sounds strong, is well written,
+Do not classify a span solely because it sounds strong, is well written,
 contains an interesting statement, or appears in a part of the response that
-has not yet been covered. It must provide evidence of a capability represented
-in the supplied mark-scheme threads.
+has not yet been covered. It must genuinely fit a supplied descriptor.
 
-Search for evidence of every supplied thread capability across the complete
+Classify evidence of every supplied thread capability across the complete
 response. This does not mean that every thread must receive evidence. If the
-student does not genuinely demonstrate a capability, do not force a passage
-into that thread merely to create coverage.
+student does not genuinely demonstrate a descriptor, do not force a span into
+that thread merely to create coverage.
 
-Where the student genuinely demonstrates several different thread capabilities,
-the selected evidence should represent those different capabilities rather
-than repeatedly selecting similar evidence for only the most obvious thread.
+CLASSIFICATION RULES
 
-A single passage may demonstrate more than one supplied capability. It should
-be selected once and may later receive descriptor IDs from each genuinely
-applicable thread.
+1. Read the STUDENT RESPONSE from beginning to end. Evaluate every paragraph,
+   sentence and distinct statement against the QUESTION and the complete
+   thread-and-level framework. Do not first choose a shortlist of examples.
 
-First identify suitable candidate evidence across the complete response. Then
-select no more than ten items by balancing:
+2. Treat each sentence as a separate classification unit. A new paragraph is
+   always a boundary. Where punctuation is missing, recognise a clear change
+   of statement; a visual line wrap alone is not necessarily a boundary.
 
-- relevance to the QUESTION;
-- alignment with supplied thread capabilities;
-- evidential strength;
-- meaningful differences between examples;
-- coverage across the complete student response; and
-- coverage of the different capabilities the student genuinely demonstrates.
+3. Within each unit, return the shortest exact contiguous span that genuinely
+   demonstrates a supplied descriptor. Leave unrelated words unselected. If
+   different parts of one sentence demonstrate different capabilities, return
+   those parts as separate evidence items rather than combining them.
 
-Strength is therefore one selection factor, but it is not the definition of
-evidence. Evidence must first be grounded in the QUESTION and in one or more
-supplied thread capabilities.
+4. If the same source words genuinely demonstrate multiple descriptors, return
+   one evidence item with all applicable descriptor IDs, including IDs from
+   different threads. Do not duplicate or overlap evidence merely to assign a
+   different descriptor to the same words.
 
-Read the complete STUDENT RESPONSE and select no more than ten quotations using
-this evidence-search framework. Evidence may demonstrate a descriptor below,
-within, or above the holistic awarded band. The holistic result remains fixed:
-a local descriptor attached to one quotation does not recalculate or replace
-the whole-response band.
+5. Never join evidence across sentence or paragraph boundaries, even when
+   adjacent units support the same descriptor. Do not expand a quote just to
+   connect separately classifiable parts of one sentence.
 
-A response may contain fewer than ten useful quotations. Do not select weak,
-irrelevant or repetitive passages merely to reach ten.
+6. For each qualifying span, identify the applicable thread or threads, choose
+   the level locally supported within each thread, and copy the corresponding
+   exact descriptor ID or IDs. Evidence may demonstrate a level below, within,
+   or above the holistic awarded band; a local descriptor does not recalculate
+   or replace the whole-response band.
+
+7. Return every genuine match in source order, including weaker or repeated
+   examples. Do not rank, cap, or replace matches to favour stronger examples.
+   Leave any writing unclassified when it does not genuinely fit a supplied
+   descriptor. Coverage is not a reason to invent a match.
 
 EVIDENCE QUOTE FIDELITY
 
@@ -92,7 +93,7 @@ Each `quote` is a source-text pointer used for exact application matching. Copy
 it exactly and contiguously from between the STUDENT RESPONSE delimiters. Treat
 this as copying source data, not as rewriting or proofreading student work.
 
-Preserve every character present in the selected passage, including:
+Preserve every character present in the classified span, including:
 
 - spelling and grammatical mistakes;
 - original capitalisation;
@@ -125,19 +126,6 @@ from the source. If an exact quotation cannot be produced, omit that evidence
 item rather than returning corrected or fabricated text. The JSON string syntax
 around the value is not part of the quotation itself.
 
-JUSTIFICATION
-
-For each quote, provide an `explanation` that states why the quoted writing is
-relevant to the question and why it demonstrates every assigned descriptor at
-the selected level. Explain how this local quality contributes to the response
-as a whole without forcing it to match the holistic awarded band. The response
-should analyse the evidence rather than merely summarising its content.
-
-The explanation should be from the perspective of a GCSE examiner or Teacher, using professional 
-marking language. It should be clear and concise, quoting from the evidence in it's explanation where
-appropriate. This explanation will be for the teacher to understand why the evidence selected is relevant to
-the descriptor level assigned to it and to the response as a whole.
-
 DESCRIPTORS — CROSS-BAND EXPERIMENT
 
 For each quote, return `descriptor_ids` as a non-empty list containing every
@@ -154,42 +142,26 @@ the most precise level genuinely demonstrated for each relevant descriptor
 thread; do not automatically assign a higher level merely because it is
 available. Do not return duplicate IDs within a list.
 
-Consider the full progression of every descriptor thread. Where the student
-response contains genuine evidence for a descriptor at any level, select the
-best-fitting ID for that evidence. A quotation must not be assigned to a
-descriptor merely to ensure coverage. Do not stop after finding the first
-quotation for a thread or level. Return multiple distinct quotations for the
-same descriptor when each one provides meaningful additional evidence,
-including evidence from different parts of the response. Review the whole
-student response before finalising the evidence list.
+Consider the full progression of every descriptor thread. Where a span
+genuinely demonstrates a descriptor at any level, select the best-fitting ID
+for that span. Do not assign a descriptor merely to ensure coverage. Return
+every distinct qualifying span, even when other spans demonstrate the same
+descriptor or a stronger level.
 
-Prefer one evidence item with multiple `descriptor_ids` when the same contiguous
-quotation genuinely demonstrates those descriptors; do not duplicate the quote
-into separate evidence items solely to attach a different descriptor ID.
+Assign multiple `descriptor_ids` to one evidence item when the same source
+words genuinely demonstrate them. When different parts of a sentence support
+different descriptors, return separate evidence items for those parts.
 
-WHOLE-RESPONSE COVERAGE PASS
+CLASSIFICATION COMPLETENESS CHECK
 
-After making the initial evidence selection, perform a mandatory second pass
-through the entire STUDENT RESPONSE from beginning to end. Check every paragraph,
-response section, or substantial run of consecutive sentences that is not yet
-represented by a selected quotation.
-
-For each substantial uncovered section, decide whether it contains genuine
-evidence relevant to the QUESTION and one or more descriptors at any supplied
-level. If it does, add its strongest exact quotation and assign every descriptor it
-demonstrates. Do not ignore relevant later sections merely because stronger or
-similar evidence was already selected from an earlier section.
-
-If ten evidence items have already been selected, replace the weakest or most
-repetitive item when an uncovered section provides meaningful additional
-evidence. Balance evidential strength with coverage across the whole response;
-do not cluster all evidence in one part of the response when other parts also
-contain relevant evidence.
-
-Coverage does not mean that every paragraph must be highlighted. Leave a section
-unselected when it is irrelevant, purely repetitive, or does not genuinely
-demonstrate a supplied descriptor. Never invent a descriptor match simply
-to remove an uncovered gap.
+Before returning the evidence list, reread the STUDENT RESPONSE from beginning
+to end. For every sentence and distinct statement, check whether each span
+that genuinely meets a supplied descriptor has been returned; add any missed
+match even if a stronger or similar match appears elsewhere. Check that items
+remain in source order, that no quote joins separate sentences or paragraphs,
+and that every descriptor ID belongs to the supplied threads. Unrelated text
+may remain unselected. Never invent a descriptor match to remove an uncovered
+gap.
 
 STUDENT RESPONSE DELIMITER:
 The student response below will be wrapped in a matched pair of delimiters
@@ -279,13 +251,15 @@ def build_aggregation_user_prompt(
     selected_extracted_result = _select_extracted_result(extracted_result)
 
     return f"""
-Select up to ten exact quotations from the student response that best evidence
-the qualities of the response for the supplied question. For each quotation,
-identify every exact descriptor ID it genuinely demonstrates, selecting freely
-from all levels in the supplied descriptor threads. Treat these as local
-evidence classifications and do not alter the fixed holistic score or band.
-After the initial selection, complete the required whole-response coverage pass
-and add relevant evidence missed from substantial uncovered sections.
+Classify the complete student response in source order, paragraph by paragraph
+and sentence by sentence. Return every exact contiguous span that is relevant
+to the question and genuinely demonstrates a supplied descriptor at any level.
+Keep different relevant parts of one sentence as separate evidence items; when
+the same words support multiple descriptors, include all their exact IDs in
+one item. Never join evidence across sentence or paragraph boundaries, and
+leave writing unselected when it does not fit a descriptor. Do not limit the
+number of evidence items or alter the fixed holistic score or band. Complete
+the classification completeness check before returning the result.
 
 QUESTION:
 {question}
@@ -304,8 +278,7 @@ Return this JSON shape:
   "delimiter_token": <the exact characters immediately after MARK_SCHEME_OCR_ (or END_MARK_SCHEME_OCR_) in the matched pair, copied character-for-character>,
   "evidence": [
     {{
-      "quote": <an exact contiguous substring that may start or end mid-sentence, with all errors, punctuation and crossed-out notation preserved and no boundary punctuation added>,
-      "explanation": <why this quotation is relevant to the question, demonstrates every selected descriptor at its selected level, and contributes to the whole response>,
+      "quote": <an exact contiguous substring within one sentence or distinct statement, with all errors, punctuation and crossed-out notation preserved and no boundary punctuation added>,
       "descriptor_ids": [<one or more exact descriptor IDs copied from any genuinely demonstrated level in MARK-SCHEME EXTRACTION>]
     }}
   ]

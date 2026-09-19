@@ -198,16 +198,18 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
 
         const highlightBox = highlight.getBoundingClientRect()
         const evidenceCardBox = evidenceCard.getBoundingClientRect()
-        const startX = highlightBox.right - containerBox.left + 3
+        const isLeft = card.colorIndex % 2 === 0
+        const direction = isLeft ? -1 : 1
+        const startX = (isLeft ? highlightBox.left : highlightBox.right) - containerBox.left + (direction * 3)
         const startY = highlightBox.top - containerBox.top + (highlightBox.height / 2)
-        const endX = evidenceCardBox.left - containerBox.left - 6
+        const endX = (isLeft ? evidenceCardBox.right : evidenceCardBox.left) - containerBox.left - (direction * 6)
         const endY = evidenceCardBox.top - containerBox.top + (evidenceCardBox.height / 2)
-        const bend = Math.max(28, (endX - startX) * 0.42)
+        const bend = Math.max(28, Math.abs(endX - startX) * 0.42)
 
         return [{
           id: card.id,
           color: COLORS[card.colorIndex % COLORS.length].border,
-          d: `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`,
+          d: `M ${startX} ${startY} C ${startX + (direction * bend)} ${startY}, ${endX - (direction * bend)} ${endY}, ${endX} ${endY}`,
         }]
       })
       setLines(nextLines)
@@ -226,7 +228,12 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
 
   return (
     <section className="descriptor-evidence-wrap" aria-label="Marking evidence in student response">
-      <div className="descriptor-evidence-body" ref={containerRef}>
+      <div className="annotated-section-label descriptor-evidence-heading">Descriptor Evidence</div>
+      <div
+        className="descriptor-evidence-body descriptor-evidence-body--alternating"
+        ref={containerRef}
+        style={{ '--evidence-rows': Math.max(1, Math.ceil(cards.length / 2)) }}
+      >
         <svg className="descriptor-evidence-connectors" aria-hidden="true">
           {lines.map(line => <path key={line.id} d={line.d} stroke={line.color} />)}
         </svg>
@@ -263,9 +270,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
           </div>
         </div>
 
-        <aside className="descriptor-evidence-sidebar" aria-label="Marking evidence cards">
-          <div className="annotated-section-label">Descriptor Evidence</div>
-          {cards.map(card => {
+        {cards.map(card => {
             const color = COLORS[card.colorIndex % COLORS.length]
             return (
               <article
@@ -275,7 +280,11 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                   if (node) cardRefs.current.set(card.id, node)
                   else cardRefs.current.delete(card.id)
                 }}
-                style={{ '--evidence-colour': color.border }}
+                style={{
+                  '--evidence-colour': color.border,
+                  '--evidence-column': card.colorIndex % 2 === 0 ? 1 : 3,
+                  '--evidence-row': Math.floor(card.colorIndex / 2) + 1,
+                }}
               >
                 <div className="descriptor-evidence-card-header">
                   <span className="descriptor-evidence-card-number" style={{ background: color.border }}>
@@ -306,12 +315,12 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                       </div>
                     </details>
                   </>
-                ) : (
+                ) : card.explanation ? (
                   <div className="descriptor-evidence-judgement">
                     <span>Evidence explanation</span>
-                    <p>{card.explanation || 'No explanation was provided for this evidence.'}</p>
+                    <p>{card.explanation}</p>
                   </div>
-                )}
+                ) : null}
                 {!card.match && (
                   <p className="descriptor-evidence-unmatched-note">
                     This quote could not be matched in the stored student response.
@@ -319,8 +328,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                 )}
               </article>
             )
-          })}
-        </aside>
+        })}
       </div>
     </section>
   )

@@ -24,6 +24,7 @@ import {
     downloadStudentWork,
 } from '../services/blobService.js'
 import { sendStudentMarkingRequest } from '../services/queueService.js'
+import { selectedDescriptorThreads } from '../services/descriptorThreadMap.js'
 
 const router = express.Router()
 
@@ -97,8 +98,8 @@ router.get('/:id', async (req, res, next) => {
     }
 })
 
-// GET /lessons/:id/ocr — return the extracted mark scheme for the lesson's
-// currently selected question, structured for display — not raw OCR text.
+// GET /lessons/:id/ocr — return the selected question's extracted mark scheme
+// and compact descriptor-to-thread map, not the full thread extraction.
 // Falls back to { scheme: null, ocr_text } if there's no usable
 // structured_scheme yet (an older lesson, or extraction found nothing).
 router.get('/:id/ocr', async (req, res, next) => {
@@ -116,6 +117,10 @@ router.get('/:id/ocr', async (req, res, next) => {
                 description:           question.description,
                 assessment_objectives: question.assessment_objectives ?? [],
             },
+            descriptorThreads: selectedDescriptorThreads(
+                row.thread_extraction,
+                question.question_number
+            ),
         })
     } catch (err) {
         next(err)

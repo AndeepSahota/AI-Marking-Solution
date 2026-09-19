@@ -7,7 +7,6 @@ export function feedbackResult(row) {
     result: final ?? row.result,
     evidenceResult,
     studentText: row.result.studentOcrText ?? '',
-    actionableSteps: final ? [] : (row.result.actionableSteps ?? row.result.actionable_steps ?? []),
     finalUnavailable: Boolean(row.finalResult && !final),
   }
 }

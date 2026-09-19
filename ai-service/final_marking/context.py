@@ -127,14 +127,19 @@ def build_final_marking_context(aggregation, scheme, thread_extraction):
 
 
 def reconcile_final_score(result):
-    """Make the per-AO breakdown authoritative while retaining the LLM total."""
+    """Make per-AO marks and maxima authoritative, retaining model totals."""
     original_score = result.get("original_score", result["score"])
+    original_max_score = result.get("original_max_score", result["max_score"])
     score = sum(item["marks"] for item in result["breakdown"])
+    max_score = sum(item["max_marks"] for item in result["breakdown"])
     return {
         **result,
         "score": score,
         "original_score": original_score,
         "delta": score - original_score,
+        "max_score": max_score,
+        "original_max_score": original_max_score,
+        "max_score_delta": max_score - original_max_score,
     }
 
 

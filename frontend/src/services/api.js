@@ -31,8 +31,9 @@ export async function getLesson(lessonId) {
     return data
 }
 
-// Returns { scheme: {...} } for the lesson's selected question, or
-// { scheme: null, ocr_text } as a fallback when there's no usable
+// Returns { scheme: {...}, descriptorThreads: { [descriptorId]: threadId } }
+// for the lesson's selected question. The full thread extraction stays server-side.
+// Falls back to { scheme: null, ocr_text } when there's no usable
 // structured_scheme yet.
 export async function getLessonScheme(lessonId) {
     const response = await fetch(`${API_BASE}/lessons/${lessonId}/ocr`, { credentials: 'include' })

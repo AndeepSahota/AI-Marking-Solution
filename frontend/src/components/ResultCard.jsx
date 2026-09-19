@@ -10,9 +10,9 @@ function descriptorsForBreakdownItem(scheme, item) {
   return Array.isArray(band?.descriptors) ? band.descriptors : []
 }
 
-function ResultCard({ result, scheme }) {
+function ResultCard({ studentName, result, scheme }) {
   const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
-  const scoreDeltaLabel = result.delta > 0 ? `+${result.delta}` : String(result.delta)
+  const showAoScores = Array.isArray(result.breakdown) && result.breakdown.length > 1
 
   const getGradeColour = (pct) => {
     if (pct >= 70) return '#10b981'
@@ -36,12 +36,8 @@ function ResultCard({ result, scheme }) {
 
   return (
     <div className="result-card">
-      <div className="result-header">
-        <div className="result-title-group">
-          <span className="result-label">Marking Result</span>
-          <span className="result-title">Assessment Complete</span>
-        </div>
-        <span className={getBadgeClass(percentage)}>{getGradeLabel(percentage)}</span>
+      <div className="result-student-row">
+        <span className="result-student-name">{studentName}</span>
       </div>
 
       <div className="result-score-section">
@@ -49,13 +45,15 @@ function ResultCard({ result, scheme }) {
           <span className="score-number" style={{ color: colour }}>{result.score}</span>
           <span className="score-separator">/</span>
           <span className="score-max">{result.maxScore}</span>
+          <div className="result-awarded-bands">
+            {result.breakdown?.map(item => item.awardedBand && (
+              <span key={item.section} className="result-awarded-band">
+                {item.section} — {item.awardedBand}
+              </span>
+            ))}
+          </div>
+          <span className={getBadgeClass(percentage)}>{getGradeLabel(percentage)}</span>
         </div>
-
-        {Number.isInteger(result.originalScore) && result.delta !== 0 && (
-          <p className="score-adjustment-note">
-            Original score: {result.originalScore} · Delta: {scoreDeltaLabel}
-          </p>
-        )}
 
         <div className="progress-track">
           <div
@@ -66,60 +64,58 @@ function ResultCard({ result, scheme }) {
             }}
           />
         </div>
-
-        <div className="progress-meta">
-          <span className="progress-pct">{percentage}% achieved</span>
-          <span className="progress-label">{result.score} marks out of {result.maxScore}</span>
-        </div>
       </div>
+
+      {result.feedback && (
+        <div className="result-overall-summary">
+          <div className="section-label">Overall Summary</div>
+          <p className="overall-summary-text">{result.feedback}</p>
+        </div>
+      )}
 
       {result.breakdown && result.breakdown.length > 0 && (
         <div className="result-breakdown">
           <div className="section-label">Breakdown</div>
-          {result.summary && <p className="breakdown-summary">{result.summary}</p>}
           {result.breakdown.map((item, index) => {
             const itemPct = Math.round((item.marks / item.maxMarks) * 100)
             const descriptors = descriptorsForBreakdownItem(scheme, item)
             return (
               <div key={index} className="breakdown-item">
-                <div className="breakdown-criterion">
-                  <span className="breakdown-name">{item.section}</span>
-                  {item.awardedBand && <span className="breakdown-band"> — {item.awardedBand}</span>}
-                  {item.summary && <p className="breakdown-summary">{item.summary}</p>}
-                  {descriptors.length > 0 && (
-                    <ul className="breakdown-descriptors">
-                      {descriptors.map((descriptor, descriptorIndex) => {
-                        const isStructured = descriptor && typeof descriptor === 'object'
-                        const text = isStructured ? descriptor.text : descriptor
-                        const id = isStructured ? descriptor.id : null
-
-                        return (
-                          <li key={id ?? descriptorIndex} className="breakdown-descriptor">
-                            {id && <code className="breakdown-descriptor-id">{id}</code>}
-                            <span>{text}</span>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                <div className="breakdown-item-header">
+                  <div className="breakdown-criterion">
+                    {showAoScores && <span className="breakdown-name">{item.section}</span>}
+                    {(item.summary || item.reason) && (
+                      <p className="breakdown-summary">{item.summary || item.reason}</p>
+                    )}
+                  </div>
+                  {showAoScores && (
+                    <span className="breakdown-score">{item.marks} / {item.maxMarks}</span>
                   )}
                 </div>
-                <div className="breakdown-bar-track">
-                  <div
-                    className="breakdown-bar-fill"
-                    style={{ width: `${itemPct}%` }}
-                  />
-                </div>
-                <span className="breakdown-score">{item.marks} / {item.maxMarks}</span>
+                {showAoScores && (
+                  <div className="breakdown-bar-track">
+                    <div className="breakdown-bar-fill" style={{ width: `${itemPct}%` }} />
+                  </div>
+                )}
+                {descriptors.length > 0 && (
+                  <ul className="breakdown-descriptors">
+                    {descriptors.map((descriptor, descriptorIndex) => {
+                      const isStructured = descriptor && typeof descriptor === 'object'
+                      const text = isStructured ? descriptor.text : descriptor
+                      const id = isStructured ? descriptor.id : null
+
+                      return (
+                        <li key={id ?? descriptorIndex} className="breakdown-descriptor">
+                          {id && <code className="breakdown-descriptor-id">{id}</code>}
+                          <span>{text}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
               </div>
             )
           })}
-        </div>
-      )}
-
-      {result.feedback && (
-        <div className="result-feedback">
-          <div className="section-label">Feedback</div>
-          <p className="feedback-text">{result.feedback}</p>
         </div>
       )}
     </div>

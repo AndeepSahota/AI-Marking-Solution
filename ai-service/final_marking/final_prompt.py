@@ -60,6 +60,32 @@ teacher-at-a-glance statement explaining the final award, strengths shown by
 the evidence and the principal limitation. Do not address the student or
 generate rewritten student work.
 
+FEATURED EVIDENCE BY THREAD
+
+After assessing every evidence entry and assigning its final descriptor_ids,
+nominate a separate shortlist of the strongest evidence for each supported
+thread. This shortlist is for display only: it must not change the mark,
+descriptor assignments, or complete evidence list.
+
+Use the supplied thread definitions to determine which thread each final
+descriptor_id belongs to. Use your final classifications, not the
+aggregation stage's suggested thread_ids.
+
+For each thread, choose the two or three strongest active evidence entries.
+Active evidence is uncrossed-out student writing that genuinely supports your
+judgement of that thread. Rank the chosen entries strongest first.
+
+An entry will be legible even if it displays more than one thread. However, the one
+it is nominated for must be strongly evident in that thread. Do not change descriptor_id's
+to make evidence eligible for a thread.
+
+Return only evidence_ids that exist in the supplied catalogue. Never invent
+evidence or repeat an ID. If a thread has fewer than two eligible entries,
+return only those available; omit threads with none.
+
+Return featured_evidence_by_thread as a list of objects containing thread_id
+and evidence_ids.
+
 INPUT DELIMITER
 The supplied JSON data is wrapped in one matched pair shaped like
 <<<MARK_SCHEME_OCR_[token]>>> and <<<END_MARK_SCHEME_OCR_[token]>>>.
@@ -86,13 +112,45 @@ teacher summary, and every supplied evidence entry with explanations and summari
 INPUT DATA:
 {delimited_input}
 
-Return:
-- delimiter_token: the token alone from the matched input boundary.
-- score and max_score: the totals across all supplied assessment objectives.
-- summary: a brief teacher-at-a-glance explanation of the final award.
-- breakdown: one entry per AO with section, awarded_band, marks, max_marks,
-  and summary explaining its award.
-- evidence: every catalogue entry, in input order, each with evidence_id,
-  descriptor_ids, explanation, and summary derived from that explanation. No
-  quote field. Return every supplied evidence_id exactly once.
+Return your response as a JSON object with exactly this structure:
+{{
+    "delimiter_token": <the exact token from the matched input boundary, copied character-for-character>,
+    "score": <sum of the marks in breakdown>,
+    "max_score": <sum of marks_available across the supplied assessment_objectives>,
+    "summary": <brief teacher-at-a-glance explanation of the final award, strengths and principal limitation>,
+    "breakdown": [
+        {{
+            "section": <exact ao label from one supplied assessment_objectives entry>,
+            "awarded_band": <exact band label from that AO's band_marks>,
+            "marks": <integer mark within the awarded band's stated range>,
+            "max_marks": <that AO's marks_available, not the question or a thread maximum>,
+            "summary": <explanation of the AO award and placement within the band>
+        }}
+    ],
+    "evidence": [
+        {{
+            "evidence_id": <exact evidence_id from one catalogue entry>,
+            "descriptor_ids": [<all applicable exact descriptor IDs from the supplied thread levels>],
+            "explanation": <how this evidence supports the assigned descriptors and overall award>,
+            "summary": <concise summary derived only from this explanation>
+        }}
+    ],
+    "featured_evidence_by_thread": [
+        {{
+            "thread_id": <exact thread_id from the supplied assessment_objectives>,
+            "evidence_ids": [<eligible evidence_id values from the catalogue, strongest first>]
+        }}
+    ]
+}}
+
+Create exactly one breakdown entry for EACH supplied assessment objective and
+no others. A thread is a descriptor progression within an AO, not another
+mark-bearing section. For a question with only AO4, breakdown must contain
+exactly one AO4 entry, even when several AO4 threads are supported. Never
+divide an AO's marks across multiple entries or repeat its section label.
+
+Return every supplied evidence_id exactly once, in catalogue order, with no
+quote field. Use an empty featured_evidence_by_thread list if no evidence is
+eligible; otherwise follow the featured-evidence rules in the system prompt.
+Respond with valid JSON only, without markdown or commentary.
 """

@@ -20,6 +20,11 @@ class FinalObjectiveMark(StrictBaseModel):
     summary: str = Field(min_length=1)
 
 
+class FeaturedEvidenceThread(StrictBaseModel):
+    thread_id: str
+    evidence_ids: list[str]
+
+
 class FinalMarkingResult(StrictBaseModel):
     delimiter_token: str
     score: int = Field(ge=0)
@@ -27,3 +32,6 @@ class FinalMarkingResult(StrictBaseModel):
     summary: str = Field(min_length=1)
     breakdown: list[FinalObjectiveMark] = Field(min_length=1)
     evidence: list[FinalEvidence]
+    # Structured Outputs needs fixed object keys. The worker converts this
+    # list into the persisted featuredEvidenceByThread map.
+    featured_evidence_by_thread: list[FeaturedEvidenceThread]

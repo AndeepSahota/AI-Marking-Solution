@@ -17,7 +17,7 @@ function StudentFeedback() {
   const [resultsError,   setResultsError]   = useState(null)
   const [notFound,       setNotFound]       = useState(false)
   const [schemeData,     setSchemeData]     = useState(null)
-  const [expanded, setExpanded] = useState({})
+  const [essayExpanded, setEssayExpanded] = useState({})
 
   // Same direct-visit/refresh pattern as StudentMarking: re-derive everything
   // from lessonId alone rather than trusting router state.
@@ -32,8 +32,9 @@ function StudentFeedback() {
       .then(setStudents)
       .catch(() => setNotFound(true))
 
-    // The selected question's stored scheme supplies the descriptor text and
-    // IDs shown beside the matching AO in each student's breakdown.
+    // Keep the selected question's scheme and compact descriptorThreads map
+    // together; the card still only uses the scheme until evidence placement
+    // is designed.
     getLessonScheme(lessonId)
       .then(setSchemeData)
       .catch(() => setSchemeData(null))
@@ -56,8 +57,8 @@ function StudentFeedback() {
   const nameFor = (studentId) =>
     students.find(s => s.id === studentId)?.student_name ?? `Student #${studentId}`
 
-  const toggleExpanded = (studentId) =>
-    setExpanded(prev => ({ ...prev, [studentId]: !prev[studentId] }))
+  const toggleEssayExpanded = (studentId) =>
+    setEssayExpanded(prev => ({ ...prev, [studentId]: !prev[studentId] }))
 
   return (
     <div className="page">
@@ -74,12 +75,7 @@ function StudentFeedback() {
         </div>
       </div>
 
-      <div className="student-marking-list">
-        <div className="student-marking-header-row">
-          <span>Student</span>
-          <span>Result</span>
-        </div>
-
+      <div className="student-feedback-list">
         {resultsError ? (
           <p className="ms-ocr-error">{resultsError}</p>
         ) : resultsLoading ? (
@@ -88,34 +84,37 @@ function StudentFeedback() {
           <p className="student-marking-empty">No marked work yet.</p>
         ) : (
           results.map(r => {
-            const isExpanded = expanded[r.studentId]
-            const { result, evidenceResult, studentText, actionableSteps, finalUnavailable } = feedbackResult(r)
+            const isEssayExpanded = essayExpanded[r.studentId]
+            const { result, evidenceResult, studentText, finalUnavailable } = feedbackResult(r)
+            const evidenceCount = evidenceResult?.evidence?.length ?? 0
 
             return (
-              <div key={r.studentId} className="student-marking-row">
-                <span className="student-marking-name">{nameFor(r.studentId)}</span>
-
-                <div className="student-mark-actions">
-                  <div className="student-result-row">
-                    <span className="student-result-score">
-                      {result.score}/{result.maxScore}
-                    </span>
-                    <button className="student-expand-btn" onClick={() => toggleExpanded(r.studentId)}>
-                      {isExpanded ? 'Hide' : 'View feedback'}
+              <div key={r.studentId} className="student-feedback-row">
+                {finalUnavailable && (
+                  <p role="status" className="feedback-notice">
+                    Final marking is unavailable for this result. Showing the earlier mark and feedback.
+                  </p>
+                )}
+                <ResultCard
+                  studentName={nameFor(r.studentId)}
+                  result={result}
+                  scheme={schemeData?.scheme}
+                />
+                {studentText && (
+                  <>
+                    <button
+                      className="essay-toggle-btn"
+                      onClick={() => toggleEssayExpanded(r.studentId)}
+                      aria-expanded={isEssayExpanded}
+                    >
+                      {isEssayExpanded
+                        ? 'Hide annotated essay'
+                        : evidenceCount > 0
+                          ? `Annotated essay · ${evidenceCount} evidence point${evidenceCount === 1 ? '' : 's'}`
+                          : 'Annotated essay'}
                     </button>
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="student-result-expanded">
-                    {finalUnavailable && (
-                      <p role="status" className="feedback-notice">
-                        Final marking is unavailable for this result. Showing the earlier mark and feedback.
-                      </p>
-                    )}
-                    <ResultCard result={result} scheme={schemeData?.scheme} />
-                    {studentText && (
-                      evidenceResult?.evidence?.length > 0 ? (
+                    {isEssayExpanded && (
+                      evidenceCount > 0 ? (
                         <AggregationEvidenceEssay
                           text={studentText}
                           aggregationResult={evidenceResult}
@@ -127,17 +126,7 @@ function StudentFeedback() {
                         />
                       )
                     )}
-                    {actionableSteps.length > 0 && (
-                      <section className="actionable-steps" aria-label="Actionable next steps">
-                        <div className="annotated-section-label">Actionable Steps</div>
-                        <ol className="actionable-steps-list">
-                          {actionableSteps.map((step, index) => (
-                            <li key={`${r.studentId}-step-${index}`}>{step}</li>
-                          ))}
-                        </ol>
-                      </section>
-                    )}
-                  </div>
+                  </>
                 )}
               </div>
             )

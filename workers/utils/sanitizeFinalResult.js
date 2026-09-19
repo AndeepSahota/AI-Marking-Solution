@@ -1,6 +1,29 @@
 const isObject = value => value && typeof value === 'object' && !Array.isArray(value)
 const text = value => typeof value === 'string' ? value.trim() : ''
 
+function sanitizeFeaturedEvidenceByThread(items, evidence, { checkThreadMembership = true } = {}) {
+    const featured = new Map()
+    if (!Array.isArray(items)) return {}
+
+    const evidenceById = new Map(evidence.map(item => [item.evidenceId, item]))
+    for (const item of items) {
+        if (!isObject(item) || !Array.isArray(item.evidence_ids)) continue
+        const threadId = text(item.thread_id)
+        if (!threadId) continue
+
+        const selected = featured.get(threadId) ?? []
+        for (const rawEvidenceId of item.evidence_ids) {
+            const evidenceId = text(rawEvidenceId)
+            const candidate = evidenceById.get(evidenceId)
+            if (!candidate || (checkThreadMembership && !candidate.descriptorIds.includes(threadId))) continue
+            if (!selected.includes(evidenceId) && selected.length < 2) selected.push(evidenceId)
+        }
+        if (selected.length > 0) featured.set(threadId, selected)
+    }
+
+    return Object.fromEntries(featured)
+}
+
 function sanitizeModelResult(value) {
     if (!isObject(value)
         || !Number.isInteger(value.score) || value.score < 0
@@ -8,6 +31,9 @@ function sanitizeModelResult(value) {
         || !Number.isInteger(value.delta)
         || value.original_score + value.delta !== value.score
         || !Number.isInteger(value.max_score) || value.max_score < 1
+        || !Number.isInteger(value.original_max_score) || value.original_max_score < 1
+        || !Number.isInteger(value.max_score_delta)
+        || value.original_max_score + value.max_score_delta !== value.max_score
         || !text(value.summary)
         || !Array.isArray(value.breakdown) || value.breakdown.length === 0
         || !Array.isArray(value.evidence)) return null
@@ -46,9 +72,14 @@ function sanitizeModelResult(value) {
         originalScore: value.original_score,
         delta: value.delta,
         maxScore: value.max_score,
+        originalMaxScore: value.original_max_score,
+        maxScoreDelta: value.max_score_delta,
         summary: text(value.summary),
         breakdown,
         evidence,
+        featuredEvidenceByThread: sanitizeFeaturedEvidenceByThread(
+            value.featured_evidence_by_thread, evidence, { checkThreadMembership: false }
+        ),
     }
 }
 
@@ -95,7 +126,10 @@ export function sanitizeFinalResult(value) {
 
     if (!Number.isInteger(result.original_score) || result.original_score < 0
         || !Number.isInteger(result.delta)
-        || result.original_score + result.delta !== result.score) return invalid
+        || result.original_score + result.delta !== result.score
+        || !Number.isInteger(result.original_max_score) || result.original_max_score < 1
+        || !Number.isInteger(result.max_score_delta)
+        || result.original_max_score + result.max_score_delta !== result.max_score) return invalid
 
     const evidence = []
     const evidenceIds = new Set()
@@ -122,10 +156,15 @@ export function sanitizeFinalResult(value) {
             originalScore: result.original_score,
             delta: result.delta,
             maxScore: result.max_score,
+            originalMaxScore: result.original_max_score,
+            maxScoreDelta: result.max_score_delta,
             percentage: Math.round(result.score / result.max_score * 100),
             summary: text(result.summary),
             breakdown,
             evidence,
+            featuredEvidenceByThread: sanitizeFeaturedEvidenceByThread(
+                result.featured_evidence_by_thread, evidence
+            ),
         },
     }
 }

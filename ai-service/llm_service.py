@@ -12,6 +12,7 @@ from transformations.thread_description_prompt import (
     SYSTEM_PROMPT as THREAD_DESCRIPTION_SYSTEM_PROMPT,
     build_thread_description_prompt,
 )
+from transformations.fm_descriptor_to_thread import fm_descriptor_to_thread
 from security.ms_ocr_sanitisation import verify_token
 from schemas.ms_schema import MarkSchemeExtraction
 from schemas.marking_result_schema import MarkingResult
@@ -34,6 +35,7 @@ from observability.event_log import (
     log_marking_filtered,
     log_marking_empty,
 )
+from observability.raw_response_capture import save_raw_final_marking_response
 
 class ExtractionError(Exception):
     """Common base for every way an extraction call can fail to produce a
@@ -506,6 +508,12 @@ def generate_final_marking_response(delimited_input, expected_token, context):
         raise ExtractionError("Invalid final marking response shape") from e
 
     message = response.choices[0].message
+    save_raw_final_marking_response(
+        getattr(message, "content", None),
+        response_id=getattr(response, "id", None),
+        model=getattr(response, "model", None),
+        finish_reason=getattr(response.choices[0], "finish_reason", None),
+    )
     if message.refusal:
         log_marking_refusal(message.refusal)
         raise ExtractionRefusedError(message.refusal)
@@ -518,7 +526,8 @@ def generate_final_marking_response(delimited_input, expected_token, context):
     model_result = reconcile_final_score(result.model_dump(exclude={"delimiter_token"}))
     try:
         resolved = resolve_final_marking_result(model_result, context)
+        resolved = fm_descriptor_to_thread(resolved, context)
     except ValueError as e:
         raise FinalMarkingValidationError(str(e), model_result) from e
-    print("[FINAL MARKING] Response verified; evidence quotes attached", flush=True)
+    print("[FINAL MARKING] Response verified; evidence quotes and threads attached", flush=True)
     return resolved

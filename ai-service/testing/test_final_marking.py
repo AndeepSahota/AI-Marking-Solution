@@ -16,6 +16,7 @@ from final_marking.context import (
 from final_marking.final_prompt import SYSTEM_PROMPT, build_final_marking_user_prompt
 from schemas.final_marking_result import FinalMarkingResult
 from security import ms_ocr_sanitisation
+from transformations.fm_descriptor_to_thread import fm_descriptor_to_thread
 
 
 def inputs():
@@ -56,11 +57,9 @@ def inputs():
         },
     }}}
     aggregation = {"status": "complete", "result": {
-        "score": 6, "summary": "Prior judgement must not leak",
         "evidence": [{
             "quote": ' The verb "quiet" suggests ~~that the~~ a sense of fear. ',
             "descriptor_ids": ["ao4-2a", "ao4-1a", "ao4-1b"],
-            "explanation": "Prior explanation must not leak",
         }],
     }}
     return aggregation, scheme, threads
@@ -79,6 +78,7 @@ def output():
             "explanation": "An opinion about fear with a relevant reference.",
             "summary": "Relevant reference with a simple opinion.",
         }],
+        "featured_evidence_by_thread": [],
     }
 
 
@@ -87,7 +87,7 @@ class FinalMarkingTests(unittest.TestCase):
         self.aggregation, self.scheme, self.threads = inputs()
         self.context = build_final_marking_context(self.aggregation, self.scheme, self.threads)
 
-    def test_input_removes_previous_explanations_and_grade(self):
+    def test_input_carries_only_quote_and_thread_suggestions(self):
         evidence = self.context["evidence"][0]
         self.assertEqual(set(evidence), {"evidence_id", "quote", "thread_ids"})
         self.assertEqual(evidence["thread_ids"], ["ao4-thread-a", "ao4-thread-b"])
@@ -95,7 +95,6 @@ class FinalMarkingTests(unittest.TestCase):
             [thread["thread_id"] for thread in self.context["assessment_objectives"][0]["threads"]],
             ["ao4-thread-a", "ao4-thread-b"],
         )
-        self.assertNotIn("Prior", json.dumps(self.context))
         self.assertNotIn("score", self.context)
         self.assertEqual(self.context["question"]["description"], self.scheme["description"])
         levels = self.context["assessment_objectives"][0]["threads"][0]["levels"]
@@ -152,6 +151,9 @@ class FinalMarkingTests(unittest.TestCase):
         self.assertEqual(result["score"], 2)  # Can disagree with the earlier award.
         self.assertEqual(result["original_score"], 2)
         self.assertEqual(result["delta"], 0)
+        self.assertEqual(result["max_score"], 6)
+        self.assertEqual(result["original_max_score"], 6)
+        self.assertEqual(result["max_score_delta"], 0)
 
     def test_breakdown_marks_override_the_model_total(self):
         model_result = output()
@@ -161,6 +163,17 @@ class FinalMarkingTests(unittest.TestCase):
         self.assertEqual(result["original_score"], 1)
         self.assertEqual(result["delta"], 1)
 
+    def test_breakdown_maxima_override_the_model_total_without_losing_it(self):
+        model_result = output()
+        model_result["max_score"] = 12
+
+        result = resolve_final_marking_result(model_result, self.context)
+
+        self.assertEqual(result["max_score"], 6)
+        self.assertEqual(result["original_max_score"], 12)
+        self.assertEqual(result["max_score_delta"], -6)
+        self.assertEqual(reconcile_final_score(result)["original_max_score"], 12)
+
     def test_no_hidden_evidence_cap(self):
         self.aggregation["result"]["evidence"] *= 12
         context = build_final_marking_context(self.aggregation, self.scheme, self.threads)
@@ -169,6 +182,18 @@ class FinalMarkingTests(unittest.TestCase):
         result["evidence"] = [{**result["evidence"][0], "evidence_id": f"e{i}"} for i in range(1, 13)]
         parsed = FinalMarkingResult.model_validate(result)
         self.assertEqual(len(resolve_final_marking_result(parsed.model_dump(), context)["evidence"]), 12)
+
+    def test_schema_carries_featured_evidence_as_thread_entries(self):
+        result = output()
+        result["featured_evidence_by_thread"] = [
+            {"thread_id": "ao4-thread-a", "evidence_ids": ["e1"]},
+        ]
+
+        parsed = FinalMarkingResult.model_validate(result)
+
+        self.assertEqual(parsed.model_dump()["featured_evidence_by_thread"], [
+            {"thread_id": "ao4-thread-a", "evidence_ids": ["e1"]},
+        ])
 
     def test_every_aggregation_evidence_id_is_required(self):
         self.aggregation["result"]["evidence"] *= 2
@@ -181,12 +206,26 @@ class FinalMarkingTests(unittest.TestCase):
         self.assertIn("Return EVERY evidence entry", SYSTEM_PROMPT)
         self.assertIn("Return every supplied evidence_id exactly once", build_final_marking_user_prompt("input"))
 
+    def test_user_prompt_matches_final_result_shape_and_keeps_one_row_per_ao(self):
+        prompt = build_final_marking_user_prompt("test input")
+
+        for field in (
+            "delimiter_token", "score", "max_score", "summary", "breakdown",
+            "section", "awarded_band", "marks", "max_marks", "evidence",
+            "evidence_id", "descriptor_ids", "explanation",
+            "featured_evidence_by_thread", "thread_id", "evidence_ids",
+        ):
+            self.assertIn(f'"{field}":', prompt)
+        self.assertIn("test input", prompt)
+        self.assertIn("exactly one AO4 entry", prompt)
+        self.assertIn("not another\nmark-bearing section", prompt)
+        self.assertIn("Never\ndivide an AO's marks across multiple entries", prompt)
+
     def test_bad_references_and_inconsistent_marks_are_rejected(self):
         variants = []
-        for key, value in [("max_score", 15)]:
-            result = output()
-            result[key] = value
-            variants.append(result)
+        result = output()
+        result["breakdown"][0]["max_marks"] = 15
+        variants.append(result)
         result = output()
         result["breakdown"][0]["awarded_band"] = "Level 2"
         variants.append(result)
@@ -214,6 +253,47 @@ class FinalMarkingTests(unittest.TestCase):
 
         self.assertEqual(resolved["evidence"][0]["descriptor_ids"], ["ao4-1a", "ao4-1b"])
         self.assertEqual(resolved["evidence"][0]["quote"], context["evidence"][0]["quote"])
+
+    def test_final_descriptors_become_unique_threads_without_changing_other_fields(self):
+        resolved = resolve_final_marking_result(output(), self.context)
+        resolved["evidence"][0]["descriptor_ids"] = [
+            "ao4-1a", "ao4-2a", "ao4-1b", "ao4-2a"
+        ]
+
+        transformed = fm_descriptor_to_thread(resolved, self.context)
+
+        self.assertEqual(
+            transformed["evidence"][0]["descriptor_ids"],
+            ["ao4-thread-a", "ao4-thread-b"],
+        )
+        self.assertEqual(resolved["evidence"][0]["descriptor_ids"][0], "ao4-1a")
+        self.assertEqual(transformed["evidence"][0]["quote"], resolved["evidence"][0]["quote"])
+        self.assertEqual(transformed["breakdown"], resolved["breakdown"])
+
+    def test_final_descriptors_can_map_to_more_than_two_threads(self):
+        context = copy.deepcopy(self.context)
+        context["assessment_objectives"][0]["threads"].append({
+            "thread_id": "ao4-thread-c",
+            "levels": [{"descriptor_id": "ao4-1c"}],
+        })
+        resolved = resolve_final_marking_result(output(), context)
+        resolved["evidence"][0]["descriptor_ids"] = [
+            "ao4-1a", "ao4-1b", "ao4-1c"
+        ]
+
+        transformed = fm_descriptor_to_thread(resolved, context)
+
+        self.assertEqual(
+            transformed["evidence"][0]["descriptor_ids"],
+            ["ao4-thread-a", "ao4-thread-b", "ao4-thread-c"],
+        )
+
+    def test_unknown_final_descriptor_cannot_be_transformed(self):
+        resolved = resolve_final_marking_result(output(), self.context)
+        resolved["evidence"][0]["descriptor_ids"] = ["ao4-9z"]
+
+        with self.assertRaisesRegex(ValueError, "unknown descriptor ID"):
+            fm_descriptor_to_thread(resolved, self.context)
 
     def test_missing_threads_and_unknown_input_descriptors_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -246,7 +326,10 @@ class FinalMarkingTests(unittest.TestCase):
             "section": "AO6", "marks": 0, "max_marks": 6,
             "awarded_band": "Level 0", "summary": "No supporting evidence supplied.",
         })
-        self.assertEqual(resolve_final_marking_result(result, context)["max_score"], 12)
+        resolved = resolve_final_marking_result(result, context)
+        self.assertEqual(resolved["max_score"], 12)
+        self.assertEqual(resolved["original_max_score"], 12)
+        self.assertEqual(resolved["max_score_delta"], 0)
 
 
 class FinalMarkingServiceTests(unittest.TestCase):
@@ -257,15 +340,56 @@ class FinalMarkingServiceTests(unittest.TestCase):
             cls.service = importlib.import_module("llm_service")
             cls.main = importlib.import_module("main")
 
+    def test_raw_model_response_is_captured_before_final_validation(self):
+        context = build_final_marking_context(*inputs())
+        model_output = output()
+        model_output["evidence"][0]["descriptor_ids"] = ["ao4-9z"]
+        raw_content = json.dumps(model_output)
+        message = SimpleNamespace(
+            refusal=None,
+            parsed=FinalMarkingResult.model_validate(model_output),
+            content=raw_content,
+        )
+        client = Mock()
+        client.chat.completions.parse.return_value = SimpleNamespace(
+            id="response-1",
+            model="test-model",
+            choices=[SimpleNamespace(message=message, finish_reason="stop")],
+        )
+
+        with patch.object(self.service, "client", client), \
+             patch.object(self.service, "save_raw_final_marking_response") as capture, \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaises(self.service.FinalMarkingValidationError):
+                self.service.generate_final_marking_response("wrapped", "test", context)
+
+        capture.assert_called_once_with(
+            raw_content,
+            response_id="response-1",
+            model="test-model",
+            finish_reason="stop",
+        )
+
     def test_delimiter_verification_and_quote_resolution(self):
         context = build_final_marking_context(*inputs())
-        message = SimpleNamespace(refusal=None, parsed=FinalMarkingResult.model_validate(output()))
+        model_output = output()
+        model_output["featured_evidence_by_thread"] = [
+            {"thread_id": "ao4-thread-a", "evidence_ids": ["e1"]},
+        ]
+        message = SimpleNamespace(refusal=None, parsed=FinalMarkingResult.model_validate(model_output))
         client = Mock()
         client.chat.completions.parse.return_value = SimpleNamespace(choices=[SimpleNamespace(message=message)])
         with patch.object(self.service, "client", client), redirect_stdout(io.StringIO()):
             result = self.service.generate_final_marking_response("wrapped", "test", context)
             self.assertNotIn("delimiter_token", result)
             self.assertEqual(result["evidence"][0]["quote"], context["evidence"][0]["quote"])
+            self.assertEqual(result["featured_evidence_by_thread"], [
+                {"thread_id": "ao4-thread-a", "evidence_ids": ["e1"]},
+            ])
+            self.assertEqual(
+                result["evidence"][0]["descriptor_ids"],
+                ["ao4-thread-a", "ao4-thread-b"],
+            )
             with self.assertRaises(ms_ocr_sanitisation.TokenMismatchError):
                 self.service.generate_final_marking_response("wrapped", "different-token", context)
 
@@ -281,12 +405,52 @@ class FinalMarkingServiceTests(unittest.TestCase):
         client.chat.completions.parse.return_value = SimpleNamespace(choices=[SimpleNamespace(message=message)])
         with patch.object(self.service, "client", client), redirect_stdout(io.StringIO()):
             result = self.service.generate_final_marking_response("wrapped", "test", context)
-        self.assertEqual(result["evidence"][0]["descriptor_ids"], ["ao4-1b"])
+        self.assertEqual(result["evidence"][0]["descriptor_ids"], ["ao4-thread-b"])
         self.assertEqual(result["evidence"][0]["quote"], context["evidence"][0]["quote"])
         self.assertEqual(result["score"], 2)
         self.assertEqual(result["original_score"], 3)
         self.assertEqual(result["delta"], -1)
         self.assertNotIn("delimiter_token", result)
+
+    def test_doubled_model_maximum_is_reconciled_before_validation(self):
+        aggregation, scheme, threads = inputs()
+        scheme["marks"] = 15
+        scheme["assessment_objectives"][0]["marks_available"] = 15
+        threads["assessment_objectives"]["AO4"]["band_marks"][1]["marks"] = "1–7"
+        threads["assessment_objectives"]["AO4"]["band_marks"][2]["marks"] = "8–15"
+        context = build_final_marking_context(aggregation, scheme, threads)
+        model_output = output()
+        model_output["score"] = 22
+        model_output["max_score"] = 30
+        model_output["breakdown"][0]["marks"] = 7
+        model_output["breakdown"][0]["max_marks"] = 15
+        message = SimpleNamespace(refusal=None, parsed=FinalMarkingResult.model_validate(model_output))
+        client = Mock()
+        client.chat.completions.parse.return_value = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        with patch.object(self.service, "client", client), redirect_stdout(io.StringIO()):
+            result = self.service.generate_final_marking_response("wrapped", "test", context)
+
+        self.assertEqual(result["score"], 7)
+        self.assertEqual(result["original_score"], 22)
+        self.assertEqual(result["delta"], -15)
+        self.assertEqual(result["max_score"], 15)
+        self.assertEqual(result["original_max_score"], 30)
+        self.assertEqual(result["max_score_delta"], -15)
+
+    def test_unknown_final_descriptor_retains_raw_model_result_for_diagnosis(self):
+        context = build_final_marking_context(*inputs())
+        model_output = output()
+        model_output["evidence"][0]["descriptor_ids"] = ["ao4-9z"]
+        message = SimpleNamespace(refusal=None, parsed=FinalMarkingResult.model_validate(model_output))
+        client = Mock()
+        client.chat.completions.parse.return_value = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+        with patch.object(self.service, "client", client), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(self.service.FinalMarkingValidationError, "unknown descriptor ID") as error:
+                self.service.generate_final_marking_response("wrapped", "test", context)
+
+        self.assertEqual(error.exception.model_result["evidence"][0]["descriptor_ids"], ["ao4-9z"])
 
     def test_route_runs_holistic_then_aggregation_then_final(self):
         aggregation, scheme, threads = inputs()
@@ -298,6 +462,9 @@ class FinalMarkingServiceTests(unittest.TestCase):
 
         def aggregate(**kwargs):
             order.append("aggregation")
+            self.assertEqual(kwargs["extracted_result"]["score"], 5)
+            self.assertEqual(kwargs["mark_scheme_extraction"]["awarded_band"], "Level 2")
+            self.assertEqual(kwargs["mark_scheme_extraction"]["thread_extraction"], threads)
             return aggregation["result"]
 
         def final(wrapped, token, context):
@@ -310,7 +477,6 @@ class FinalMarkingServiceTests(unittest.TestCase):
              patch.object(self.main, "get_similar", return_value=[]), \
              patch.object(self.main, "generate_llm_response", side_effect=holistic), \
              patch.object(self.main, "generate_aggregation_response", side_effect=aggregate), \
-             patch.object(self.main, "get_next_band_threads", return_value={}), \
              patch.object(self.main, "generate_final_marking_response", side_effect=final), \
              patch.object(self.service, "generate_segmentation_response", side_effect=AssertionError("Segmentation must stay disconnected")):
             result = asyncio.run(self.main.mark_with_scheme_text(
@@ -335,7 +501,6 @@ class FinalMarkingServiceTests(unittest.TestCase):
                  "rubric_breakdown": [{"awarded_band": "Level 2"}],
              }), \
              patch.object(self.main, "generate_aggregation_response", return_value=aggregation["result"]), \
-             patch.object(self.main, "get_next_band_threads", return_value={}), \
              patch.object(self.main, "generate_final_marking_response", side_effect=
                  self.service.FinalMarkingValidationError("invalid descriptor thread", diagnostic)):
             result = asyncio.run(self.main.mark_with_scheme_text(

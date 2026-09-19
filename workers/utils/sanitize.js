@@ -98,14 +98,11 @@ export function sanitizeAIResult(raw) {
                     && Array.isArray(item.descriptor_ids)
                     && item.descriptor_ids.length > 0
                 ))
-                .slice(0, 10)
                 .map(item => ({
                     quote: safeText(item.quote, { maxLength: 5000 }),
-                    explanation: safeText(item.explanation, { maxLength: 2000 }),
                     descriptor_ids: item.descriptor_ids
                         .map(id => safeText(id, { maxLength: 100 }))
-                        .filter(Boolean)
-                        .slice(0, 20),
+                        .filter(Boolean),
                 }))
             : []
 

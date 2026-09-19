@@ -11,37 +11,32 @@ from schemas.aggregation_schema import AggregationResult
 
 
 class AggregationPromptTests(unittest.TestCase):
-    def test_system_prompt_uses_student_response_without_segmentation(self):
-        self.assertIn("BEST QUOTE AND JUSTIFICATION", SYSTEM_PROMPT)
-        self.assertIn("EVIDENCE SEARCH FRAMEWORK", SYSTEM_PROMPT)
+    def test_system_prompt_classifies_the_complete_response_by_span(self):
+        self.assertIn("COMPLETE-RESPONSE EVIDENCE CLASSIFICATION", SYSTEM_PROMPT)
+        self.assertIn("EVIDENCE CLASSIFICATION FRAMEWORK", SYSTEM_PROMPT)
         self.assertIn(
-            "Before selecting any evidence, read every supplied thread_description",
+            "Before classifying any evidence, read every supplied thread_description",
             SYSTEM_PROMPT,
         )
-        self.assertIn(
-            "It must provide evidence of a capability represented\n"
-            "in the supplied mark-scheme threads",
-            SYSTEM_PROMPT,
+        self.assertLess(
+            SYSTEM_PROMPT.index("Before classifying any evidence"),
+            SYSTEM_PROMPT.index("CLASSIFICATION RULES"),
         )
+        self.assertIn("A span qualifies as evidence when:", SYSTEM_PROMPT)
         self.assertIn(
             "This does not mean that every thread must receive evidence",
             SYSTEM_PROMPT,
         )
-        self.assertIn(
-            "Strength is therefore one selection factor, but it is not the definition of\n"
-            "evidence",
-            SYSTEM_PROMPT,
-        )
-        self.assertIn("using\nthis evidence-search framework", SYSTEM_PROMPT)
-        self.assertNotIn(
-            "Prefer the strongest, most relevant and\nmeaningfully distinct examples",
-            SYSTEM_PROMPT,
-        )
-        self.assertIn("no more than ten quotations", SYSTEM_PROMPT)
-        self.assertIn(
-            "Do not stop after finding the first\nquotation for a thread or level",
-            SYSTEM_PROMPT,
-        )
+        self.assertIn("Evaluate every paragraph,\n   sentence and distinct statement", SYSTEM_PROMPT)
+        self.assertIn("A new paragraph is\n   always a boundary", SYSTEM_PROMPT)
+        self.assertIn("a visual line wrap alone is not necessarily a boundary", SYSTEM_PROMPT)
+        self.assertIn("different parts of one sentence demonstrate different capabilities", SYSTEM_PROMPT)
+        self.assertIn("same source words genuinely demonstrate multiple descriptors", SYSTEM_PROMPT)
+        self.assertIn("Never join evidence across sentence or paragraph boundaries", SYSTEM_PROMPT)
+        self.assertIn("7. Return every genuine match in source order", SYSTEM_PROMPT)
+        self.assertIn("Do not rank, cap, or replace matches", SYSTEM_PROMPT)
+        self.assertIn("Leave any writing unclassified", SYSTEM_PROMPT)
+        self.assertNotIn("no more than ten", SYSTEM_PROMPT.lower())
         self.assertIn(
             "the characters immediately after\n"
             "MARK_SCHEME_OCR_ (or END_MARK_SCHEME_OCR_)",
@@ -49,11 +44,11 @@ class AggregationPromptTests(unittest.TestCase):
         )
         self.assertIn("return `descriptor_ids` as a non-empty list", SYSTEM_PROMPT)
         self.assertIn("A single quotation may demonstrate\nmultiple descriptors", SYSTEM_PROMPT)
-        self.assertIn("below,\nwithin, or above the holistic awarded band", SYSTEM_PROMPT)
+        self.assertIn("a level below, within,\n   or above the holistic awarded band", SYSTEM_PROMPT)
         self.assertIn("You may choose descriptor\nIDs from any level", SYSTEM_PROMPT)
         self.assertIn(
-            "does not recalculate or replace\n"
-            "the whole-response band",
+            "does not recalculate\n"
+            "   or replace the whole-response band",
             SYSTEM_PROMPT,
         )
         self.assertIn("EVIDENCE QUOTE FIDELITY", SYSTEM_PROMPT)
@@ -62,13 +57,15 @@ class AggregationPromptTests(unittest.TestCase):
         self.assertIn("exact substring of the delimited STUDENT RESPONSE", SYSTEM_PROMPT)
         self.assertIn("may begin or end anywhere within a sentence", SYSTEM_PROMPT)
         self.assertIn("Never return `was met with nothing.`", SYSTEM_PROMPT)
-        self.assertIn("WHOLE-RESPONSE COVERAGE PASS", SYSTEM_PROMPT)
-        self.assertIn("perform a mandatory second pass", SYSTEM_PROMPT)
-        self.assertIn("do not cluster all evidence in one part", SYSTEM_PROMPT)
+        self.assertIn("CLASSIFICATION COMPLETENESS CHECK", SYSTEM_PROMPT)
+        self.assertIn("add any missed\nmatch", SYSTEM_PROMPT)
         self.assertIn("Never invent a descriptor match", SYSTEM_PROMPT)
+        self.assertNotIn("WHOLE-RESPONSE COVERAGE PASS", SYSTEM_PROMPT)
+        self.assertNotIn("JUSTIFICATION", SYSTEM_PROMPT)
+        self.assertNotIn("`explanation`", SYSTEM_PROMPT)
         self.assertNotIn("SEGMENTED RESULT", SYSTEM_PROMPT)
 
-    def test_user_prompt_contains_student_response_without_segmentation(self):
+    def test_user_prompt_requests_all_qualifying_spans_without_segmentation(self):
         prompt = build_aggregation_user_prompt(
             question="How successfully is fear created?",
             student_response="<<<MARK_SCHEME_OCR_test>>>Student text<<<END_MARK_SCHEME_OCR_test>>>",
@@ -80,29 +77,44 @@ class AggregationPromptTests(unittest.TestCase):
         self.assertIn("Student text", prompt)
         self.assertIn("How successfully is fear created?", prompt)
         self.assertIn("crossed-out notation preserved", prompt)
-        self.assertIn("may start or end mid-sentence", prompt)
+        self.assertIn("within one sentence or distinct statement", prompt)
         self.assertIn("no boundary punctuation added", prompt)
-        self.assertIn("whole-response coverage pass", prompt)
-        self.assertIn("substantial uncovered sections", prompt)
+        self.assertIn("Classify the complete student response in source order", prompt)
+        self.assertIn("Do not limit the\nnumber of evidence items", prompt)
+        self.assertIn("classification completeness check", prompt)
         self.assertIn('"descriptor_ids"', prompt)
-        self.assertIn("selecting freely\nfrom all levels", prompt)
-        self.assertIn("do not alter the fixed holistic score or band", prompt)
+        self.assertNotIn('"explanation"', prompt)
+        self.assertIn("any level", prompt)
+        self.assertIn("Do not limit the\nnumber of evidence items or alter the fixed holistic score or band", prompt)
+        self.assertNotIn("up to ten", prompt.lower())
         self.assertNotIn("SEGMENTED RESULT", prompt)
 
-    def test_aggregation_schema_limits_evidence_to_ten_items(self):
+    def test_aggregation_schema_accepts_more_than_ten_items_without_explanations(self):
         evidence = [
             {
                 "quote": f"Quote {index}",
-                "explanation": "Explanation",
                 "descriptor_ids": ["ao4-3a"],
             }
-            for index in range(11)
+            for index in range(12)
         ]
 
+        result = AggregationResult.model_validate({
+            "delimiter_token": "test",
+            "evidence": evidence,
+        })
+
+        self.assertEqual(len(result.evidence), 12)
+        self.assertNotIn("explanation", result.evidence[0].model_dump())
+
+    def test_aggregation_schema_rejects_obsolete_explanations(self):
         with self.assertRaises(ValidationError):
             AggregationResult.model_validate({
                 "delimiter_token": "test",
-                "evidence": evidence,
+                "evidence": [{
+                    "quote": "Student quotation",
+                    "descriptor_ids": ["ao4-3a"],
+                    "explanation": "Obsolete field",
+                }],
             })
 
     def test_aggregation_schema_requires_descriptor_ids_for_each_quote(self):
@@ -111,7 +123,6 @@ class AggregationPromptTests(unittest.TestCase):
                 "delimiter_token": "test",
                 "evidence": [{
                     "quote": "Student quotation",
-                    "explanation": "Explanation",
                 }],
             })
 
@@ -120,7 +131,6 @@ class AggregationPromptTests(unittest.TestCase):
             "delimiter_token": "test",
             "evidence": [{
                 "quote": "The quotation and the student's opinion.",
-                "explanation": "This demonstrates two awarded-band descriptors.",
                 "descriptor_ids": ["ao4-2b", "ao4-2c"],
             }],
         })
@@ -129,6 +139,18 @@ class AggregationPromptTests(unittest.TestCase):
             result.evidence[0].descriptor_ids,
             ["ao4-2b", "ao4-2c"],
         )
+
+    def test_aggregation_schema_does_not_cap_descriptors_per_quote(self):
+        descriptor_ids = [f"ao4-{level}a" for level in range(25)]
+        result = AggregationResult.model_validate({
+            "delimiter_token": "test",
+            "evidence": [{
+                "quote": "Student quotation",
+                "descriptor_ids": descriptor_ids,
+            }],
+        })
+
+        self.assertEqual(result.evidence[0].descriptor_ids, descriptor_ids)
 
     def test_extracted_result_is_reduced_to_mark_summary(self):
         extracted_result = {
