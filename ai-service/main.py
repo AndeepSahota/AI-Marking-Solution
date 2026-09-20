@@ -168,7 +168,7 @@ def _question_number_from_scheme(scheme_text: str):
 
 def _assessment_objective_descriptions_from_scheme(
     scheme_text: str,
-) -> list[dict[str, str]]:
+) -> list[str]:
     try:
         parsed = _json.loads(scheme_text)
     except (TypeError, _json.JSONDecodeError):
@@ -186,17 +186,11 @@ def _assessment_objective_descriptions_from_scheme(
         if not isinstance(objective, dict):
             continue
 
-        ao = objective.get("ao")
         description = objective.get("description")
-        if not isinstance(ao, str) or not ao.strip():
-            continue
         if not isinstance(description, str) or not description.strip():
             continue
 
-        descriptions.append({
-            "ao": ao.strip(),
-            "description": description.strip(),
-        })
+        descriptions.append(description.strip())
 
     return descriptions
 
@@ -207,8 +201,7 @@ def _assessment_objective_descriptions_from_scheme(
 async def mark_with_scheme_text(
     student_work:      UploadFile = File(...),
     scheme_text:       str        = Form(...),
-    thread_extraction: str        = Form(default=''),
-    question:          str        = Form(default='')
+    thread_extraction: str        = Form(default='')
 ):
     student_bytes = await student_work.read()
     structured_ocr = extract_student_ocr(student_bytes, student_work.filename)
@@ -227,17 +220,19 @@ async def mark_with_scheme_text(
 
     # Post-OCR sanitisation + delimiting for the student's raw OCR text, same
     # as /ocr does for the mark scheme. Only student_work goes through this
-    # here — scheme_text and question have already passed through their own
-    # sanitisation earlier in the pipeline (scheme_text via /ocr) by the time
-    # they reach this endpoint.
+    # here — scheme_text has already passed through its own sanitisation via
+    # /ocr by the time it reaches this endpoint.
     student_text                        = ms_ocr_sanitisation.sanitize(raw_text)
     wrapped_student_text, expected_token = ms_ocr_sanitisation.wrap_for_prompt(student_text)
 
     question_number = _question_number_from_scheme(scheme_text)
+    assessment_focus = _assessment_objective_descriptions_from_scheme(scheme_text)
     exemplars       = get_similar(student_text, question_number, n=3)
 
     raw = generate_llm_response(
-        question=question,
+        # Holistic marking receives the complete selected-question scheme,
+        # including its AO descriptions, and derives the task from that rubric.
+        question="",
         essay=wrapped_student_text,
         rubric=scheme_text,
         expected_token=expected_token,
@@ -253,6 +248,11 @@ async def mark_with_scheme_text(
         awarded_band = rubric_breakdown[0].get("awarded_band")
         if not awarded_band:
             raise ValueError("Aggregation requires an awarded rubric band")
+        if not assessment_focus:
+            raise ValueError(
+                "Aggregation requires assessment-objective descriptions "
+                "from the selected scheme"
+            )
 
         selected_thread_extraction = _json.loads(thread_extraction)
         next_band_threads = get_next_band_threads(
@@ -267,7 +267,7 @@ async def mark_with_scheme_text(
         }
 
         aggregation_result = generate_aggregation_response(
-            question=question,
+            assessment_focus=assessment_focus,
             student_response=wrapped_student_text,
             extracted_result=raw,
             mark_scheme_extraction=aggregation_mark_scheme,

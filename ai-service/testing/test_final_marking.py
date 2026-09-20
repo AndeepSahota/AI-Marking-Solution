@@ -458,10 +458,12 @@ class FinalMarkingServiceTests(unittest.TestCase):
 
         def holistic(**kwargs):
             order.append("holistic")
+            self.assertEqual(kwargs["question"], "")
             return {"score": 5, "maxScore": 6, "rubric_breakdown": [{"awarded_band": "Level 2"}]}
 
         def aggregate(**kwargs):
             order.append("aggregation")
+            self.assertEqual(kwargs["assessment_focus"], ["Evaluate texts."])
             self.assertEqual(kwargs["extracted_result"]["score"], 5)
             self.assertEqual(kwargs["mark_scheme_extraction"]["awarded_band"], "Level 2")
             self.assertEqual(kwargs["mark_scheme_extraction"]["thread_extraction"], threads)
@@ -481,7 +483,7 @@ class FinalMarkingServiceTests(unittest.TestCase):
              patch.object(self.service, "generate_segmentation_response", side_effect=AssertionError("Segmentation must stay disconnected")):
             result = asyncio.run(self.main.mark_with_scheme_text(
                 student_work=SimpleNamespace(read=AsyncMock(return_value=b"image"), filename="test.png"),
-                scheme_text=json.dumps(scheme), thread_extraction=json.dumps(threads), question="ignored",
+                scheme_text=json.dumps(scheme), thread_extraction=json.dumps(threads),
             ))
         self.assertEqual(order, ["holistic", "aggregation", "final"])
         self.assertEqual(result["score"], 5)
@@ -505,7 +507,7 @@ class FinalMarkingServiceTests(unittest.TestCase):
                  self.service.FinalMarkingValidationError("invalid descriptor thread", diagnostic)):
             result = asyncio.run(self.main.mark_with_scheme_text(
                 student_work=SimpleNamespace(read=AsyncMock(return_value=b"image"), filename="test.png"),
-                scheme_text=json.dumps(scheme), thread_extraction=json.dumps(threads), question="ignored",
+                scheme_text=json.dumps(scheme), thread_extraction=json.dumps(threads),
             ))
 
         self.assertEqual(result["final_result"]["status"], "failed")

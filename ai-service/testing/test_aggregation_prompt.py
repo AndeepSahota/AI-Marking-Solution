@@ -23,6 +23,8 @@ class AggregationPromptTests(unittest.TestCase):
             SYSTEM_PROMPT.index("CLASSIFICATION RULES"),
         )
         self.assertIn("A span qualifies as evidence when:", SYSTEM_PROMPT)
+        self.assertIn("Use the ASSESSMENT FOCUS descriptions", SYSTEM_PROMPT)
+        self.assertNotIn("Use the QUESTION", SYSTEM_PROMPT)
         self.assertIn(
             "This does not mean that every thread must receive evidence",
             SYSTEM_PROMPT,
@@ -67,7 +69,9 @@ class AggregationPromptTests(unittest.TestCase):
 
     def test_user_prompt_requests_all_qualifying_spans_without_segmentation(self):
         prompt = build_aggregation_user_prompt(
-            question="How successfully is fear created?",
+            assessment_focus=[
+                "Evaluate texts critically and support this with appropriate references."
+            ],
             student_response="<<<MARK_SCHEME_OCR_test>>>Student text<<<END_MARK_SCHEME_OCR_test>>>",
             extracted_result={"score": 5, "maxScore": 15, "rubric_breakdown": []},
             mark_scheme_extraction={"next_band": "Level 3"},
@@ -75,7 +79,12 @@ class AggregationPromptTests(unittest.TestCase):
 
         self.assertIn("STUDENT RESPONSE", prompt)
         self.assertIn("Student text", prompt)
-        self.assertIn("How successfully is fear created?", prompt)
+        self.assertIn("ASSESSMENT FOCUS", prompt)
+        self.assertIn(
+            "Evaluate texts critically and support this with appropriate references.",
+            prompt,
+        )
+        self.assertNotIn("QUESTION:", prompt)
         self.assertIn("crossed-out notation preserved", prompt)
         self.assertIn("within one sentence or distinct statement", prompt)
         self.assertIn("no boundary punctuation added", prompt)

@@ -84,7 +84,6 @@ export async function processMarkingRequest(job) {
         mimetype: upload.mimeType,
     }
 
-    const question = ocrRow.question ?? ''
     const scheme = resolveScheme(ocrRow)
     const threadExtraction = resolveThreadExtraction(ocrRow)
 
@@ -100,8 +99,7 @@ export async function processMarkingRequest(job) {
     const aiResult = await getMarkFromAIWithSchemeText(
         file,
         scheme,
-        threadExtraction,
-        question
+        threadExtraction
     )
     logMarkAiReturned(job, Date.now() - aiStart)
 

@@ -14,10 +14,10 @@ COMPLETE-RESPONSE EVIDENCE CLASSIFICATION
 The holistic score and awarded band in EXTRACTED RESULT are fixed. Do not
 award, alter, or recalculate them.
 
-Use the QUESTION to establish what the student was required to address. Then
-use the fixed holistic score and awarded band in EXTRACTED RESULT together with
-the complete descriptor threads and every available level in MARK-SCHEME
-EXTRACTION.
+Use the ASSESSMENT FOCUS descriptions to establish the capabilities being
+assessed. Then use the fixed holistic score and awarded band in EXTRACTED
+RESULT together with the complete descriptor threads and every available level
+in MARK-SCHEME EXTRACTION.
 
 EVIDENCE CLASSIFICATION FRAMEWORK
 
@@ -39,7 +39,7 @@ the complete STUDENT RESPONSE.
 
 A span qualifies as evidence when:
 
-- it is relevant to the QUESTION;
+- it is relevant to the ASSESSMENT FOCUS;
 - it genuinely demonstrates a descriptor at some supplied level within one or
   more threads.
 
@@ -55,7 +55,7 @@ that thread merely to create coverage.
 CLASSIFICATION RULES
 
 1. Read the STUDENT RESPONSE from beginning to end. Evaluate every paragraph,
-   sentence and distinct statement against the QUESTION and the complete
+   sentence and distinct statement against the ASSESSMENT FOCUS and the complete
    thread-and-level framework. Do not first choose a shortlist of examples.
 
 2. Treat each sentence as a separate classification unit. A new paragraph is
@@ -243,7 +243,7 @@ def _select_extracted_result(extracted_result: Any) -> dict[str, Any]:
 
 
 def build_aggregation_user_prompt(
-    question: str,
+    assessment_focus: list[str],
     student_response: str,
     extracted_result: Any,
     mark_scheme_extraction: Any,
@@ -253,7 +253,8 @@ def build_aggregation_user_prompt(
     return f"""
 Classify the complete student response in source order, paragraph by paragraph
 and sentence by sentence. Return every exact contiguous span that is relevant
-to the question and genuinely demonstrates a supplied descriptor at any level.
+to the assessment focus and genuinely demonstrates a supplied descriptor at
+any level.
 Keep different relevant parts of one sentence as separate evidence items; when
 the same words support multiple descriptors, include all their exact IDs in
 one item. Never join evidence across sentence or paragraph boundaries, and
@@ -261,8 +262,8 @@ leave writing unselected when it does not fit a descriptor. Do not limit the
 number of evidence items or alter the fixed holistic score or band. Complete
 the classification completeness check before returning the result.
 
-QUESTION:
-{question}
+ASSESSMENT FOCUS:
+{_serialise(assessment_focus)}
 
 EXTRACTED RESULT:
 {_serialise(selected_extracted_result)}

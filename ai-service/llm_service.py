@@ -436,14 +436,14 @@ def generate_segmentation_response(
 
 
 def generate_aggregation_response(
-    question,
+    assessment_focus,
     student_response,
     extracted_result,
     mark_scheme_extraction,
     expected_token,
 ):
     user_prompt = build_aggregation_user_prompt(
-        question=question,
+        assessment_focus=assessment_focus,
         student_response=student_response,
         extracted_result=extracted_result,
         mark_scheme_extraction=mark_scheme_extraction,

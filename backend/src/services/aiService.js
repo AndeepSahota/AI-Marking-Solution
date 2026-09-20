@@ -67,8 +67,7 @@ export async function getOcrFromAI(file) {
 export async function getMarkFromAIWithSchemeText(
     studentWorkFile,
     schemeText,
-    threadExtraction = '',
-    question = ''
+    threadExtraction = ''
 ) {
     const form = new FormData()
     form.append('student_work', studentWorkFile.buffer, {
@@ -77,7 +76,6 @@ export async function getMarkFromAIWithSchemeText(
     })
     form.append('scheme_text', schemeText)
     form.append('thread_extraction', threadExtraction)
-    form.append('question',    question)
 
     let response
     try {
