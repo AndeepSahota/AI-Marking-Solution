@@ -47,16 +47,28 @@ describe('sanitizeAIResult — score/maxScore/percentage', () => {
     })
 })
 
-describe('sanitizeAIResult — breakdown', () => {
+describe('sanitizeAIResult — breakdown (descriptor-based evidence)', () => {
     it('maps a valid rubric_breakdown array correctly', () => {
         const result = sanitizeAIResult({
-            rubric_breakdown: [
-                { criterion: 'AO1', score_awarded: 5, max_marks: 8, reason: 'good' },
-            ],
+            rubric_breakdown: [{
+                criterion: 'AO1', awarded_band: 'Level 2', score_awarded: 5, max_marks: 8,
+                next_band_requirement_not_met: 'More precise terminology needed.',
+                reason: 'good',
+                evidence_supporting_awarded_band: [{
+                    descriptor_id: 'ao1-2a', status: 'met', judgement: 'j',
+                    evidence: [{ quote: 'q', explanation: 'e' }],
+                }],
+            }],
         })
-        assert.deepEqual(result.breakdown, [
-            { section: 'AO1', marks: 5, maxMarks: 8, reason: 'good' },
-        ])
+        assert.deepEqual(result.breakdown, [{
+            section: 'AO1', awardedBand: 'Level 2', marks: 5, maxMarks: 8,
+            evidenceSupportingAwardedBand: [{
+                descriptorId: 'ao1-2a', status: 'met', judgement: 'j',
+                evidence: [{ quote: 'q', explanation: 'e' }],
+            }],
+            nextBandRequirementNotMet: 'More precise terminology needed.',
+            reason: 'good',
+        }])
     })
 
     it('filters out non-object entries', () => {
@@ -75,6 +87,13 @@ describe('sanitizeAIResult — breakdown', () => {
         const result = sanitizeAIResult({ rubric_breakdown: [{ score_awarded: 1, max_marks: 8 }] })
         assert.equal(result.breakdown[0].section, 'Section')
     })
+
+    it('preserves nextBandRequirementNotMet as null when the highest band was awarded', () => {
+        const result = sanitizeAIResult({
+            rubric_breakdown: [{ criterion: 'AO1', next_band_requirement_not_met: null }],
+        })
+        assert.equal(result.breakdown[0].nextBandRequirementNotMet, null)
+    })
 })
 
 describe('sanitizeAIResult — boolean flags', () => {
@@ -91,35 +110,47 @@ describe('sanitizeAIResult — boolean flags', () => {
     })
 })
 
-describe('sanitizeAIResult — annotations', () => {
-    it('flattens evidence nested inside rubric_breakdown items', () => {
+describe('sanitizeAIResult — evidenceSupportingAwardedBand', () => {
+    it('coerces an invalid status to not_met', () => {
         const result = sanitizeAIResult({
             rubric_breakdown: [{
                 criterion: 'AO1',
-                evidence: [{ quote: 'q', comment: 'c', type: 'strength', marks_impact: 2 }],
+                evidence_supporting_awarded_band: [{ descriptor_id: 'ao1-1a', status: 'kinda', evidence: [] }],
             }],
         })
-        assert.deepEqual(result.annotations, [
-            { ao: 'AO1', quote: 'q', comment: 'c', type: 'strength', marksImpact: 2, howToImprove: '' },
-        ])
+        assert.equal(result.breakdown[0].evidenceSupportingAwardedBand[0].status, 'not_met')
     })
 
-    it('drops items where evidence is not an array', () => {
-        const result = sanitizeAIResult({ rubric_breakdown: [{ criterion: 'AO1', evidence: 'not an array' }] })
-        assert.deepEqual(result.annotations, [])
-    })
-
-    it('drops evidence entries missing a quote or comment', () => {
+    it('accepts all three valid statuses', () => {
         const result = sanitizeAIResult({
-            rubric_breakdown: [{ criterion: 'AO1', evidence: [{ quote: '', comment: 'c' }, { quote: 'q', comment: '' }] }],
+            rubric_breakdown: [{
+                criterion: 'AO1',
+                evidence_supporting_awarded_band: [
+                    { descriptor_id: 'a', status: 'met', evidence: [] },
+                    { descriptor_id: 'b', status: 'partially_met', evidence: [] },
+                    { descriptor_id: 'c', status: 'not_met', evidence: [] },
+                ],
+            }],
         })
-        assert.deepEqual(result.annotations, [])
+        assert.deepEqual(
+            result.breakdown[0].evidenceSupportingAwardedBand.map(e => e.status),
+            ['met', 'partially_met', 'not_met']
+        )
     })
 
-    it('caps annotations at 20', () => {
-        const evidence = Array.from({ length: 25 }, (_, i) => ({ quote: `q${i}`, comment: `c${i}`, type: 'strength' }))
-        const result = sanitizeAIResult({ rubric_breakdown: [{ criterion: 'AO1', evidence }] })
-        assert.equal(result.annotations.length, 20)
+    it('drops entries missing a descriptor_id', () => {
+        const result = sanitizeAIResult({
+            rubric_breakdown: [{ criterion: 'AO1', evidence_supporting_awarded_band: [{ status: 'met', evidence: [] }] }],
+        })
+        assert.deepEqual(result.breakdown[0].evidenceSupportingAwardedBand, [])
+    })
+
+    it('caps evidence quotes per descriptor at 5', () => {
+        const evidence = Array.from({ length: 8 }, (_, i) => ({ quote: `q${i}`, explanation: `e${i}` }))
+        const result = sanitizeAIResult({
+            rubric_breakdown: [{ criterion: 'AO1', evidence_supporting_awarded_band: [{ descriptor_id: 'a', status: 'met', evidence }] }],
+        })
+        assert.equal(result.breakdown[0].evidenceSupportingAwardedBand[0].evidence.length, 5)
     })
 })
 
@@ -164,16 +195,36 @@ describe('sanitizeAIResult — missingAos', () => {
     })
 })
 
+describe('sanitizeAIResult — answerExcerpt', () => {
+    it('passes through a string excerpt', () => {
+        const result = sanitizeAIResult({ answer_excerpt: 'The relevant portion of the essay.' })
+        assert.equal(result.answerExcerpt, 'The relevant portion of the essay.')
+    })
+
+    it('stays null for the ordinary single-question case', () => {
+        const result = sanitizeAIResult({ answer_excerpt: null })
+        assert.equal(result.answerExcerpt, null)
+    })
+
+    it('stays null when absent entirely', () => {
+        const result = sanitizeAIResult({})
+        assert.equal(result.answerExcerpt, null)
+    })
+})
+
 describe('sanitizeAIResult — happy path', () => {
     it('returns the full expected shape for a realistic complete response', () => {
         const raw = {
             score: 18, maxScore: 24, percentage: 75,
-            strengths: ['Good use of evidence'],
-            improvements: ['Needs more context'],
             actionable_steps: ['Add a contextual paragraph'],
-            rubric_breakdown: [
-                { criterion: 'AO1', score_awarded: 6, max_marks: 8, reason: 'r', evidence: [{ quote: 'q', comment: 'c', type: 'strength', marks_impact: 2 }] },
-            ],
+            rubric_breakdown: [{
+                criterion: 'AO1', awarded_band: 'Level 2', score_awarded: 6, max_marks: 8, reason: 'r',
+                next_band_requirement_not_met: 'Needs more precise terminology.',
+                evidence_supporting_awarded_band: [{
+                    descriptor_id: 'ao1-2a', status: 'met', judgement: 'j',
+                    evidence: [{ quote: 'q', explanation: 'e' }],
+                }],
+            }],
             teacher_review_required: false,
             question_mismatch: false,
             question_mismatch_reason: null,
@@ -181,21 +232,22 @@ describe('sanitizeAIResult — happy path', () => {
             confidence: 0.9,
             low_confidence_words: [],
             missing_aos: [],
+            answer_excerpt: 'The part of the essay answering this question.',
         }
         const result = sanitizeAIResult(raw)
         assert.equal(result.score, 18)
         assert.equal(result.maxScore, 24)
         assert.equal(result.percentage, 75)
-        assert.deepEqual(result.strengths, ['Good use of evidence'])
-        assert.deepEqual(result.improvements, ['Needs more context'])
         assert.deepEqual(result.actionableSteps, ['Add a contextual paragraph'])
         assert.equal(result.breakdown.length, 1)
+        assert.equal(result.breakdown[0].awardedBand, 'Level 2')
+        assert.equal(result.breakdown[0].evidenceSupportingAwardedBand.length, 1)
         assert.equal(result.teacherReviewRequired, false)
         assert.equal(result.questionMismatch, false)
         assert.equal(result.studentOcrText, 'The essay text.')
         assert.equal(result.confidence, 0.9)
         assert.deepEqual(result.lowConfidenceWords, [])
         assert.deepEqual(result.missingAos, [])
-        assert.equal(result.annotations.length, 1)
+        assert.equal(result.answerExcerpt, 'The part of the essay answering this question.')
     })
 })

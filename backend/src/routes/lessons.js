@@ -1,7 +1,7 @@
 import express from 'express'
 import multer from 'multer'
 import config from '../config/index.js'
-import { lessonDb, markingDb, classDb } from '../db/index.js'
+import { lessonDb, markingDb, classDb, apiUsageDb } from '../db/index.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
 import { getOcrFromAI, getMarkFromAIWithSchemeText } from '../services/aiService.js'
@@ -100,9 +100,22 @@ router.get('/:id/questions', async (req, res, next) => {
             question_number: q.question_number,
             marks:           q.marks,
             description:     q.description,
+            // Additive — the question picker only ever used the three fields
+            // above; this also lets ResultCard look up a criterion's full
+            // band descriptors by AO + awarded band, not just its ID.
+            assessment_objectives: q.assessment_objectives,
         }))
 
-        res.json({ paper_type: paperType, questions: questionsList })
+        // Additive — tells the frontend which question index the marked
+        // result actually belongs to. Needed because the same AO code (e.g.
+        // "AO2") commonly recurs across different questions in one paper with
+        // different band descriptors, so a result's AO name alone isn't
+        // enough to safely pick which question's descriptors to look up.
+        let selectedQuestionIndices
+        try { selectedQuestionIndices = row.selected_question_indices ? JSON.parse(row.selected_question_indices) : [0] }
+        catch { selectedQuestionIndices = [0] }
+
+        res.json({ paper_type: paperType, questions: questionsList, selected_question_indices: selectedQuestionIndices })
     } catch (err) {
         next(err)
     }
@@ -120,6 +133,50 @@ router.patch('/:id/select-question', async (req, res, next) => {
         }
         await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndices)
         res.json({ ok: true })
+    } catch (err) {
+        next(err)
+    }
+})
+
+// POST /lessons/:sourceLessonId/reuse — clone a previous lesson's already-
+// extracted mark scheme into a brand-new lesson for the given class. No
+// getOcrFromAI() call — the text and structured scheme are read straight
+// back from teacher_ocr rather than re-OCR'd, so this is instant and free.
+// Only ever touches lessons/teacher_ocr (source lookup) and classes
+// (ownership checks) — never students or marking_results, since this
+// starts a genuinely new session rather than resuming the old one.
+router.post('/:sourceLessonId/reuse', async (req, res, next) => {
+    try {
+        const classId = parseInt(req.body.classId)
+        if (!classId) return res.status(400).json({ error: 'Class is required' })
+
+        const cls = await lessonDb.findClass(classId, req.user.id)
+        if (!cls) return res.status(404).json({ error: 'Class not found' })
+
+        const source = await lessonDb.getSchemeForReuse(req.params.sourceLessonId, req.user.id)
+        if (!source) return res.status(404).json({ error: 'Lesson not found' })
+
+        // No typed "question" concept anymore (removed from lesson creation
+        // entirely) — every lesson auto-derives it from the mark scheme.
+        const lessonId = await lessonDb.createLesson(
+            source.lesson_title, classId, source.mark_scheme_file_name, source.mark_scheme_mime_type,
+            source.mark_scheme_file, source.ocr_text, '', source.structured_scheme
+        )
+
+        // Same has_multiple_questions computation POST / uses, so the
+        // frontend can branch on this response identically either way.
+        let parsedScheme = {}
+        try { parsedScheme = source.structured_scheme ? JSON.parse(source.structured_scheme) : {} }
+        catch { parsedScheme = {} }
+        const hasMultipleQuestions = parsedScheme.paper_type === 'multi'
+            && (parsedScheme.questions ?? []).length > 1
+
+        res.json({
+            id: lessonId,
+            class_id: classId,
+            class_name: cls.class_name,
+            has_multiple_questions: hasMultipleQuestions,
+        })
     } catch (err) {
         next(err)
     }
@@ -201,6 +258,14 @@ router.post('/',
             const lessonId = await lessonDb.createLesson(
                 lessonTitle, classId, file.originalname, file.mimetype, file.buffer, cleanOcrText, question, structuredScheme
             )
+
+            // Fire-and-forget: a logging failure here shouldn't ever break the
+            // actual lesson-creation flow the teacher is waiting on.
+            if (ocrResult.usage) {
+                apiUsageDb.log('extraction', ocrResult.usage, { lessonId }).catch(err => {
+                    console.error('Failed to log extraction API usage:', err.message)
+                })
+            }
 
             // Just enough to decide where Home.jsx navigates next — the full
             // question list itself lives in structured_scheme (already
@@ -292,6 +357,12 @@ router.post('/:lessonId/mark-student',
                 aiResult.student_ocr_text ?? '',
                 JSON.stringify(sanitized)
             )
+
+            if (aiResult.usage) {
+                apiUsageDb.log('marking', aiResult.usage, { lessonId, studentId }).catch(err => {
+                    console.error('Failed to log marking API usage:', err.message)
+                })
+            }
 
             emit({ type: 'result', data: sanitized })
         } catch (err) {

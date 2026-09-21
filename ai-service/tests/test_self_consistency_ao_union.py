@@ -6,8 +6,12 @@ from conftest import fake_choice
 
 def crit(name, score, max_marks=8):
     return {
-        "criterion": name, "score_awarded": score, "max_marks": max_marks, "reason": "r",
-        "evidence": [{"quote": "q", "comment": "c", "type": "strength", "marks_impact": 1, "how_to_improve": None}],
+        "criterion": name, "awarded_band": "Level 2", "score_awarded": score, "max_marks": max_marks, "reason": "r",
+        "next_band_requirement_not_met": None,
+        "evidence_supporting_awarded_band": [{
+            "descriptor_id": f"{name}-2a", "status": "met", "judgement": "j",
+            "evidence": [{"quote": "q", "explanation": "e"}],
+        }],
     }
 
 
@@ -32,6 +36,6 @@ def test_missing_ao_from_non_representative_sample_still_surfaces_in_final_resul
         fake_choice(max_score_detected=16, rubric_breakdown=[crit("AO1", 7), crit("AO2", 7)]),
     ]
     patch_llm_client(choices)
-    rep = generate_llm_response_consistent("Q", "E", SCHEME_2AO, "tok", max_score=16, n_samples=3)
+    rep, _usage = generate_llm_response_consistent("Q", "E", SCHEME_2AO, "tok", max_score=16, n_samples=3)
     assert rep["missing_aos"] == ["AO2"]
     assert rep["teacher_review_required"] is True

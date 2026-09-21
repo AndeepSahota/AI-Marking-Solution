@@ -11,8 +11,10 @@
 # called observability and not logging: a local module named logging would
 # have shadowed this same import for everything else in ai-service.
 
+import json
 import logging
 import sys
+from pathlib import Path
 
 logger = logging.getLogger("ai-service")
 logger.setLevel(logging.INFO)
@@ -25,6 +27,10 @@ if not logger.handlers:
     _handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(_handler)
     logger.propagate = False
+
+_DESCRIPTOR_DEBUG_LOG_PATH = Path(__file__).with_name(
+    "descriptor_validation_debug.txt"
+)
 
 
 # ── OCR events ────────────────────────────────────────────────────────────
@@ -69,6 +75,131 @@ def log_extraction_filtered() -> None:
 
 def log_extraction_empty() -> None:
     logger.error("[EXTRACTION] No parsed result and no refusal, truncation, or filter reported — unexplained empty response")
+
+
+# ── Descriptor & mark-total validation events ───────────────────────────────
+# Post-extraction, deterministic checks on the structured mark scheme — no
+# LLM call involved. Descriptor shape/integrity failures are fail-closed
+# (main.py raises and aborts /ocr); mark-total corrections are fail-open
+# (applied and logged, extraction still succeeds).
+
+def log_descriptor_validation_comparison(
+    *,
+    question_number: object,
+    ao: object,
+    band: object,
+    descriptor: object,
+    model_descriptors: list[str],
+    application_descriptors: list[str],
+    normalised_application_descriptors: list[str],
+    normalised_model_descriptors: list[str],
+    shape_matches: bool,
+) -> None:
+    """Temporary verbose output for descriptor boundary validation."""
+    payload = {
+        "question": question_number,
+        "ao": ao,
+        "band": band,
+        "descriptor": descriptor,
+        "model_descriptors": model_descriptors,
+        "application_descriptors": application_descriptors,
+        "application_descriptor_count": len(application_descriptors),
+        "model_descriptor_count": len(model_descriptors),
+        "normalised_application_descriptors": (
+            normalised_application_descriptors
+        ),
+        "normalised_model_descriptors": normalised_model_descriptors,
+        "shape_matches": shape_matches,
+    }
+    _write_descriptor_debug("Shape integrity", payload)
+
+
+def log_descriptor_integrity_comparison(
+    *,
+    question_number: object,
+    ao: object,
+    band: object,
+    descriptor: object,
+    model_descriptors: list[str],
+    flattened_model_descriptors: str,
+    normalised_descriptor: str,
+    normalised_flattened_model_descriptors: str,
+    content_matches: bool,
+) -> None:
+    """Temporary verbose output for descriptor content-integrity checks."""
+    payload = {
+        "question": question_number,
+        "ao": ao,
+        "band": band,
+        "descriptor": descriptor,
+        "model_descriptors": model_descriptors,
+        "flattened_model_descriptors": flattened_model_descriptors,
+        "normalised_descriptor": normalised_descriptor,
+        "normalised_flattened_model_descriptors": (
+            normalised_flattened_model_descriptors
+        ),
+        "content_matches": content_matches,
+    }
+    _write_descriptor_debug("Content integrity", payload)
+
+
+def _write_descriptor_debug(label: str, payload: dict) -> None:
+    """Write temporary descriptor validation diagnostics to console and disk."""
+    rendered_payload = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    logger.info(
+        f"[DESCRIPTOR DEBUG] {label}\n"
+        f"{rendered_payload}"
+    )
+
+    try:
+        with _DESCRIPTOR_DEBUG_LOG_PATH.open("a", encoding="utf-8") as debug_file:
+            debug_file.write(f"[DESCRIPTOR DEBUG] {label}\n")
+            debug_file.write(rendered_payload)
+            debug_file.write("\n\n")
+    except OSError as error:
+        # Debug logging must never prevent mark-scheme extraction from running.
+        logger.warning(
+            "[DESCRIPTOR DEBUG] Could not write comparison file "
+            f"{_DESCRIPTOR_DEBUG_LOG_PATH}: {error}"
+        )
+
+
+def log_descriptor_validation_issues(issues: list[dict]) -> None:
+    """Log descriptor-validation failures for human verification."""
+    for issue in issues:
+        payload = dict(issue)
+        payload["question"] = payload.pop("question_number", None)
+        logger.warning(
+            "[VALIDATION] Descriptor validation failed | "
+            f"details={json.dumps(payload, ensure_ascii=False)}"
+        )
+
+
+def log_mark_total_corrections(corrections: list[dict]) -> None:
+    """
+    Log deterministic mark-total corrections without logging mark-scheme
+    descriptions or other unnecessary source content.
+    """
+    for correction in corrections:
+        allocations = correction.get("assessment_objectives", [])
+
+        allocation_summary = ", ".join(
+            (
+                f"{str(allocation.get('ao', 'unknown'))[:40]!r}="
+                f"{allocation.get('marks_available')!r}"
+            )
+            for allocation in allocations
+            if isinstance(allocation, dict)
+        )
+
+        logger.warning(
+            "[VALIDATION] Corrected extracted question marks "
+            f"| rule={correction.get('rule')!r} "
+            f"| question={correction.get('question_number')!r} "
+            f"| declared={correction.get('declared_marks')!r} "
+            f"| corrected={correction.get('computed_marks')!r} "
+            f"| ao_allocations=[{allocation_summary}]"
+        )
 
 
 # ── Marking events ────────────────────────────────────────────────────────

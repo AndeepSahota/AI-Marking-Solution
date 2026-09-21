@@ -36,6 +36,7 @@ ai-service/data/*.sqlite-shm
 **/.pytest_cache/
 **/.mypy_cache/
 **/.ruff_cache/
+ai-service/observability/descriptor_validation_debug.txt
 
 # Frontend build output
 frontend/dist/

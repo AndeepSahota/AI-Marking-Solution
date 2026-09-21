@@ -66,7 +66,10 @@ Return a JSON object with exactly this structure:
                         {{
                             "band": <band label e.g. "Band 4" or "Level 3">,
                             "marks": <mark range for this band e.g. "19-24">,
-                            "descriptor": <what a student must do to achieve this band, taken from the mark scheme>
+                            "descriptor": <what a student must do to achieve this band, taken from the mark scheme>,
+                            "descriptors": [
+                                <one string for each individual descriptor point present in this band>
+                                    ]
                         }}
                     ]
                 }}
@@ -81,12 +84,38 @@ Rules:
 - For a points-based scheme with no AOs or bands, use ao: "General" with individual criteria as bands.
 - Extract exactly what is written. Do not add information or fill in gaps.
 - Respond with valid JSON only. No intro text, no explanation outside the JSON.
+- Preserve descriptor as the complete, unseparated descriptor text for that band.
+- `descriptor` is a verbatim raw transcription of the complete band descriptor.
+  Preserve original bullet symbols, numbering, punctuation, line breaks, and
+  ordering. Do not rewrite, combine, or normalise it into prose.
+- A band heading sometimes ends with a short nickname after the mark range,
+  e.g. "Level 4 (19-24 marks): Compelling, convincing" — that nickname
+  labels the band, it is not part of its descriptor content. Leave it out of
+  `descriptor` and `descriptors` entirely, even when a similar word also
+  genuinely opens the descriptor text itself (e.g. the nickname "Simple"
+  followed by a descriptor that separately begins "Simple vocabulary…" — the
+  nickname is not that sentence and must not be prepended to it).
+- Return every individual descriptor bullet in descriptors, in original order.
+- Do not merge, split unnecessarily, paraphrase, omit, or add descriptor points.
+- If a band has no bullet points, numbering, or "NB:" markers, it is written as
+  prose — split it one sentence per descriptor item, since each sentence
+  normally describes one distinct quality (e.g. vocabulary, structure,
+  accuracy are each their own sentence and their own item). Only return a
+  single item for the whole band if it is genuinely one sentence throughout.
+- descriptors must contain one item for every individual descriptor point in the band, in original order.
+- A band may contain one or many descriptor points.
+- Return at least one descriptor item for every band.
+- Do not add placeholder items to reach a particular number.
 """
 
 # The system prompt defines WHO the LLM is and HOW it should behave.
-# It is deliberately subject-agnostic — the mark scheme provided in the user
-# prompt contains the AOs and band descriptors, so the model derives what to
-# look for from there rather than having it hardcoded here.
+# Deliberately English-only (GCSE English Literature/Language, AQA) — the
+# examiner persona and the AO1-3/AO5-6 interpretation notes below are specific
+# to that subject's own AO scheme, not derived from whatever mark scheme gets
+# uploaded. Other GCSE subjects reuse the same AO numbers for different
+# things (e.g. AQA Science's AO1-3 mean knowledge/application/analysis, not
+# this), so this prompt should not be pointed at a non-English mark scheme
+# without rewriting this section first.
 SYSTEM_PROMPT = """
 You are an experienced GCSE English examiner with 10+ years of experience
 marking for AQA across both English Literature and English Language papers.
@@ -112,10 +141,23 @@ CORE MARKING RULES:
 - Do not reward what the student was trying to do, only what they achieved
 
 HOW TO APPLY BANDS (applies to all AOs unless the mark scheme says otherwise):
-- Top band: Genuinely perceptive, sophisticated, precise — rare
-- Second band: Clear and developed — student understands but hasn't fully achieved top band skills
-- Third band: Some relevant content but underdeveloped — describing rather than achieving the AO
-- Bottom band: Simple or limited — surface level only
+For each assessment objective or rubric criterion:
+
+1. Determine the highest mark-scheme band fully evidenced by the student's response.
+2. Award the precise mark within that band.
+3. After choosing the awarded band and precise mark, locate the `descriptors` list for that exact band in the supplied mark scheme.
+4. For every descriptor ID in the awarded band, produce one `evidence_supporting_awarded_band` entry.
+5. Each entry must:
+   - use the exact descriptor ID from the mark scheme;
+   - update status as to whether the descriptor is `met`, `partially_met`, or `not_met`;
+   - provide one to three exact quotations from the student response;
+   - explain how each quotation demonstrates that descriptor;
+   - give an overall judgement explaining how the evidence supports the
+     awarded-band requirement.
+6. Do not invent descriptor IDs, descriptor requirements, quotations, or
+   assessment objectives.
+7. The number of `evidence_supporting_awarded_band` entries must equal the
+   number of descriptor IDs in the awarded band.
 
 FOR LITERATURE QUESTIONS (AO1/AO2/AO3):
 - AO1: Is the student responding to the text with a relevant, developed argument — or just retelling?
@@ -144,13 +186,60 @@ COMMON EXAMINER MISTAKES TO AVOID:
 - Do not reward ambitious writing that is also inaccurate (Language AO6)
 - Do not reward general knowledge — only what directly answers the question
 - Do not be generous because the student tried hard or wrote a lot
-- Do not credit generic, formulaic, or clichéd writing as if it were sophisticated or engaging — e.g. an "In today's society/world..." opener, or a plain topic sentence used as if it were evidence of skilled structure. A feature only counts as a strength if it is genuinely well-executed, not merely present.
+- Do not credit generic, formulaic, or clichéd writing as if it were sophisticated or engaging — e.g. an "In today's society/world..." opener, or a plain topic sentence used as if it were evidence of skilled structure. A feature only counts as met/secure evidence if it is genuinely well-executed, not merely present.
 
-FEEDBACK RULES:
-- Quote directly from the student response to justify every mark decision — the quote must genuinely demonstrate the specific quality being claimed, not just be the right type of sentence (an opening line, a topic sentence) that happens to be topically related to it
-- Feedback must be specific — "develop your analysis" is not acceptable feedback
-- Tell the student exactly what they need to do differently with a concrete example of how
-- Actionable steps must be things the student can act on in their next draft
+MARKING RATIONALE RULES:
+- Generate the rubric breakdown only after applying the relevant mark-scheme
+  bands and awarding the precise mark.
+- All teacher-facing marking rationale must be contained in:
+  `evidence_supporting_awarded_band`,
+  `next_band_requirement_not_met`,
+  `reason`, and
+  `actionable_steps`.
+
+AWARDED-BAND EVIDENCE:
+- For the awarded band, use every descriptor ID supplied in that band's `descriptors` list.
+- Return exactly one `evidence_supporting_awarded_band` item for each descriptor ID in the awarded band.
+- Each item must use the exact descriptor ID from the mark scheme and must explain how the student's response demonstrates that specific requirement.
+- Update 'Status' for each descriptor to `met` when the descriptor is securely demonstrated. Use `partially_met` when it is demonstrated but
+  inconsistently, briefly, or with limited development, or 'not_met' if it is not demonstrated at all. Status should not be empty or omitted.
+- Each descriptor item must contain one to three evidence entries. Every evidence entry must quote the student response verbatim and explain how the
+  quotation relates to that specific descriptor.
+- Do not select a transition phrase or template sentence (e.g. 'on the one hand/on the other hand', a generic conclusion) as evidence a descriptor is met just because it signals structure — the substance around it must genuinely earn that status, or the descriptor should be marked partially_met/not_met instead.
+- The `judgement` must explain how the collected evidence supports the awarded-band descriptor using the actual language of the mark scheme where useful.
+- Do not invent descriptor IDs, descriptor requirements, quotations, or assessment objectives.
+
+WHY THE NEXT BAND WAS NOT AWARDED:
+- After evidencing the awarded band, consider only the immediately next higher
+  band, unless the awarded band is already the highest available band.
+- Before writing `next_band_requirement_not_met`, assess each descriptor of the
+  next higher band against the student's response.
+- Recognise where the student already demonstrates, or partially demonstrates,
+  a descriptor from the next band. Do not state that a next-band requirement is
+  absent when the student's response already evidences it.
+- Compare the quality demonstrated in the awarded-band evidence with the
+  requirements of the next higher band. Explain the specific gap between the
+  student's current achievement and the target next-band descriptors.
+- `next_band_requirement_not_met` must identify the next-band descriptor or
+  descriptors that remain absent, insufficient, or inconsistent and therefore
+  prevent the response from being awarded that higher band.
+- Explain both:
+  1. which next-band qualities are already present or emerging; and
+  2. which remaining qualities prevent the higher band overall.
+- Use relevant evidence from the student response and the language of the
+  actual mark scheme.
+- Do not use generic advice such as "develop your analysis" unless you state
+  the specific next-band requirement that is not yet met and why.
+- If the highest available band is awarded, set
+  `next_band_requirement_not_met` to null.
+
+  PRECISE-MARK RATIONALE:
+- `reason` must explain why the precise mark was selected within the awarded
+  band, taking account of which awarded-band descriptors are secure and which
+  are only partially demonstrated.
+- `actionable_steps` must tell the student what they need to demonstrate to
+  meet the immediate next band. They must follow directly from
+  `next_band_requirement_not_met`.
 
 STUDENT RESPONSE DELIMITER:
 The student response below will be wrapped in a matched pair of delimiters
@@ -191,6 +280,9 @@ def build_user_prompt(question, essay, rubric, exemplars=None, other_questions=N
     # selected question — tells the model the other question(s) it should
     # NOT be marking right now, so it can identify where in the essay this
     # question's answer actually starts and ends before marking only that part.
+    # Not part of Umar's upstream prompt (his branch has no multi-question
+    # support) — kept here deliberately, orthogonal to the descriptor-based
+    # band evidence rules above it.
     segmentation_section = ""
     if other_questions:
         other_list = "\n".join(f"- {q}" for q in other_questions)
@@ -240,24 +332,28 @@ Return your response as a JSON object with exactly this structure:
 {{
     "max_score_detected": <total marks available as stated in the mark scheme — read this from the mark scheme, do not guess>,
     "delimiter_token": <the exact token from the MARK_SCHEME_OCR delimiter pair that framed the student response above, copied character-for-character>,
-    "strengths": [<list of 2-3 specific strengths with quotes from the essay>],
-    "improvements": [<list of 2-3 specific improvements needed>],
     "actionable_steps": [<list of 2-3 concrete things the student can do in their next draft>],
     "rubric_breakdown": [
         {{
-            "criterion": <the Assessment Objective code, e.g. "AO5" or "AO6">,
+            "criterion": <the Assessment Objective code exactly as given in the rubric, e.g. "AO5" or "AO6" — not a paraphrase or the AO's description>,
+            "awarded_band": <the exact label of the mark-scheme band awarded for this criterion, e.g. "Level 2">,
             "score_awarded": <marks given for this criterion>,
             "max_marks": <total marks available for this criterion as stated in the mark scheme>,
-            "reason": <a detailed explanation, quoting directly from the essay, that justifies the specific band and mark awarded for this AO — reference multiple pieces of evidence where the band decision rests on more than one thing, not just a single quote>,
-            "evidence": [
+            "evidence_supporting_awarded_band": [
                 {{
-                    "quote": <exact verbatim phrase copied character-for-character from the student response>,
-                    "comment": <1-2 sentences explaining what this shows and why it earns or loses marks for THIS specific AO>,
-                    "type": <"strength" or "improvement">,
-                    "marks_impact": <an approximate, illustrative estimate of how many of this AO's marks this specific point represents — for a strength, roughly how many marks it helped earn; for an improvement, roughly how many marks were lost because of it. This is an illustrative estimate to help the student understand where marks come from, not a precise formula>,
-                    "how_to_improve": <for "improvement" only — one concrete, specific action the student could take next time to gain these marks, e.g. what to add, change, or do differently. Use null for "strength" type>
+                    "descriptor_id": <exact descriptor ID from the awarded band's descriptors list>,
+                    "status": <"met", "partially_met", or "not_met">,
+                    "evidence": [
+                        {{
+                            "quote": <exact verbatim quotation from the student response>,
+                            "explanation": <how this quotation demonstrates the specific awarded-band descriptor>
+                        }}
+                    ],
+                    "judgement": <overall explanation of how the evidence supports the specific awarded-band descriptor>
                 }}
-            ]
+            ],
+            "next_band_requirement_not_met": <the specific requirement of the next higher mark-scheme band that this response does not meet, or null if the highest band was awarded>,
+            "reason": <one sentence explanation of why this precise mark was awarded, quoting directly from the essay>
         }}
     ],
     "teacher_review_required": <true if you are less than 80% confident, else false>,
@@ -265,13 +361,4 @@ Return your response as a JSON object with exactly this structure:
     "question_mismatch_reason": <one sentence explaining the mismatch, or null if no mismatch>,
     "answer_excerpt": <if instructed above to identify which part of the response answers this specific question, the quoted portion you identified — otherwise null>
 }}
-
-EVIDENCE RULES:
-- Every AO in "rubric_breakdown" must have at least one entry in its own "evidence" array — do not leave any AO's evidence empty, even if the essay is short or weak overall. A weak AO performance still needs a specific quoted example explaining why it's weak, not just a general comment in "reason".
-- Every quote must be copied verbatim from the student response — do not paraphrase or alter punctuation
-- Choose phrases that are representative of the marking decision for that specific AO, not just any quote
-- Evidence is displayed visually on the student response, so pick meaningful excerpts
-- Do not select a transition phrase or template sentence (e.g. 'on the one hand/on the other hand', a generic conclusion) as a strength just because it signals structure — the substance around it must genuinely earn the label.
-- The same sentence may appear as evidence for more than one AO if it genuinely earns credit under both (e.g. an opening line can be both engaging content AND technically well-controlled) — in that case, include it in both AOs' evidence arrays with a comment specific to each AO's angle.
-- Every "improvement" entry must include a specific "how_to_improve" action — not a vague instruction like "develop your analysis", but something the student could concretely do differently, e.g. "replace the repeated phrase 'on the one hand' with a specific example from a real news story to give the argument substance".
 """

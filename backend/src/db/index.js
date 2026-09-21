@@ -75,6 +75,14 @@ const bufferParam = (name, value) => {
     return { name, type: sql.VarBinary(sql.MAX), value }
 }
 
+const decimalParam = (name, value) => {
+    const parsed = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(parsed)) {
+        throw new TypeError(`${name} must be a number`)
+    }
+    return { name, type: sql.Decimal(10, 6), value: parsed }
+}
+
 // Execute against either the shared pool or an mssql Transaction. Accessor
 // method signatures remain unchanged: methods use the pool by default, while
 // transactional callers pass their Transaction as the optional executor `e`.
@@ -163,6 +171,19 @@ const SQL_LESSON_OCR_TEXT = `
     WHERE l.id = @lessonId AND c.teacher_id = @teacherId
 `
 
+// Everything needed to clone a lesson's already-extracted mark scheme into a
+// brand-new lesson (POST /:sourceLessonId/reuse) — the original file bytes
+// included, so the new lesson's stored file is a genuine copy, not a
+// reference back to the source lesson's row.
+const SQL_SCHEME_FOR_REUSE = `
+    SELECT l.lesson_title, l.mark_scheme_file_name, l.mark_scheme_mime_type, l.mark_scheme_file,
+           t.ocr_text, t.structured_scheme
+    FROM dbo.lessons AS l
+    JOIN dbo.classes AS c ON l.class_id = c.id
+    JOIN dbo.teacher_ocr AS t ON t.lesson_id = l.id
+    WHERE l.id = @lessonId AND c.teacher_id = @teacherId
+`
+
 export const lessonDb = {
     listLessons: async (teacherId, e = pool) =>
         (await exec(e, SQL_LIST_LESSONS, [
@@ -183,6 +204,12 @@ export const lessonDb = {
 
     getOcrText: async (lessonId, teacherId, e = pool) =>
         (await exec(e, SQL_LESSON_OCR_TEXT, [
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+        ])).recordset[0],
+
+    getSchemeForReuse: async (lessonId, teacherId, e = pool) =>
+        (await exec(e, SQL_SCHEME_FOR_REUSE, [
             intParam('lessonId', lessonId),
             intParam('teacherId', teacherId),
         ])).recordset[0],
@@ -558,4 +585,28 @@ export const markCorrectionsDb = {
             teacherCorrection == null ? { name: 'teacherCorrection', type: sql.Int, value: null } : intParam('teacherCorrection', teacherCorrection),
             intParam('newScore', newScore),
         ])).recordset[0],
+}
+
+// One row per OpenAI call, reported by ai-service alongside its normal
+// response (it never writes to the database itself — see system
+// architecture notes) and logged here by whichever route received that
+// response. lessonId/studentId are optional since not every call type has
+// both — e.g. mark-scheme extraction only ever has a lesson.
+export const apiUsageDb = {
+    log: async (callType, usage, { lessonId = null, studentId = null } = {}, e = pool) =>
+        exec(e, `
+            INSERT INTO dbo.api_usage (
+                call_type, lesson_id, student_id,
+                prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd
+            )
+            VALUES (@callType, @lessonId, @studentId, @promptTokens, @completionTokens, @totalTokens, @estimatedCost)
+        `, [
+            textParam('callType', 50, callType),
+            lessonId == null ? { name: 'lessonId', type: sql.Int, value: null } : intParam('lessonId', lessonId),
+            studentId == null ? { name: 'studentId', type: sql.Int, value: null } : intParam('studentId', studentId),
+            intParam('promptTokens', usage.prompt_tokens),
+            intParam('completionTokens', usage.completion_tokens),
+            intParam('totalTokens', usage.total_tokens),
+            decimalParam('estimatedCost', usage.estimated_cost_usd),
+        ]),
 }

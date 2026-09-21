@@ -63,6 +63,23 @@ class ExtractionIncompleteError(ExtractionError):
     pass
 
 
+class DescriptorValidationError(ExtractionError):
+    """Raised when extracted descriptor bullets cannot be verified safely —
+    either the model's descriptors list doesn't have the same number/shape
+    of points as the source descriptor text, or deterministic descriptor IDs
+    couldn't be generated. Marking cannot proceed without valid descriptor
+    IDs, so this is deliberately fail-closed, unlike the arithmetic
+    consistency check in main.py which only warns."""
+    pass
+
+
+class DescriptorContentIntegrityError(DescriptorValidationError):
+    """Raised when the model's descriptor list has the right shape but its
+    flattened content doesn't match the raw descriptor text verbatim —
+    the model rewrote or dropped words while splitting it into bullets."""
+    pass
+
+
 # This line reads the .env file and loads the variables in the enviroment
 # Without this, python has no idea my API key exists
 load_dotenv()
@@ -75,6 +92,35 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def _normalize_ao(name: str) -> str:
     return (name or "").strip().casefold()
+
+
+# Standard gpt-4o pricing, per 1M tokens — verified directly against
+# https://developers.openai.com/api/docs/pricing (2026-09-19), not the
+# model's own guess: $2.50 input / $10.00 output. Cached-input pricing
+# ($1.25) isn't used here since prompt caching isn't in play for these calls.
+_GPT4O_INPUT_PER_1M  = 2.50
+_GPT4O_OUTPUT_PER_1M = 10.00
+
+
+def _usage_from_response(response) -> dict:
+    """Pulls token counts + an estimated cost out of a chat completion
+    response. response.usage is already sitting on every response the SDK
+    returns — this just reads it and does the pricing arithmetic, rather
+    than KLASSIO ever needing to ask OpenAI for it separately."""
+    usage = response.usage
+    if usage is None:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "estimated_cost_usd": 0.0}
+
+    cost = (
+        usage.prompt_tokens     / 1_000_000 * _GPT4O_INPUT_PER_1M
+        + usage.completion_tokens / 1_000_000 * _GPT4O_OUTPUT_PER_1M
+    )
+    return {
+        "prompt_tokens":     usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens":      usage.total_tokens,
+        "estimated_cost_usd": round(cost, 6),
+    }
 
 
 def extract_mark_scheme(scheme_text, expected_token):
@@ -124,7 +170,7 @@ def extract_mark_scheme(scheme_text, expected_token):
     # something unverified.
     verify_token(expected_token, result.delimiter_token)
 
-    return result.model_dump(exclude={"delimiter_token"})
+    return result.model_dump(exclude={"delimiter_token"}), _usage_from_response(response)
 
 
 # The shared marking engine. Makes ONE API call requesting `n` independent
@@ -230,23 +276,37 @@ def _mark_samples(question, essay, rubric, expected_token, max_score, exemplars,
                 results["teacher_review_required"] = True
         results["missing_aos"] = missing_aos
 
-        # Deterministic safety net: every AO must carry at least one piece of
-        # evidence, or this specific sample gets flagged for teacher review —
-        # a measured signal (the model didn't do its job properly this time),
-        # not a guess about confidence.
-        if not breakdown or any(not ao.get("evidence") for ao in breakdown):
+        # Deterministic safety net: every criterion must carry at least one
+        # evidence_supporting_awarded_band entry, and every one of THOSE must
+        # itself carry at least one quote — or this specific sample gets
+        # flagged for teacher review. A measured signal (the model didn't do
+        # its job properly this time), not a guess about confidence. Checks
+        # the new per-descriptor nested shape, not the old flat "evidence"
+        # list this replaced.
+        def _criterion_incomplete(criterion):
+            band_evidence = criterion.get("evidence_supporting_awarded_band")
+            if not band_evidence:
+                return True
+            return any(not entry.get("evidence") for entry in band_evidence)
+
+        if not breakdown or any(_criterion_incomplete(c) for c in breakdown):
             results["teacher_review_required"] = True
 
         results_list.append(results)
 
-    return results_list, last_error
+    # response.usage is for the WHOLE call, all n samples together — not per
+    # sample. prompt_tokens is counted once (the input is shared across every
+    # completion); completion_tokens is already the sum across all n. Verified
+    # directly against a real n=3 response before relying on this, rather than
+    # assumed — see the usage-tracking work this was built for.
+    return results_list, last_error, _usage_from_response(response)
 
 
 def generate_llm_response(question, essay, rubric, expected_token, max_score=6, exemplars=None, other_questions=None):
-    results_list, last_error = _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature=0.0, n=1, other_questions=other_questions)
+    results_list, last_error, usage = _mark_samples(question, essay, rubric, expected_token, max_score, exemplars, temperature=0.0, n=1, other_questions=other_questions)
     if not results_list:
         raise ValueError(last_error)
-    return results_list[0]
+    return results_list[0], usage
 
 
 # Marks the same essay n_samples times (temperature=0.5 — genuine diversity
@@ -262,7 +322,7 @@ def generate_llm_response_consistent(
     question, essay, rubric, expected_token, max_score=6, exemplars=None,
     other_questions=None, n_samples=3, temperature=0.5,
 ):
-    results_list, last_error = _mark_samples(
+    results_list, last_error, usage = _mark_samples(
         question, essay, rubric, expected_token, max_score, exemplars,
         temperature=temperature, n=n_samples, other_questions=other_questions,
     )
@@ -278,7 +338,7 @@ def generate_llm_response_consistent(
         result["teacher_review_required"] = True
         result["confidence"] = None
         result["score_spread"] = None
-        return result
+        return result, usage
 
     sorted_by_score = sorted(results_list, key=lambda r: r["score"])
     scores = [r["score"] for r in sorted_by_score]
@@ -324,4 +384,4 @@ def generate_llm_response_consistent(
 
     representative["confidence"] = confidence
     representative["score_spread"] = spread
-    return representative
+    return representative, usage

@@ -17,16 +17,30 @@ from contextlib import asynccontextmanager
 import fitz
 from rapidfuzz import process, fuzz
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 
 # Add parent directory to path so we can find llm_service and ocr_service
 sys.path.append(str(Path(__file__).parent))
 
-from llm_service import generate_llm_response, generate_llm_response_consistent, extract_mark_scheme #Self consistency mark where the files gets read 3 times 
+from llm_service import (
+    DescriptorContentIntegrityError,
+    DescriptorValidationError,
+    generate_llm_response,
+    generate_llm_response_consistent,   # Self consistency mark where the file gets read 3 times
+    extract_mark_scheme,
+)
 from ocr_service import extract_text_from_file
 from rag_service import add_exemplar, get_similar, list_exemplars, delete_exemplar
 from security import ms_ocr_sanitisation
-from observability.event_log import log_security_stripped
+from validation.descriptor_id_enrichment import add_descriptor_ids
+from validation.descriptor_integrity_validation import validate_descriptor_content_integrity
+from validation.descriptor_validation import validate_descriptor_shapes
+from validation.mark_int_validation import validate_mark_totals
+from observability.event_log import (
+    log_descriptor_validation_issues,
+    log_mark_total_corrections,
+    log_security_stripped,
+)
 
 # When Umar's Chandra OCR is available, swap these two lines back in:
 # from model.marker import run_marking
@@ -38,6 +52,23 @@ async def lifespan(_: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+# Liveness/readiness check. Deliberately doesn't call OpenAI or Datalab (that
+# would cost real money on every probe) — just confirms the keys those calls
+# depend on are actually present, so a misconfigured deploy shows unhealthy
+# immediately rather than only failing on the first real request.
+@app.get("/health")
+async def health():
+    missing = [
+        name for name in ("OPENAI_API_KEY", "DATALAB_API_KEY")
+        if not os.getenv(name)
+    ]
+    if missing:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "missing_env": missing},
+        )
+    return {"status": "ok"}
 
 # Pulls a candidate title/heading off the very start of the essay — either a
 # markdown-style '# ...' line, or a short standalone first line followed by
@@ -157,10 +188,71 @@ async def ocr_file(file: UploadFile = File(...)):
     # delimiter markers are a prompt-construction detail for the extraction
     # call only, never part of the mark scheme content itself.
     clean_text, wrapped_text, token = _secure_wrap(raw_text)
-    structured_scheme  = extract_mark_scheme(wrapped_text, token)
+    structured_scheme, extraction_usage = extract_mark_scheme(wrapped_text, token)
+
+    # Descriptor validation is deliberately fail-closed, unlike the
+    # arithmetic consistency check below: marking cannot proceed at all
+    # without valid descriptor IDs (every marking call now justifies its
+    # decision descriptor-by-descriptor), so a scheme that fails these
+    # checks is rejected outright rather than passed through with a warning.
+    # Boundary and content-integrity are kept as two separate gates on
+    # purpose — one verifies the model found the same individual points the
+    # application would, the other verifies it didn't silently reword or
+    # drop text while splitting them out.
+    descriptor_shape_issues = validate_descriptor_shapes(structured_scheme)
+    if descriptor_shape_issues:
+        log_descriptor_validation_issues(descriptor_shape_issues)
+        raise DescriptorValidationError(
+            "Extracted descriptor boundaries did not match the source descriptor"
+        )
+
+    descriptor_content_issues = validate_descriptor_content_integrity(structured_scheme)
+    if descriptor_content_issues:
+        log_descriptor_validation_issues(descriptor_content_issues)
+        raise DescriptorContentIntegrityError(
+            "Extracted descriptor content did not match the raw descriptor"
+        )
+
+    structured_scheme, descriptor_id_issues = add_descriptor_ids(structured_scheme)
+    if descriptor_id_issues:
+        log_descriptor_validation_issues(descriptor_id_issues)
+        raise DescriptorValidationError(
+            "Descriptor provenance IDs could not be generated safely"
+        )
+
+    # Auto-correction, fail-open: fixes one narrow, well-evidenced failure
+    # pattern (a question's declared total exactly matches one AO's
+    # allocation instead of the sum of all of them) and logs what changed.
+    structured_scheme, mark_total_corrections = validate_mark_totals(structured_scheme)
+    if mark_total_corrections:
+        log_mark_total_corrections(mark_total_corrections)
+
+    # Our own broader arithmetic check, on the now-corrected scheme — still
+    # fail-open (a warning the teacher can act on or ignore), and still
+    # catches mismatches the narrower auto-fix above doesn't (anything that
+    # isn't an exact single-AO match).
     extraction_warnings = _check_scheme_consistency(structured_scheme)
 
-    return {"text": clean_text, "structured_scheme": structured_scheme, "extraction_warnings": extraction_warnings}
+    return {
+        "text": clean_text,
+        "structured_scheme": structured_scheme,
+        "extraction_warnings": extraction_warnings,
+        "usage": extraction_usage,
+    }
+
+
+@app.exception_handler(DescriptorValidationError)
+async def descriptor_validation_error_handler(_request, exc: DescriptorValidationError):
+    # A real, new user-facing failure mode this redesign introduces — return
+    # a clean, teacher-readable 422 rather than letting it fall through to
+    # an unhandled 500.
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "mark_scheme_descriptor_validation_failed",
+            "detail": str(exc),
+        },
+    )
 
 def _question_number_from_scheme(scheme_text: str):
     try:
@@ -227,7 +319,7 @@ async def mark_with_scheme_text(
             ]
 
             try:
-                raw = generate_llm_response_consistent(
+                raw, marking_usage = generate_llm_response_consistent(
                     question=question,
                     essay=wrapped_student_text,
                     rubric=scheme_text,
@@ -241,8 +333,6 @@ async def mark_with_scheme_text(
                     "question_index":           idx,
                     "score":                    raw.get("score", 0),
                     "maxScore":                 raw.get("maxScore"),
-                    "strengths":                raw.get("strengths", []),
-                    "improvements":             raw.get("improvements", []),
                     "actionable_steps":         raw.get("actionable_steps", []),
                     "student_ocr_text":         student_text,
                     "teacher_review_required":  raw.get("teacher_review_required", False) or bool(low_confidence_words),
@@ -254,6 +344,7 @@ async def mark_with_scheme_text(
                     "answer_excerpt":           raw.get("answer_excerpt", None),
                     "confidence":               raw.get("confidence"),
                     "score_spread":             raw.get("score_spread"),
+                    "usage":                    marking_usage,
                 }) + "\n"
             except Exception as e:
                 yield _json.dumps({
@@ -341,7 +432,7 @@ async def bulk_mark_with_scheme_text(
 
                 question_number = _question_number_from_scheme(scheme_text)
                 exemplars       = get_similar(text, question_number, n=3)
-                raw = generate_llm_response(
+                raw, marking_usage = generate_llm_response(
                     question=question, essay=wrapped_text, rubric=scheme_text,
                     expected_token=expected_token,
                     max_score=100, exemplars=exemplars or None,
@@ -354,8 +445,6 @@ async def bulk_mark_with_scheme_text(
                     "match_confidence":         conf,
                     "score":                    raw.get("score", 0),
                     "maxScore":                 raw.get("maxScore"),
-                    "strengths":                raw.get("strengths", []),
-                    "improvements":             raw.get("improvements", []),
                     "actionable_steps":         raw.get("actionable_steps", []),
                     "student_ocr_text":         text,
                     "teacher_review_required":  raw.get("teacher_review_required", False) or bool(low_confidence_words),
@@ -364,6 +453,7 @@ async def bulk_mark_with_scheme_text(
                     "question_mismatch_reason": raw.get("question_mismatch_reason", None),
                     "rubric_breakdown":         raw.get("rubric_breakdown", []),
                     "missing_aos":              raw.get("missing_aos", []),
+                    "usage":                    marking_usage,
                 }) + "\n"
 
             except Exception as e:

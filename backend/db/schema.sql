@@ -257,6 +257,30 @@ BEGIN
 END;
 GO
 
+/* ---- API usage / cost tracking --------------------------------------------- */
+-- One row per OpenAI call made by ai-service, reported back to the backend
+-- alongside its normal response and logged here — the backend is the only
+-- thing that ever writes to this database, ai-service never does (see the
+-- system architecture notes). lesson_id/student_id are nullable since not
+-- every call type has both yet (extraction only has a lesson; a future
+-- embedding call for exemplar matching has neither).
+IF OBJECT_ID(N'dbo.api_usage', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.api_usage (
+        id                 INT           IDENTITY(1,1) PRIMARY KEY,
+        call_type          NVARCHAR(50)  NOT NULL,
+        lesson_id          INT           NULL REFERENCES dbo.lessons(id),
+        student_id         INT           NULL REFERENCES dbo.students(id),
+        prompt_tokens      INT           NOT NULL,
+        completion_tokens  INT           NOT NULL,
+        total_tokens       INT           NOT NULL,
+        estimated_cost_usd DECIMAL(10,6) NOT NULL,
+        created_at         NVARCHAR(30)  NOT NULL
+            CONSTRAINT DF_api_usage_created_at DEFAULT (CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120))
+    );
+END;
+GO
+
 /* ============================================================================
    AFTER the schema exists, grant the app's managed identity READ/WRITE only
    (run once, as admin). Replace <backend-container-app-name> with the backend

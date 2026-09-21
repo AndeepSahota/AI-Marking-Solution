@@ -1,4 +1,3 @@
-from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
@@ -9,31 +8,31 @@ class StrictBaseModel(BaseModel):
     )
 
 
-# Nested inside each RubricCriterion rather than a separate top-level list —
-# ties every quote to a specific AO structurally, instead of relying on a
-# loosely-enforced matching field the model has to remember to fill in
-# consistently (tried that first; it wasn't reliable).
-class Evidence(StrictBaseModel):
+class DescriptorEvidence(StrictBaseModel):
     quote: str
-    comment: str
-    type: Literal["strength", "improvement"]
-    marks_impact: int
-    how_to_improve: str | None
+    explanation: str
+
+
+class AwardedBandDescriptorEvidence(StrictBaseModel):
+    descriptor_id: str
+    status: str
+    evidence: list[DescriptorEvidence]
+    judgement: str
 
 
 class RubricCriterion(StrictBaseModel):
     criterion: str
+    awarded_band: str
     score_awarded: int
     max_marks: int
+    evidence_supporting_awarded_band: list[AwardedBandDescriptorEvidence]
+    next_band_requirement_not_met: str | None
     reason: str
-    evidence: list[Evidence]
 
 
 class MarkingResult(StrictBaseModel):
     max_score_detected: int
     delimiter_token: str
-    strengths: list[str]
-    improvements: list[str]
     actionable_steps: list[str]
     rubric_breakdown: list[RubricCriterion]
     teacher_review_required: bool
@@ -43,4 +42,7 @@ class MarkingResult(StrictBaseModel):
     # selected questions sharing the same response — the portion of the essay
     # the model identified as answering THIS question, so that attribution is
     # checkable rather than assumed. Null for the ordinary single-question case.
+    # Not part of Umar's upstream schema (his branch has no multi-question
+    # support) — kept here deliberately when reconciling his descriptor-based
+    # redesign with our multi-question segmentation.
     answer_excerpt: str | None

@@ -4,8 +4,6 @@ import {
   getLesson, getStudents, getLessonOcr,
   getMarkingResults, submitStudentWork, bulkMarkStudents,
 } from '../services/api'
-import ResultCard from '../components/ResultCard'
-import AnnotatedEssay from '../components/AnnotatedEssay'
 
 // Bulk upload (whole-class PDF split + fuzzy name-matching) — kept, not
 // removed. Backend route and ai-service endpoint are still live; this just
@@ -52,7 +50,6 @@ function StudentMarking() {
 
   // { [studentId]: { status: 'marking'|'done'|'error', result?, error? } }
   const [markStates, setMarkStates] = useState({})
-  const [expanded,   setExpanded]   = useState({})
 
   const fileInputRef   = useRef(null)
   const bulkInputRef   = useRef(null)
@@ -136,14 +133,10 @@ function StudentMarking() {
       // refreshResults(), a fresh read of what actually got persisted.
       await submitStudentWork(lessonId, studentId, file)
       await refreshResults()
-      setExpanded(prev => ({ ...prev, [studentId]: true }))
     } catch (err) {
       setMarkStates(prev => ({ ...prev, [studentId]: { status: 'error', error: err.message } }))
     }
   }
-
-  const toggleExpanded = (studentId) =>
-    setExpanded(prev => ({ ...prev, [studentId]: !prev[studentId] }))
 
   const handleBulkFileChange = (e) => {
     setBulkFile(e.target.files[0] ?? null)
@@ -220,7 +213,7 @@ function StudentMarking() {
             {bulkStatus === null && (
               <>
                 <p className="bulk-modal-hint">
-                  Scan all papers into one PDF, then upload it here. AIMIRA will split
+                  Scan all papers into one PDF, then upload it here. KLASSIO will split
                   by page count, read each student's name, and mark automatically.
                 </p>
                 <label className="bulk-field-label">Pages per student</label>
@@ -295,6 +288,12 @@ function StudentMarking() {
           </button>
         )}
 
+        {markedCount > 0 && (
+          <button className="bulk-upload-btn" onClick={() => navigate(`/student-feedback/${lessonId}`)}>
+            View feedback
+          </button>
+        )}
+
         <ProgressRing marked={markedCount} total={students.length} />
       </div>
 
@@ -319,9 +318,8 @@ function StudentMarking() {
           <p className="student-marking-empty">Loading students…</p>
         ) : (
           students.map(s => {
-            const st         = markStates[s.id]
-            const status     = st?.status
-            const isExpanded = expanded[s.id]
+            const st     = markStates[s.id]
+            const status = st?.status
 
             return (
               <div key={s.id} className="student-marking-row">
@@ -335,8 +333,8 @@ function StudentMarking() {
                       <span className="student-result-score">
                         {st.result.score}/{st.result.maxScore}
                       </span>
-                      <button className="student-expand-btn" onClick={() => toggleExpanded(s.id)}>
-                        {isExpanded ? 'Hide' : 'View feedback'}
+                      <button className="student-expand-btn" onClick={() => navigate(`/student-feedback/${lessonId}`)}>
+                        View feedback
                       </button>
                       <button className="student-remark-btn" onClick={() => handleUploadClick(s.id)}>
                         Re-mark
@@ -355,18 +353,6 @@ function StudentMarking() {
                     </button>
                   )}
                 </div>
-
-                {status === 'done' && isExpanded && (
-                  <div className="student-result-expanded">
-                    <ResultCard result={st.result} />
-                    {st.result.studentOcrText && st.result.annotations?.length > 0 && (
-                      <AnnotatedEssay
-                        text={st.result.studentOcrText}
-                        annotations={st.result.annotations}
-                      />
-                    )}
-                  </div>
-                )}
               </div>
             )
           })

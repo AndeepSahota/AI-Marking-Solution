@@ -20,8 +20,6 @@ def fake_marking_result(**overrides):
     fields = {
         "max_score_detected": 24,
         "delimiter_token": "tok",
-        "strengths": [],
-        "improvements": [],
         "actionable_steps": [],
         "rubric_breakdown": [],
         "teacher_review_required": False,
@@ -44,8 +42,18 @@ def fake_choice(**overrides):
     return SimpleNamespace(message=SimpleNamespace(refusal=None, parsed=fake_marking_result(**overrides)))
 
 
+def fake_usage(prompt_tokens=100, completion_tokens=50):
+    """Shaped like a real CompletionUsage — only the fields
+    _usage_from_response actually reads."""
+    return SimpleNamespace(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+    )
+
+
 def fake_openai_response(choices):
-    return SimpleNamespace(choices=choices)
+    return SimpleNamespace(choices=choices, usage=fake_usage())
 
 
 @pytest.fixture

@@ -57,24 +57,30 @@ export function safeText(value, { maxLength = 5000, fallback = '' } = {}) {
     return String(value).trim().slice(0, maxLength)
 }
 
+const VALID_DESCRIPTOR_STATUSES = ['met', 'partially_met', 'not_met']
+
 /**
  * Sanitize the full AI marking result.
  *
  * Enforces the exact schema expected by the frontend:
- *   { score, maxScore, percentage, breakdown[], strengths[], improvements[],
- *     actionableSteps[], teacherReviewRequired, questionMismatch,
- *     questionMismatchReason, studentOcrText, annotations[], confidence,
- *     lowConfidenceWords[], missingAos[] }
+ *   { score, maxScore, percentage, breakdown[], actionableSteps[],
+ *     teacherReviewRequired, questionMismatch, questionMismatchReason,
+ *     studentOcrText, confidence, lowConfidenceWords[], missingAos[],
+ *     answerExcerpt }
+ *
+ * breakdown[] items carry the descriptor-based evidence model (replacing the
+ * old flat strengths/improvements/annotations, which the model no longer
+ * produces): { section, awardedBand, marks, maxMarks,
+ * evidenceSupportingAwardedBand[], nextBandRequirementNotMet, reason }.
  *
  * Any field the AI returns that isn't listed here is dropped.
  * Any field that is the wrong type is coerced to the right type.
  * This is the point to extend when the model's response shape changes again.
  *
  * @param {unknown} raw - The raw parsed JSON from the AI service.
- * @returns {{ score, maxScore, percentage, breakdown, strengths, improvements,
- *   actionableSteps, teacherReviewRequired, questionMismatch,
- *   questionMismatchReason, studentOcrText, annotations, confidence,
- *   lowConfidenceWords, missingAos }}
+ * @returns {{ score, maxScore, percentage, breakdown, actionableSteps,
+ *   teacherReviewRequired, questionMismatch, questionMismatchReason,
+ *   studentOcrText, confidence, lowConfidenceWords, missingAos, answerExcerpt }}
  * @throws {Error} if `raw` is not an object (caller will catch and return 500).
  */
 export function sanitizeAIResult(raw) {
@@ -96,9 +102,37 @@ export function sanitizeAIResult(raw) {
         ? arr.filter(s => s && typeof s === 'string').map(s => safeText(s, { maxLength: 500 }))
         : []
 
-    const strengths      = sanitizeList(raw.strengths)
-    const improvements   = sanitizeList(raw.improvements)
     const actionableSteps = sanitizeList(raw.actionable_steps)
+
+    // Each evidence entry inside a descriptor: a verbatim quote plus why it
+    // demonstrates that specific descriptor. Capped defensively — the prompt
+    // asks for 1-3 per descriptor, but this is the boundary that actually
+    // enforces it regardless of what the model returns.
+    const sanitizeDescriptorEvidence = (items) => Array.isArray(items)
+        ? items
+              .filter(item => item && typeof item === 'object')
+              .slice(0, 5)
+              .map(item => ({
+                  quote:       safeText(item.quote,       { maxLength: 500 }),
+                  explanation: safeText(item.explanation, { maxLength: 1000 }),
+              }))
+        : []
+
+    // One entry per descriptor ID in the awarded band — status coerced to one
+    // of the three valid values rather than trusting the model's casing/spelling.
+    const sanitizeAwardedBandEvidence = (items) => Array.isArray(items)
+        ? items
+              .filter(item => item && typeof item === 'object' && item.descriptor_id)
+              .map(item => {
+                  const status = safeText(item.status, { maxLength: 30 }).toLowerCase()
+                  return {
+                      descriptorId: safeText(item.descriptor_id, { maxLength: 100 }),
+                      status: VALID_DESCRIPTOR_STATUSES.includes(status) ? status : 'not_met',
+                      evidence: sanitizeDescriptorEvidence(item.evidence),
+                      judgement: safeText(item.judgement, { maxLength: 1000 }),
+                  }
+              })
+        : []
 
     const breakdown = Array.isArray(raw.rubric_breakdown)
         ? raw.rubric_breakdown
@@ -107,10 +141,15 @@ export function sanitizeAIResult(raw) {
                   const maxMarks = safeInt(item.max_marks,     { min: 1, fallback: 1 })
                   const marks    = safeInt(item.score_awarded, { min: 0, max: maxMarks })
                   return {
-                      section:  safeText(item.criterion, { maxLength: 200, fallback: 'Section' }),
+                      section:     safeText(item.criterion, { maxLength: 200, fallback: 'Section' }),
+                      awardedBand: safeText(item.awarded_band, { maxLength: 100 }),
                       marks,
                       maxMarks,
-                      reason:   safeText(item.reason,    { maxLength: 500 }),
+                      evidenceSupportingAwardedBand: sanitizeAwardedBandEvidence(item.evidence_supporting_awarded_band),
+                      nextBandRequirementNotMet: item.next_band_requirement_not_met === null
+                          ? null
+                          : safeText(item.next_band_requirement_not_met, { maxLength: 500 }),
+                      reason: safeText(item.reason, { maxLength: 500 }),
                   }
               })
         : []
@@ -128,28 +167,6 @@ export function sanitizeAIResult(raw) {
         : null
 
     const studentOcrText = safeText(raw.student_ocr_text ?? '', { maxLength: 20000 })
-
-    // Evidence is nested inside each AO's "evidence" array in the AI's response
-    // (not a separate top-level field) — flatten it here, tagging each piece
-    // with its parent AO so the frontend can label/group it.
-    const annotations = Array.isArray(raw.rubric_breakdown)
-        ? raw.rubric_breakdown
-              .filter(item => item && typeof item === 'object' && Array.isArray(item.evidence))
-              .flatMap(item => {
-                  const ao = safeText(item.criterion, { maxLength: 50, fallback: '' })
-                  return item.evidence
-                      .filter(a => a && typeof a === 'object' && a.quote && a.comment)
-                      .map(a => ({
-                          ao,
-                          quote:        safeText(a.quote,   { maxLength: 500 }),
-                          comment:      safeText(a.comment, { maxLength: 1000 }),
-                          type:         a.type === 'strength' ? 'strength' : 'improvement',
-                          marksImpact:  safeInt(a.marks_impact, { min: 0, max: 100, fallback: 0 }),
-                          howToImprove: safeText(a.how_to_improve ?? '', { maxLength: 300 }),
-                      }))
-              })
-              .slice(0, 20)
-        : []
 
     // Words Datalab's OCR wasn't confident it read correctly — surfaced so
     // the teacher knows specifically what to double-check against the
@@ -176,5 +193,14 @@ export function sanitizeAIResult(raw) {
               .slice(0, 20)
         : []
 
-    return { score, maxScore, percentage, breakdown, strengths, improvements, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, annotations, confidence, lowConfidenceWords, missingAos }
+    // Only populated for a multi-question paper — the portion of the essay
+    // the model identified as answering THIS specific question, so
+    // attribution is checkable rather than assumed. Was already flowing
+    // through the NDJSON stream but had never actually been added to this
+    // allowlist, so it silently never reached the frontend until now.
+    const answerExcerpt = raw.answer_excerpt === null || raw.answer_excerpt === undefined
+        ? null
+        : safeText(raw.answer_excerpt, { maxLength: 20000 })
+
+    return { score, maxScore, percentage, breakdown, actionableSteps, teacherReviewRequired, questionMismatch, questionMismatchReason, studentOcrText, confidence, lowConfidenceWords, missingAos, answerExcerpt }
 }

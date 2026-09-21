@@ -1,4 +1,19 @@
-function ResultCard({ result }) {
+// Looks up the full band descriptors (id + text) for one breakdown item, so
+// the teacher can see what a descriptor ID actually required, not just its
+// code. Matches by AO name + the exact band label the model awarded.
+function descriptorsForBreakdownItem(scheme, item) {
+  const objectives = scheme?.assessment_objectives
+  if (!Array.isArray(objectives)) return []
+
+  const objective = objectives.find(ao => ao?.ao === item.section)
+  const bands = objective?.bands
+  if (!Array.isArray(bands)) return []
+
+  const band = bands.find(candidate => candidate?.band === item.awardedBand)
+  return Array.isArray(band?.descriptors) ? band.descriptors : []
+}
+
+function ResultCard({ result, scheme }) {
   const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
 
   const getGrade = (pct) => {
@@ -132,10 +147,14 @@ function ResultCard({ result }) {
           <div className="section-label">Breakdown</div>
           {result.breakdown.map((item, index) => {
             const itemPct = Math.round((item.marks / item.maxMarks) * 100)
+            const descriptors = descriptorsForBreakdownItem(scheme, item)
             return (
               <div key={index} className="breakdown-item">
                 <div className="breakdown-item-row">
-                  <span className="breakdown-name">{item.section}</span>
+                  <span className="breakdown-name">
+                    {item.section}
+                    {item.awardedBand && <span className="breakdown-band"> — {item.awardedBand}</span>}
+                  </span>
                   <div className="breakdown-bar-track">
                     <div
                       className="breakdown-bar-fill"
@@ -144,8 +163,31 @@ function ResultCard({ result }) {
                   </div>
                   <span className="breakdown-score">{item.marks} / {item.maxMarks}</span>
                 </div>
+
+                {descriptors.length > 0 && (
+                  <ul className="breakdown-descriptors">
+                    {descriptors.map((descriptor, descriptorIndex) => {
+                      const isStructured = descriptor && typeof descriptor === 'object'
+                      const text = isStructured ? descriptor.text : descriptor
+                      const id   = isStructured ? descriptor.id   : null
+                      return (
+                        <li key={id ?? descriptorIndex} className="breakdown-descriptor">
+                          {id && <code className="breakdown-descriptor-id">{id}</code>}
+                          <span>{text}</span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+
                 {item.reason && (
                   <p className="breakdown-reason">{item.reason}</p>
+                )}
+
+                {item.nextBandRequirementNotMet && (
+                  <p className="breakdown-next-band">
+                    <strong>To reach the next band:</strong> {item.nextBandRequirementNotMet}
+                  </p>
                 )}
               </div>
             )
@@ -153,32 +195,14 @@ function ResultCard({ result }) {
         </div>
       )}
 
-      {(result.strengths?.length > 0 || result.improvements?.length > 0 || result.actionableSteps?.length > 0) && (
+      {result.actionableSteps?.length > 0 && (
         <div className="result-feedback">
-          {result.strengths?.length > 0 && (
-            <div className="feedback-section">
-              <div className="section-label">Strengths</div>
-              <ul className="feedback-list">
-                {result.strengths.map((s, i) => <li key={i}>{s}</li>)}
-              </ul>
-            </div>
-          )}
-          {result.improvements?.length > 0 && (
-            <div className="feedback-section">
-              <div className="section-label">Areas for improvement</div>
-              <ul className="feedback-list">
-                {result.improvements.map((s, i) => <li key={i}>{s}</li>)}
-              </ul>
-            </div>
-          )}
-          {result.actionableSteps?.length > 0 && (
-            <div className="feedback-section">
-              <div className="section-label">Next steps</div>
-              <ul className="feedback-list">
-                {result.actionableSteps.map((s, i) => <li key={i}>{s}</li>)}
-              </ul>
-            </div>
-          )}
+          <div className="feedback-section">
+            <div className="section-label">Next steps</div>
+            <ul className="feedback-list">
+              {result.actionableSteps.map((s, i) => <li key={i}>{s}</li>)}
+            </ul>
+          </div>
         </div>
       )}
     </div>

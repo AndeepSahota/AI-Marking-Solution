@@ -20,6 +20,7 @@ samples
 *.csv
 chandra-response.json
 pyrightconfig.json
+observability/descriptor_validation_debug.txt
 
 # Git, IDE, OS
 .git
