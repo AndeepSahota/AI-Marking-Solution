@@ -1,18 +1,12 @@
 import express from 'express'
 import { classDb } from '../db/index.js'
 import { logClassStart, logClassCreated, logStudentsAdded, logClassDone, logClassFailed } from '../logging/classLogger.js'
+import { parseYear } from '../utils/parseYear.js'
 
 const router = express.Router()
 
 const CLASS_NAME_MAX   = 100
 const STUDENT_NAME_MAX = 100
-
-// Accepts "10e", "Year 10", "Year 10 Set 3 English" — uses the explicit "year N"
-// form first, falls back to a leading digit run.
-function parseYear(className) {
-    const m = className.match(/year\s*(\d+)/i) ?? className.match(/^(\d+)/)
-    return m ? parseInt(m[1], 10) : null
-}
 
 // GET /classes — all classes belonging to the logged-in teacher, with student count
 router.get('/', async (req, res, next) => {
