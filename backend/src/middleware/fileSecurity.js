@@ -80,8 +80,22 @@ export function makeFileSecurity(slots) {
 
             // 5. PDF page count
             if (file.mimetype === 'application/pdf') {
-                const doc = await PDFDocument.load(file.buffer, { ignoreEncryption: true })
-                const pageCount = doc.getPageCount()
+                let pageCount
+                try {
+                    // getPageCount() is inside the same try as load() on purpose:
+                    // pdf-lib's load() is lenient and can succeed on a file with a
+                    // real-looking header but garbage content behind it (right
+                    // extension, right declared MIME, no real PDF structure) — it's
+                    // reading the page tree afterwards that actually throws for that
+                    // case. A version of this that only wrapped load() let that throw
+                    // fall through to the generic error handler instead of the clean,
+                    // specific rejection every other check here already gets.
+                    const doc = await PDFDocument.load(file.buffer, { ignoreEncryption: true })
+                    pageCount = doc.getPageCount()
+                } catch {
+                    secLog(req, label, 'page count', 'fail', 'not a valid PDF file')
+                    return res.status(400).json({ error: 'This file doesn\'t appear to be a valid PDF' })
+                }
                 if (pageCount > config.MAX_PDF_PAGES) {
                     secLog(req, label, 'page count', 'fail', `${pageCount} pages — exceeds ${config.MAX_PDF_PAGES} limit`)
                     return res.status(400).json({ error: `PDF must not exceed ${config.MAX_PDF_PAGES} pages` })
