@@ -1,0 +1,141 @@
+name: e2e CI
+
+# Spins up the whole app (DB + ai-service + backend + frontend) in one job and
+# runs the real Playwright suite against it — different in kind from the other
+# three workflows, which each lint/test/build their own service in isolation.
+# Deliberately only on push/PR to main (same as the others), not every push to
+# a feature branch: the full-marking-flow spec makes a real OpenAI + Datalab
+# call and spends real money each run.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai-service/**'
+      - '.github/workflows/e2e-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'ai-service/**'
+      - '.github/workflows/e2e-ci.yml'
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: "Developer"
+          # CI-only, ephemeral container — same convention as docker-compose.yml's
+          # local dev password, not a real secret.
+          MSSQL_SA_PASSWORD: "AimiraLocalDev_2026!"
+        ports:
+          - 1433:1433
+
+    env:
+      SQL_SERVER: localhost
+      SQL_DATABASE: aimira
+      SQL_USER: sa
+      SQL_PASSWORD: "AimiraLocalDev_2026!"
+      # Only used for hashing/signing within this one ephemeral run — not
+      # real secrets, just need to be non-empty and consistent for the job.
+      JWT_SECRET: ci-only-jwt-secret
+      PASSWORD_PEPPER: ci-only-password-pepper
+      EMAIL_PEPPER: ci-only-email-pepper
+      PORT: 3001
+      FRONTEND_URL: http://localhost:5173
+      AI_SERVICE_URL: http://localhost:8000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Wait for mssql to accept connections
+        run: |
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/localhost/1433) 2>/dev/null && echo "mssql is up" && exit 0
+            sleep 2
+          done
+          echo "mssql never came up" && exit 1
+
+      - name: Install backend deps
+        working-directory: backend
+        run: npm ci
+
+      - name: Apply DB schema
+        working-directory: backend
+        run: node db/apply-schema.mjs
+
+      - name: Install ai-service deps
+        working-directory: ai-service
+        run: pip install -r requirements.txt
+
+      - name: Start ai-service
+        working-directory: ai-service
+        env:
+          # Real keys — added as repository secrets, see project README/Notion.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DATALAB_API_KEY: ${{ secrets.DATALAB_API_KEY }}
+        run: nohup python3 main.py > /tmp/ai-service.log 2>&1 &
+
+      - name: Start backend
+        working-directory: backend
+        run: nohup node src/server.js > /tmp/backend.log 2>&1 &
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start frontend
+        working-directory: frontend
+        run: nohup npm run dev > /tmp/frontend.log 2>&1 &
+
+      - name: Wait for all services to be healthy
+        run: |
+          wait_for() {
+            local url=$1 name=$2
+            for i in $(seq 1 30); do
+              curl -sf "$url" > /dev/null 2>&1 && echo "$name is up" && return 0
+              sleep 2
+            done
+            echo "$name never came up"
+            return 1
+          }
+          wait_for http://localhost:8000/health ai-service
+          wait_for http://localhost:3001/health backend
+          wait_for http://localhost:5173 frontend
+
+      - name: Run Playwright tests
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Show service logs on failure
+        if: failure()
+        run: |
+          echo "── ai-service ──"; cat /tmp/ai-service.log || true
+          echo "── backend ──";    cat /tmp/backend.log || true
+          echo "── frontend ──";   cat /tmp/frontend.log || true
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/test-results/
+          retention-days: 7
