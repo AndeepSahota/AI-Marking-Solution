@@ -110,6 +110,19 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
+def _response_performance(response):
+    """Extract provider telemetry without changing normal application output."""
+    usage = getattr(response, "usage", None)
+    choice = response.choices[0] if getattr(response, "choices", None) else None
+    return {
+        "model_returned": getattr(response, "model", None),
+        "finish_reason": getattr(choice, "finish_reason", None),
+        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+        "total_tokens": getattr(usage, "total_tokens", None),
+    }
+
+
 def _marking_rubric_without_constraints(rubric):
     """Remove extraction-only constraints from the rubric sent to marking LLMs."""
     if isinstance(rubric, str):
@@ -441,6 +454,7 @@ def generate_aggregation_response(
     extracted_result,
     mark_scheme_extraction,
     expected_token,
+    include_performance=False,
 ):
     user_prompt = build_aggregation_user_prompt(
         assessment_focus=assessment_focus,
@@ -481,10 +495,18 @@ def generate_aggregation_response(
 
     verify_token(expected_token, result.delimiter_token)
 
-    return result.model_dump(exclude={"delimiter_token"})
+    resolved = result.model_dump(exclude={"delimiter_token"})
+    if include_performance:
+        return resolved, _response_performance(response)
+    return resolved
 
 
-def generate_final_marking_response(delimited_input, expected_token, context):
+def generate_final_marking_response(
+    delimited_input,
+    expected_token,
+    context,
+    include_performance=False,
+):
     print("[FINAL MARKING] Sending evidence and scheme to the LLM", flush=True)
     try:
         response = client.chat.completions.parse(
@@ -530,4 +552,6 @@ def generate_final_marking_response(delimited_input, expected_token, context):
     except ValueError as e:
         raise FinalMarkingValidationError(str(e), model_result) from e
     print("[FINAL MARKING] Response verified; evidence quotes and threads attached", flush=True)
+    if include_performance:
+        return resolved, _response_performance(response)
     return resolved

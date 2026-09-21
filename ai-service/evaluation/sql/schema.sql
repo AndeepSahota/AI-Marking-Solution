@@ -15,6 +15,7 @@ BEGIN
         target_id   BIGINT         IDENTITY(1,1) NOT NULL,
         target_key  NVARCHAR(100)  NOT NULL,
         name        NVARCHAR(255)  NOT NULL,
+        runner_key  NVARCHAR(50)   NOT NULL,
         description NVARCHAR(MAX)  NULL,
         created_at  DATETIME2(3)   NOT NULL
             CONSTRAINT DF_evaluation_targets_created_at DEFAULT SYSUTCDATETIME(),
@@ -25,12 +26,20 @@ BEGIN
 END;
 GO
 
-/* Frozen prompt inputs and their expected target-specific result. */
+/* Existing testing databases pre-date executable runner selection. */
+IF COL_LENGTH(N'evaluation.targets', N'runner_key') IS NULL
+BEGIN
+    ALTER TABLE evaluation.targets
+        ADD runner_key NVARCHAR(50) NOT NULL
+            CONSTRAINT DF_evaluation_targets_runner_key DEFAULT N'unconfigured';
+END;
+GO
+
+/* Frozen prompt inputs. Expected results remain optional for a later phase. */
 IF OBJECT_ID(N'evaluation.datasets', N'U') IS NULL
 BEGIN
     CREATE TABLE evaluation.datasets (
         dataset_id          BIGINT         IDENTITY(1,1) NOT NULL,
-        target_id           BIGINT         NOT NULL,
         name                NVARCHAR(255)  NOT NULL,
         version             INT            NOT NULL
             CONSTRAINT DF_evaluation_datasets_version DEFAULT (1),
@@ -41,12 +50,8 @@ BEGIN
             CONSTRAINT DF_evaluation_datasets_created_at DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT PK_evaluation_datasets PRIMARY KEY (dataset_id),
-        CONSTRAINT FK_evaluation_datasets_target FOREIGN KEY (target_id)
-            REFERENCES evaluation.targets(target_id),
-        CONSTRAINT UQ_evaluation_datasets_target_name_version
-            UNIQUE (target_id, name, version),
-        CONSTRAINT UQ_evaluation_datasets_target_dataset
-            UNIQUE (target_id, dataset_id)
+        CONSTRAINT UQ_evaluation_datasets_name_version
+            UNIQUE (name, version)
     );
 END;
 GO
@@ -97,13 +102,81 @@ BEGIN
             CONSTRAINT DF_evaluation_evaluations_created_at DEFAULT SYSUTCDATETIME(),
 
         CONSTRAINT PK_evaluation_evaluations PRIMARY KEY (evaluation_id),
-        CONSTRAINT FK_evaluation_evaluations_dataset_target
-            FOREIGN KEY (target_id, dataset_id)
-            REFERENCES evaluation.datasets(target_id, dataset_id),
+        CONSTRAINT FK_evaluation_evaluations_dataset
+            FOREIGN KEY (dataset_id)
+            REFERENCES evaluation.datasets(dataset_id),
         CONSTRAINT FK_evaluation_evaluations_prompt_target
             FOREIGN KEY (target_id, prompt_id)
             REFERENCES evaluation.prompts(target_id, prompt_id)
     );
+END;
+GO
+
+/*
+Datasets were initially owned by targets. They are now immutable reusable
+inputs, while evaluation.evaluations is the join between a target and dataset.
+This migration preserves every existing dataset and evaluation row.
+*/
+IF COL_LENGTH(N'evaluation.datasets', N'target_id') IS NOT NULL
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_evaluation_evaluations_dataset_target'
+          AND parent_object_id = OBJECT_ID(N'evaluation.evaluations')
+    )
+        ALTER TABLE evaluation.evaluations
+            DROP CONSTRAINT FK_evaluation_evaluations_dataset_target;
+
+    IF EXISTS (
+        SELECT 1 FROM sys.key_constraints
+        WHERE name = N'UQ_evaluation_datasets_target_dataset'
+          AND parent_object_id = OBJECT_ID(N'evaluation.datasets')
+    )
+        ALTER TABLE evaluation.datasets
+            DROP CONSTRAINT UQ_evaluation_datasets_target_dataset;
+
+    IF EXISTS (
+        SELECT 1 FROM sys.key_constraints
+        WHERE name = N'UQ_evaluation_datasets_target_name_version'
+          AND parent_object_id = OBJECT_ID(N'evaluation.datasets')
+    )
+        ALTER TABLE evaluation.datasets
+            DROP CONSTRAINT UQ_evaluation_datasets_target_name_version;
+
+    IF EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_evaluation_datasets_target'
+          AND parent_object_id = OBJECT_ID(N'evaluation.datasets')
+    )
+        ALTER TABLE evaluation.datasets
+            DROP CONSTRAINT FK_evaluation_datasets_target;
+
+    ALTER TABLE evaluation.datasets DROP COLUMN target_id;
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.key_constraints
+    WHERE name = N'UQ_evaluation_datasets_name_version'
+      AND parent_object_id = OBJECT_ID(N'evaluation.datasets')
+)
+BEGIN
+    ALTER TABLE evaluation.datasets
+        ADD CONSTRAINT UQ_evaluation_datasets_name_version
+            UNIQUE (name, version);
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE name = N'FK_evaluation_evaluations_dataset'
+      AND parent_object_id = OBJECT_ID(N'evaluation.evaluations')
+)
+BEGIN
+    ALTER TABLE evaluation.evaluations
+        ADD CONSTRAINT FK_evaluation_evaluations_dataset
+            FOREIGN KEY (dataset_id)
+            REFERENCES evaluation.datasets(dataset_id);
 END;
 GO
 
