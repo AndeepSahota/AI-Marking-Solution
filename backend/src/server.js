@@ -11,7 +11,7 @@ import classRoutes from './routes/classes.js'
 import lessonRoutes from './routes/lessons.js'
 import exemplarRoutes from './routes/exemplars.js'
 import config from './config/index.js'
-import { poolConnect } from './db/index.js'
+import { pool, poolConnect } from './db/index.js'
 
 const app = express()
 
@@ -38,6 +38,19 @@ app.use(cors({
     origin: config.FRONTEND_URL,
     credentials: true,
 }))
+// Ahead of auth/rate-limiting deliberately — container orchestrators and
+// load balancers poll this frequently and shouldn't need credentials or be
+// subject to per-IP throttling meant for real traffic. Actually queries the
+// DB (not just "the process is up") since the API is useless without it.
+app.get('/health', async (_req, res) => {
+    try {
+        await pool.request().query('SELECT 1')
+        res.json({ status: 'ok' })
+    } catch (err) {
+        res.status(503).json({ status: 'error', detail: err.message })
+    }
+})
+
 app.use(cookieParser())
 app.use(rateLimiter)
 app.use(express.json())
