@@ -66,7 +66,7 @@ function Exemplars() {
       <div className="exemplars-header">
         <h1 className="exemplars-title">RAG Exemplars</h1>
         <p className="exemplars-subtitle">
-          Upload official AQA marked responses. AIMIRA retrieves the 3 most similar
+          Upload official AQA marked responses. KLASSIO retrieves the 3 most similar
           exemplars when marking a student essay and uses them to calibrate band decisions.
         </p>
       </div>

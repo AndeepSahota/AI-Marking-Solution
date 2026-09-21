@@ -52,10 +52,9 @@ export async function getLessonQuestions(lessonId) {
 //   { type: 'ocr_page', index, totalPages }
 //   { type: 'done', data: { id, class_id, class_name, paper_type, questions } }
 //   { type: 'error', message, detail, code, status }
-export async function createLesson(classId, question, markSchemeFile, onEvent = () => {}) {
+export async function createLesson(classId, markSchemeFile, onEvent = () => {}) {
     const formData = new FormData()
     formData.append('classId', classId)
-    formData.append('question', question)
     formData.append('markScheme', markSchemeFile)
 
     const response = await fetch(`${API_BASE}/lessons`, {
@@ -97,6 +96,22 @@ export async function createLesson(classId, question, markSchemeFile, onEvent = 
 
     if (!result) throw new Error('Lesson creation did not complete')
     return result
+}
+
+// Clones a previous lesson's already-extracted mark scheme into a new lesson
+// for the given class — no re-OCR. Returns the same shape createLesson's
+// streamed 'done' event does, so callers can branch on has_multiple_questions
+// identically either way.
+export async function reuseMarkScheme(sourceLessonId, classId) {
+    const response = await fetch(`${API_BASE}/lessons/${sourceLessonId}/reuse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ classId }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Failed to reuse mark scheme')
+    return data
 }
 
 export async function createClass(className, students) {

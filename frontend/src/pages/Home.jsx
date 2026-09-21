@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getClasses, getLessons, createLesson } from '../services/api'
-
-// "Previous mark schemes" / "Previous marking sessions" — kept but disabled.
-// Andeep's version removed this feature entirely; we're retaining the code
-// rather than deleting it, to be properly reworked and re-enabled later.
-const SHOW_LESSON_HISTORY = false
+import { getClasses, getLessons, createLesson, reuseMarkScheme } from '../services/api'
 
 const PROGRESS = {
   security_pass:  10,
@@ -23,26 +18,46 @@ const PROGRESS_LABELS = {
   done:           'Done',
 }
 
-const PlusIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <line x1="12" y1="5" x2="12" y2="19" />
-    <line x1="5" y1="12" x2="19" y2="12" />
+const DocumentIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="16" y2="17" />
   </svg>
 )
 
-function CollapsiblePanel({ title, isOpen, onToggle, children }) {
+const HistoryIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <polyline points="12 7 12 12 16 14" />
+  </svg>
+)
+
+const ChevronIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 6 15 12 9 18" />
+  </svg>
+)
+
+function SidebarNavItem({ icon, label, isExpanded, onToggle, items, emptyLabel, renderItem }) {
   return (
-    <div className="home-panel">
-      <button className="home-panel-header" type="button" onClick={onToggle}>
-        <span className="home-panel-title">{title}</span>
-        <span className={`home-panel-icon${isOpen ? ' is-open' : ''}`}>
-          <PlusIcon />
+    <div>
+      <button
+        type="button"
+        className={`home-navitem-head${isExpanded ? ' is-expanded' : ''}`}
+        onClick={onToggle}
+      >
+        <span className="home-navitem-icon">{icon}</span>
+        <span className="home-navitem-label">{label}</span>
+        <span className={`home-navitem-chevron${isExpanded ? ' is-expanded' : ''}`}>
+          <ChevronIcon />
         </span>
       </button>
-      <div className={`home-panel-body${isOpen ? ' is-open' : ''}`}>
-        <div className="home-panel-cards">
-          {children}
-        </div>
+      <div className={`home-navitem-body${isExpanded ? ' is-expanded' : ''}`}>
+        {items.length === 0
+          ? <p className="home-navitem-empty">{emptyLabel}</p>
+          : items.map(renderItem)}
       </div>
     </div>
   )
@@ -51,12 +66,11 @@ function CollapsiblePanel({ title, isOpen, onToggle, children }) {
 function Home() {
   const [classes, setClasses]               = useState([])
   const [selectedClassId, setSelectedClassId] = useState('')
-  const [question, setQuestion]             = useState('')
   const [markScheme, setMarkScheme]         = useState(null)
   const [lessons, setLessons]               = useState([])
   const [selectedLesson, setSelectedLesson] = useState(null)
-  const [panel1Open, setPanel1Open]         = useState(false)
-  const [panel2Open, setPanel2Open]         = useState(false)
+  const [schemesExpanded, setSchemesExpanded]   = useState(false)
+  const [sessionsExpanded, setSessionsExpanded] = useState(false)
   const [loading, setLoading]               = useState(false)
   const [progress, setProgress]             = useState(0)
   const [progressLabel, setProgressLabel]   = useState('')
@@ -68,7 +82,7 @@ function Home() {
 
   useEffect(() => {
     getClasses().then(setClasses).catch(() => {})
-    if (SHOW_LESSON_HISTORY) getLessons().then(setLessons).catch(() => {})
+    getLessons().then(setLessons).catch(() => {})
   }, [])
 
   const handleFileChange = (e) => {
@@ -121,15 +135,31 @@ function Home() {
     if (!selectedClassId)               return setError('Please select a class before continuing.')
     if (!markScheme && !selectedLesson) return setError('Please upload a mark scheme or select a previous one.')
 
-    if (selectedLesson) {
-      navigate(`/student-marking/${selectedLesson.id}`)
-      return
-    }
-
     setLoading(true)
     setError(null)
     setSchemeWarnings(null)
     setPendingResult(null)
+
+    // Reusing a previous mark scheme skips OCR entirely — it's a DB clone —
+    // so it must still be bound to whichever class is currently selected,
+    // rather than the class the source lesson originally belonged to.
+    if (selectedLesson) {
+      setProgressLabel('Reusing mark scheme…')
+      try {
+        const result = await reuseMarkScheme(selectedLesson.id, selectedClassId)
+        setLoading(false)
+        if (result.has_multiple_questions) {
+          navigate(`/select-question/${result.id}`)
+        } else {
+          navigate(`/student-marking/${result.id}`)
+        }
+      } catch (err) {
+        setError(err.message)
+        setLoading(false)
+      }
+      return
+    }
+
     setProgress(0)
     setProgressLabel('Running security checks…')
 
@@ -138,7 +168,6 @@ function Home() {
     try {
       const result = await createLesson(
         selectedClassId,
-        question.trim(),
         markScheme,
         (event) => handleProgressEvent(event, totalPagesRef, warningsRef)
       )
@@ -170,10 +199,55 @@ function Home() {
 
   return (
     <div className="home-page">
-      <div className="home-grid">
+      <div className="home-shell">
 
-        {/* ── Left column ── */}
-        <div className="home-left-col">
+        {/* ── Sidebar nav rail ── */}
+        <aside className="home-sidebar">
+          <SidebarNavItem
+            icon={<DocumentIcon />}
+            label="Previous mark schemes"
+            isExpanded={schemesExpanded}
+            onToggle={() => setSchemesExpanded(o => !o)}
+            items={lessons}
+            emptyLabel="No mark schemes yet."
+            renderItem={(l) => (
+              <button
+                key={l.id}
+                type="button"
+                className={`home-navitem-card${selectedLesson?.id === l.id ? ' is-selected' : ''}`}
+                onClick={() => handleSelectLesson(l)}
+              >
+                <span className="home-navitem-card-title">{l.lesson_title}</span>
+                <span className="home-navitem-card-sub">{l.class_name}</span>
+                <span className="home-navitem-card-date">{formatDate(l.created_at)}</span>
+              </button>
+            )}
+          />
+
+          <SidebarNavItem
+            icon={<HistoryIcon />}
+            label="Previous marking sessions"
+            isExpanded={sessionsExpanded}
+            onToggle={() => setSessionsExpanded(o => !o)}
+            items={lessons}
+            emptyLabel="No marking sessions yet."
+            renderItem={(l) => (
+              <button
+                key={l.id}
+                type="button"
+                className="home-navitem-card"
+                onClick={() => navigate(`/student-feedback/${l.id}`)}
+              >
+                <span className="home-navitem-card-title">{l.lesson_title}</span>
+                <span className="home-navitem-card-sub">{l.class_name}</span>
+                <span className="home-navitem-card-date">{formatDate(l.created_at)}</span>
+              </button>
+            )}
+          />
+        </aside>
+
+        {/* ── Main pane ── */}
+        <main className="home-main">
           <section className="home-marketing">
             <div className="home-eyebrow">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -188,7 +262,7 @@ function Home() {
             </h1>
 
             <p className="home-description">
-              Choose your class, upload the mark scheme, and let AIMIRA's AI do the heavy
+              Choose your class, upload the mark scheme, and let KLASSIO's AI do the heavy
               lifting—so you can focus on what matters most: your students.
             </p>
 
@@ -220,287 +294,195 @@ function Home() {
             </div>
           </section>
 
-          {SHOW_LESSON_HISTORY && lessons.length > 0 && (
-            <>
-              <CollapsiblePanel
-                title="Previous mark schemes"
-                isOpen={panel1Open}
-                onToggle={() => setPanel1Open(o => !o)}
-              >
-                {lessons.map(l => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    className={`home-panel-card${selectedLesson?.id === l.id ? ' is-selected' : ''}`}
-                    onClick={() => handleSelectLesson(l)}
-                  >
-                    <span className="home-panel-card-title">{l.lesson_title}</span>
-                    <span className="home-panel-card-sub">{l.class_name}</span>
-                    <span className="home-panel-card-date">{formatDate(l.created_at)}</span>
-                  </button>
-                ))}
-              </CollapsiblePanel>
-
-              <CollapsiblePanel
-                title="Previous marking sessions"
-                isOpen={panel2Open}
-                onToggle={() => setPanel2Open(o => !o)}
-              >
-                {lessons.map(l => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    className="home-panel-card"
-                    onClick={() => navigate(`/student-marking/${l.id}`)}
-                  >
-                    <span className="home-panel-card-title">{l.lesson_title}</span>
-                    <span className="home-panel-card-sub">{l.class_name}</span>
-                    <span className="home-panel-card-date">{formatDate(l.created_at)}</span>
-                  </button>
-                ))}
-              </CollapsiblePanel>
-            </>
-          )}
-        </div>
-
-        {/* ── Right column — action card ── */}
-        <section className="home-action-card">
-          <div className="home-action-header">
-            <h2 className="home-action-title">Start a new marking session</h2>
-            <span className="home-action-cap">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
-                <path d="M6 12v5c3 3 9 3 12 0v-5" />
-              </svg>
-            </span>
-          </div>
-
-          <div className="home-field">
-            <label className="home-field-label">
-              <span className="home-field-num">1.</span> Choose your class
-            </label>
-            <div className="home-select-wrap">
-              <span className="home-select-icon">
+          <section className="home-action-card">
+            <div className="home-action-header">
+              <h2 className="home-action-title">Start a new marking session</h2>
+              <span className="home-action-cap">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </span>
-              <select
-                className="home-class-select"
-                value={selectedClassId}
-                onChange={e => { setSelectedClassId(e.target.value); setError(null) }}
-              >
-                <option value="">Select a class…</option>
-                {classes.map(cls => (
-                  <option key={cls.id} value={cls.id}>{cls.class_name}</option>
-                ))}
-              </select>
-              <span className="home-select-chevron">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="6 9 12 15 18 9" />
+                  <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+                  <path d="M6 12v5c3 3 9 3 12 0v-5" />
                 </svg>
               </span>
             </div>
-          </div>
 
-          <div className="home-field">
-            <label className="home-field-label">
-              <span className="home-field-num">2.</span> Exam question <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional — extracted from mark scheme if left blank)</span>
-            </label>
-            <textarea
-              className="home-question-input"
-              placeholder="e.g. How does Shakespeare present the theme of ambition in Macbeth? Leave blank to auto-detect from mark scheme."
-              value={question}
-              onChange={e => { setQuestion(e.target.value); setError(null) }}
-              rows={3}
-            />
-          </div>
+            <div className="home-field">
+              <label className="home-field-label">
+                <span className="home-field-num">1.</span> Choose your class
+              </label>
+              <div className="home-select-wrap">
+                <span className="home-select-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </span>
+                <select
+                  className="home-class-select"
+                  value={selectedClassId}
+                  onChange={e => { setSelectedClassId(e.target.value); setError(null) }}
+                >
+                  <option value="">Select a class…</option>
+                  {classes.map(cls => (
+                    <option key={cls.id} value={cls.id}>{cls.class_name}</option>
+                  ))}
+                </select>
+                <span className="home-select-chevron">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </div>
+            </div>
 
-          <div className="home-field">
-            <label className="home-field-label">
-              <span className="home-field-num">3.</span> Upload your mark scheme
-            </label>
-            <div
-              className={`home-drop-zone${markScheme ? ' has-file' : ''}${selectedLesson ? ' is-dimmed' : ''}`}
-              onClick={() => !selectedLesson && fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-              />
-              {markScheme ? (
-                <div className="home-drop-selected">
+            <div className="home-field">
+              <label className="home-field-label">
+                <span className="home-field-num">2.</span> Upload your mark scheme
+              </label>
+              <div
+                className={`home-drop-zone${markScheme ? ' has-file' : ''}${selectedLesson ? ' is-dimmed' : ''}`}
+                onClick={() => !selectedLesson && fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.pdf"
+                  style={{ display: 'none' }}
+                  onChange={handleFileChange}
+                />
+                {markScheme ? (
+                  <div className="home-drop-selected">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span>{markScheme.name}</span>
+                    <button
+                      type="button"
+                      className="home-drop-clear"
+                      onClick={e => { e.stopPropagation(); setMarkScheme(null); fileInputRef.current.value = '' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div className="home-drop-prompt">
+                    <span className="home-drop-cloud">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+                        <polyline points="16 12 12 8 8 12" />
+                        <line x1="12" y1="8" x2="12" y2="16" />
+                      </svg>
+                    </span>
+                    <span className="home-drop-title">Drag &amp; drop your file here</span>
+                    <span className="home-drop-hint">PDF or image · Max 5 MB</span>
+                  </div>
+                )}
+              </div>
+
+              {selectedLesson && (
+                <div className="home-selected-chip">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  <span>{markScheme.name}</span>
+                  <span>Reusing: <strong>{selectedLesson.lesson_title}</strong></span>
                   <button
                     type="button"
-                    className="home-drop-clear"
-                    onClick={e => { e.stopPropagation(); setMarkScheme(null); fileInputRef.current.value = '' }}
+                    className="home-chip-clear"
+                    onClick={() => setSelectedLesson(null)}
                   >
                     ✕
                   </button>
                 </div>
-              ) : (
-                <div className="home-drop-prompt">
-                  <span className="home-drop-cloud">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                      <polyline points="16 12 12 8 8 12" />
-                      <line x1="12" y1="8" x2="12" y2="16" />
-                    </svg>
-                  </span>
-                  <span className="home-drop-title">Drag &amp; drop your file here</span>
-                  <span className="home-drop-hint">PDF or image · Max 5 MB</span>
-                </div>
               )}
             </div>
 
-            {selectedLesson && (
-              <div className="home-selected-chip">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                <span>Using: <strong>{selectedLesson.lesson_title}</strong></span>
-                <button
-                  type="button"
-                  className="home-chip-clear"
-                  onClick={() => setSelectedLesson(null)}
-                >
-                  ✕
-                </button>
+            <div className="home-encryption-hint">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              <span>Your files are encrypted and never shared.</span>
+            </div>
+
+            {error && <p className="home-error">{error}</p>}
+
+            {pendingResult ? (
+              <div className="home-error">
+                <strong>This mark scheme's marks don't quite add up:</strong>
+                <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+                  {schemeWarnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+                <p style={{ margin: '6px 0' }}>
+                  You can continue anyway, or upload a different file and try again.
+                </p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="home-begin-btn"
+                    onClick={() => {
+                      const r = pendingResult
+                      setPendingResult(null)
+                      if (r.has_multiple_questions) navigate(`/select-question/${r.id}`)
+                      else navigate(`/student-marking/${r.id}`)
+                    }}
+                  >
+                    Continue anyway
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingResult(null)
+                      setSchemeWarnings(null)
+                      setMarkScheme(null)
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }}
+                  >
+                    Try a different file
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+            ) : (
+              <>
+                {loading && !selectedLesson && (
+                  <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
+                    <div className="ocr-progress-track">
+                      <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className="ocr-progress-meta">
+                      <span className="ocr-progress-label">{progressLabel}</span>
+                      <span className="ocr-progress-value">{Math.round(progress)}%</span>
+                    </div>
+                  </div>
+                )}
 
-          <div className="home-encryption-hint">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            <span>Your files are encrypted and never shared.</span>
-          </div>
-
-          {error && <p className="home-error">{error}</p>}
-
-          {pendingResult ? (
-            <div className="home-error">
-              <strong>This mark scheme's marks don't quite add up:</strong>
-              <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-                {schemeWarnings.map((w, i) => <li key={i}>{w}</li>)}
-              </ul>
-              <p style={{ margin: '6px 0' }}>
-                You can continue anyway, or upload a different file and try again.
-              </p>
-              <div style={{ display: 'flex', gap: 10 }}>
                 <button
-                  type="button"
                   className="home-begin-btn"
-                  onClick={() => {
-                    const r = pendingResult
-                    setPendingResult(null)
-                    if (r.has_multiple_questions) navigate(`/select-question/${r.id}`)
-                    else navigate(`/student-marking/${r.id}`)
-                  }}
+                  onClick={handleBeginMarking}
+                  disabled={loading}
                 >
-                  Continue anyway
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
+                  </svg>
+                  <span>
+                    {loading
+                      ? (selectedLesson ? 'Reusing mark scheme…' : 'Analysing mark scheme…')
+                      : 'Begin marking'}
+                  </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingResult(null)
-                    setSchemeWarnings(null)
-                    setMarkScheme(null)
-                    if (fileInputRef.current) fileInputRef.current.value = ''
-                  }}
-                >
-                  Try a different file
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {loading && (
-                <div className="ocr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress)}>
-                  <div className="ocr-progress-track">
-                    <div className="ocr-progress-fill" style={{ width: `${progress}%` }} />
-                  </div>
-                  <div className="ocr-progress-meta">
-                    <span className="ocr-progress-label">{progressLabel}</span>
-                    <span className="ocr-progress-value">{Math.round(progress)}%</span>
-                  </div>
-                </div>
-              )}
+              </>
+            )}
+          </section>
 
-              <button
-                className="home-begin-btn"
-                onClick={handleBeginMarking}
-                disabled={loading}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2 L13.5 8.5 L20 10 L13.5 11.5 L12 18 L10.5 11.5 L4 10 L10.5 8.5 Z" />
-                </svg>
-                <span>{loading ? 'Analysing mark scheme…' : 'Begin marking'}</span>
-              </button>
-            </>
-          )}
-        </section>
-      </div>
-
-      <div className="home-process-strip" aria-hidden>
-        <div className="home-process-step">
-          <span className="home-process-badge">1</span>
-          <div className="home-process-body">
-            <h3>Choose class</h3>
-            <p>Select the class you want to mark for.</p>
+          <div className="home-process-track" aria-hidden>
+            <h3 className="home-process-heading home-process-h1">Choose class</h3>
+            <h3 className="home-process-heading home-process-h2">Upload mark scheme</h3>
+            <h3 className="home-process-heading home-process-h3">Review results</h3>
+            <div className="home-process-node home-process-b1"><span className="home-process-badge">1</span></div>
+            <div className="home-process-node home-process-b2"><span className="home-process-badge">2</span></div>
+            <div className="home-process-node home-process-b3"><span className="home-process-badge">3</span></div>
           </div>
-        </div>
-        <span className="home-process-arrow">
-          <svg viewBox="0 0 64 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
-            <line x1="2" y1="8" x2="56" y2="8" />
-            <polyline points="50 2 60 8 50 14" strokeDasharray="0" />
-          </svg>
-        </span>
-        <div className="home-process-step">
-          <span className="home-process-badge">2</span>
-          <div className="home-process-body">
-            <h3>Question (optional)</h3>
-            <p>Auto-detected from the mark scheme, or enter it manually.</p>
-          </div>
-        </div>
-        <span className="home-process-arrow">
-          <svg viewBox="0 0 64 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
-            <line x1="2" y1="8" x2="56" y2="8" />
-            <polyline points="50 2 60 8 50 14" strokeDasharray="0" />
-          </svg>
-        </span>
-        <div className="home-process-step">
-          <span className="home-process-badge">3</span>
-          <div className="home-process-body">
-            <h3>Upload mark scheme</h3>
-            <p>Upload your mark scheme in PDF or image format.</p>
-          </div>
-        </div>
-        <span className="home-process-arrow">
-          <svg viewBox="0 0 64 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="4 4">
-            <line x1="2" y1="8" x2="56" y2="8" />
-            <polyline points="50 2 60 8 50 14" strokeDasharray="0" />
-          </svg>
-        </span>
-        <div className="home-process-step">
-          <span className="home-process-badge">4</span>
-          <div className="home-process-body">
-            <h3>Review results</h3>
-            <p>Instant, consistent marking with clear insights.</p>
-          </div>
-        </div>
+        </main>
       </div>
     </div>
   )
