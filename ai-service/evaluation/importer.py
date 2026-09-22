@@ -170,3 +170,13 @@ def import_production_dataset(
         name=name or f"marking-result-{marking_result_id}",
         input_data=frozen,
     )
+
+
+def import_production_datasets(marking_result_ids: list[int]) -> list[int]:
+    """Bulk-import source results as individual reusable datasets."""
+    imported: list[int] = []
+    for marking_result_id in marking_result_ids:
+        imported.append(
+            import_production_dataset(marking_result_id=marking_result_id)
+        )
+    return imported

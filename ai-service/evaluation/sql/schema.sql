@@ -56,6 +56,50 @@ BEGIN
 END;
 GO
 
+/* Reusable named collections of immutable datasets. */
+IF OBJECT_ID(N'evaluation.batches', N'U') IS NULL
+BEGIN
+    CREATE TABLE evaluation.batches (
+        batch_id    BIGINT         IDENTITY(1,1) NOT NULL,
+        name        NVARCHAR(255)  NOT NULL,
+        description NVARCHAR(MAX)  NULL,
+        batch_hash  CHAR(64)       NOT NULL,
+        created_at  DATETIME2(3)   NOT NULL
+            CONSTRAINT DF_evaluation_batches_created_at DEFAULT SYSUTCDATETIME(),
+        updated_at  DATETIME2(3)   NOT NULL
+            CONSTRAINT DF_evaluation_batches_updated_at DEFAULT SYSUTCDATETIME(),
+
+        CONSTRAINT PK_evaluation_batches PRIMARY KEY (batch_id),
+        CONSTRAINT UQ_evaluation_batches_name UNIQUE (name)
+    );
+END;
+GO
+
+/* Dataset membership stays relational; dataset contents are never copied. */
+IF OBJECT_ID(N'evaluation.batch_datasets', N'U') IS NULL
+BEGIN
+    CREATE TABLE evaluation.batch_datasets (
+        batch_id   BIGINT       NOT NULL,
+        dataset_id BIGINT       NOT NULL,
+        position   INT          NOT NULL,
+        created_at DATETIME2(3) NOT NULL
+            CONSTRAINT DF_evaluation_batch_datasets_created_at
+                DEFAULT SYSUTCDATETIME(),
+
+        CONSTRAINT PK_evaluation_batch_datasets
+            PRIMARY KEY (batch_id, dataset_id),
+        CONSTRAINT UQ_evaluation_batch_datasets_position
+            UNIQUE (batch_id, position),
+        CONSTRAINT FK_evaluation_batch_datasets_batch
+            FOREIGN KEY (batch_id)
+            REFERENCES evaluation.batches(batch_id),
+        CONSTRAINT FK_evaluation_batch_datasets_dataset
+            FOREIGN KEY (dataset_id)
+            REFERENCES evaluation.datasets(dataset_id)
+    );
+END;
+GO
+
 /* Read-only snapshots of prompts integrated in the Python service. */
 IF OBJECT_ID(N'evaluation.prompts', N'U') IS NULL
 BEGIN
@@ -81,13 +125,17 @@ BEGIN
 END;
 GO
 
-/* One repeatable experiment: one target, dataset, prompt and run count. */
+/* One experiment can use one dataset repeatedly or one dataset batch once. */
 IF OBJECT_ID(N'evaluation.evaluations', N'U') IS NULL
 BEGIN
     CREATE TABLE evaluation.evaluations (
         evaluation_id  BIGINT         IDENTITY(1,1) NOT NULL,
         target_id      BIGINT         NOT NULL,
-        dataset_id     BIGINT         NOT NULL,
+        dataset_id     BIGINT         NULL,
+        batch_id       BIGINT         NULL,
+        input_mode     NVARCHAR(20)   NOT NULL
+            CONSTRAINT DF_evaluation_evaluations_input_mode DEFAULT N'single',
+        batch_hash_snapshot CHAR(64)  NULL,
         prompt_id      BIGINT         NOT NULL,
         name           NVARCHAR(255)  NOT NULL,
         status         NVARCHAR(30)   NOT NULL
@@ -105,10 +153,75 @@ BEGIN
         CONSTRAINT FK_evaluation_evaluations_dataset
             FOREIGN KEY (dataset_id)
             REFERENCES evaluation.datasets(dataset_id),
+        CONSTRAINT FK_evaluation_evaluations_batch
+            FOREIGN KEY (batch_id)
+            REFERENCES evaluation.batches(batch_id),
         CONSTRAINT FK_evaluation_evaluations_prompt_target
             FOREIGN KEY (target_id, prompt_id)
-            REFERENCES evaluation.prompts(target_id, prompt_id)
+            REFERENCES evaluation.prompts(target_id, prompt_id),
+        CONSTRAINT CK_evaluation_evaluations_input
+            CHECK (
+                (input_mode = N'single' AND dataset_id IS NOT NULL AND batch_id IS NULL)
+                OR
+                (input_mode = N'batch' AND dataset_id IS NULL AND batch_id IS NOT NULL)
+            )
     );
+END;
+GO
+
+/* Add batch-aware columns to existing testing databases without losing runs. */
+IF COL_LENGTH(N'evaluation.evaluations', N'batch_id') IS NULL
+    ALTER TABLE evaluation.evaluations ADD batch_id BIGINT NULL;
+GO
+
+IF COL_LENGTH(N'evaluation.evaluations', N'input_mode') IS NULL
+BEGIN
+    ALTER TABLE evaluation.evaluations
+        ADD input_mode NVARCHAR(20) NOT NULL
+            CONSTRAINT DF_evaluation_evaluations_input_mode DEFAULT N'single';
+END;
+GO
+
+IF COL_LENGTH(N'evaluation.evaluations', N'batch_hash_snapshot') IS NULL
+    ALTER TABLE evaluation.evaluations ADD batch_hash_snapshot CHAR(64) NULL;
+GO
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'evaluation.evaluations')
+      AND name = N'dataset_id'
+      AND is_nullable = 0
+)
+    ALTER TABLE evaluation.evaluations ALTER COLUMN dataset_id BIGINT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE name = N'FK_evaluation_evaluations_batch'
+      AND parent_object_id = OBJECT_ID(N'evaluation.evaluations')
+)
+BEGIN
+    ALTER TABLE evaluation.evaluations
+        ADD CONSTRAINT FK_evaluation_evaluations_batch
+            FOREIGN KEY (batch_id)
+            REFERENCES evaluation.batches(batch_id);
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.check_constraints
+    WHERE name = N'CK_evaluation_evaluations_input'
+      AND parent_object_id = OBJECT_ID(N'evaluation.evaluations')
+)
+BEGIN
+    ALTER TABLE evaluation.evaluations
+        ADD CONSTRAINT CK_evaluation_evaluations_input
+            CHECK (
+                (input_mode = N'single' AND dataset_id IS NOT NULL AND batch_id IS NULL)
+                OR
+                (input_mode = N'batch' AND dataset_id IS NULL AND batch_id IS NOT NULL)
+            );
 END;
 GO
 
@@ -186,6 +299,7 @@ BEGIN
     CREATE TABLE evaluation.results (
         result_id         BIGINT         IDENTITY(1,1) NOT NULL,
         evaluation_id     BIGINT         NOT NULL,
+        dataset_id        BIGINT         NOT NULL,
         run_number        INT            NOT NULL,
         status            NVARCHAR(30)   NOT NULL,
         actual_result_json NVARCHAR(MAX) NULL,
@@ -197,9 +311,58 @@ BEGIN
         CONSTRAINT PK_evaluation_results PRIMARY KEY (result_id),
         CONSTRAINT FK_evaluation_results_evaluation FOREIGN KEY (evaluation_id)
             REFERENCES evaluation.evaluations(evaluation_id),
+        CONSTRAINT FK_evaluation_results_dataset FOREIGN KEY (dataset_id)
+            REFERENCES evaluation.datasets(dataset_id),
         CONSTRAINT UQ_evaluation_results_evaluation_run
             UNIQUE (evaluation_id, run_number)
     );
+END;
+GO
+
+/* Backfill the dataset responsible for every historical result. */
+IF COL_LENGTH(N'evaluation.results', N'dataset_id') IS NULL
+    ALTER TABLE evaluation.results ADD dataset_id BIGINT NULL;
+GO
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'evaluation.results')
+      AND name = N'dataset_id'
+      AND is_nullable = 1
+)
+BEGIN
+    UPDATE r
+    SET dataset_id = e.dataset_id
+    FROM evaluation.results AS r
+    JOIN evaluation.evaluations AS e ON e.evaluation_id = r.evaluation_id
+    WHERE r.dataset_id IS NULL;
+END;
+GO
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'evaluation.results')
+      AND name = N'dataset_id'
+      AND is_nullable = 1
+)
+AND NOT EXISTS (
+    SELECT 1 FROM evaluation.results WHERE dataset_id IS NULL
+)
+    ALTER TABLE evaluation.results ALTER COLUMN dataset_id BIGINT NOT NULL;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE name = N'FK_evaluation_results_dataset'
+      AND parent_object_id = OBJECT_ID(N'evaluation.results')
+)
+BEGIN
+    ALTER TABLE evaluation.results
+        ADD CONSTRAINT FK_evaluation_results_dataset
+            FOREIGN KEY (dataset_id)
+            REFERENCES evaluation.datasets(dataset_id);
 END;
 GO
 
@@ -223,6 +386,18 @@ BEGIN
             REFERENCES evaluation.results(result_id),
         CONSTRAINT UQ_evaluation_performance_result UNIQUE (result_id)
     );
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'evaluation.results')
+      AND name = N'IX_evaluation_results_dataset'
+)
+BEGIN
+    CREATE INDEX IX_evaluation_results_dataset
+        ON evaluation.results(dataset_id, evaluation_id);
 END;
 GO
 

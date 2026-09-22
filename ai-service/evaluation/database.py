@@ -242,6 +242,309 @@ def get_dataset(dataset_id: int) -> dict[str, Any]:
         connection.close()
 
 
+def _normalised_dataset_ids(dataset_ids: list[int]) -> list[int]:
+    normalised = [int(dataset_id) for dataset_id in dataset_ids]
+    if not normalised:
+        raise EvaluationDatabaseError("A batch must contain at least one dataset")
+    if len(normalised) != len(set(normalised)):
+        raise EvaluationDatabaseError("A batch cannot contain a dataset more than once")
+    return normalised
+
+
+def _validate_dataset_ids(cursor, dataset_ids: list[int]) -> None:
+    placeholders = ", ".join(["%s"] * len(dataset_ids))
+    cursor.execute(
+        f"SELECT dataset_id FROM evaluation.datasets "
+        f"WHERE dataset_id IN ({placeholders})",
+        tuple(dataset_ids),
+    )
+    found = {int(row["dataset_id"]) for row in cursor.fetchall()}
+    missing = [dataset_id for dataset_id in dataset_ids if dataset_id not in found]
+    if missing:
+        joined = ", ".join(str(dataset_id) for dataset_id in missing)
+        raise EvaluationDatabaseError(f"Datasets were not found: {joined}")
+
+
+def _refresh_batch_hash(cursor, batch_id: int) -> str:
+    cursor.execute(
+        """
+        SELECT bd.dataset_id, d.dataset_hash
+        FROM evaluation.batch_datasets AS bd
+        JOIN evaluation.datasets AS d ON d.dataset_id = bd.dataset_id
+        WHERE bd.batch_id = %s
+        ORDER BY bd.position
+        """,
+        (batch_id,),
+    )
+    members = [
+        {
+            "dataset_id": int(row["dataset_id"]),
+            "dataset_hash": row["dataset_hash"],
+        }
+        for row in cursor.fetchall()
+    ]
+    if not members:
+        raise EvaluationDatabaseError("A batch must contain at least one dataset")
+    batch_hash = hash_json(members)
+    cursor.execute(
+        """
+        UPDATE evaluation.batches
+        SET batch_hash = %s,
+            updated_at = SYSUTCDATETIME()
+        WHERE batch_id = %s
+        """,
+        (batch_hash, batch_id),
+    )
+    return batch_hash
+
+
+def create_batch(
+    *,
+    name: str,
+    dataset_ids: list[int],
+    description: str | None = None,
+) -> int:
+    """Create a named, reusable collection of existing datasets."""
+    dataset_ids = _normalised_dataset_ids(dataset_ids)
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        _validate_dataset_ids(cursor, dataset_ids)
+        cursor.execute(
+            """
+            INSERT INTO evaluation.batches (
+                name, description, batch_hash
+            )
+            OUTPUT INSERTED.batch_id
+            VALUES (%s, %s, %s)
+            """,
+            (name, description, hash_json([])),
+        )
+        batch_id = int(_one(cursor, "Batch insert returned no ID")["batch_id"])
+        for position, dataset_id in enumerate(dataset_ids, 1):
+            cursor.execute(
+                """
+                INSERT INTO evaluation.batch_datasets (
+                    batch_id, dataset_id, position
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (batch_id, dataset_id, position),
+            )
+        _refresh_batch_hash(cursor, batch_id)
+        connection.commit()
+        return batch_id
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def list_batches() -> list[dict[str, Any]]:
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT b.batch_id, b.name, b.description, b.batch_hash,
+                   b.created_at, b.updated_at,
+                   COUNT(bd.dataset_id) AS dataset_count
+            FROM evaluation.batches AS b
+            LEFT JOIN evaluation.batch_datasets AS bd
+                ON bd.batch_id = b.batch_id
+            GROUP BY b.batch_id, b.name, b.description, b.batch_hash,
+                     b.created_at, b.updated_at
+            ORDER BY b.batch_id
+            """
+        )
+        rows = list(cursor.fetchall())
+        for row in rows:
+            row["dataset_count"] = int(row["dataset_count"])
+        return rows
+    finally:
+        connection.close()
+
+
+def get_batch(batch_id: int) -> dict[str, Any]:
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT batch_id, name, description, batch_hash,
+                   created_at, updated_at
+            FROM evaluation.batches
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        )
+        batch = _one(cursor, f"Batch {batch_id} was not found")
+        cursor.execute(
+            """
+            SELECT bd.position, d.dataset_id, d.name, d.version,
+                   d.dataset_hash, d.input_data_json, d.created_at
+            FROM evaluation.batch_datasets AS bd
+            JOIN evaluation.datasets AS d ON d.dataset_id = bd.dataset_id
+            WHERE bd.batch_id = %s
+            ORDER BY bd.position
+            """,
+            (batch_id,),
+        )
+        datasets = list(cursor.fetchall())
+        for dataset in datasets:
+            try:
+                dataset["input_data"] = json.loads(dataset.pop("input_data_json"))
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise EvaluationDatabaseError(
+                    f"Dataset {dataset['dataset_id']} contains invalid input JSON"
+                ) from exc
+        batch["datasets"] = datasets
+        batch["dataset_count"] = len(datasets)
+        return batch
+    finally:
+        connection.close()
+
+
+def update_batch(
+    batch_id: int,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> None:
+    if name is None and description is None:
+        return
+    assignments: list[str] = []
+    values: list[Any] = []
+    if name is not None:
+        assignments.append("name = %s")
+        values.append(name)
+    if description is not None:
+        assignments.append("description = %s")
+        values.append(description or None)
+    assignments.append("updated_at = SYSUTCDATETIME()")
+    values.append(batch_id)
+
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            f"UPDATE evaluation.batches SET {', '.join(assignments)} "
+            "WHERE batch_id = %s",
+            tuple(values),
+        )
+        if cursor.rowcount != 1:
+            raise EvaluationDatabaseError(f"Batch {batch_id} was not found")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def add_batch_datasets(batch_id: int, dataset_ids: list[int]) -> None:
+    dataset_ids = _normalised_dataset_ids(dataset_ids)
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT batch_id FROM evaluation.batches WHERE batch_id = %s",
+            (batch_id,),
+        )
+        _one(cursor, f"Batch {batch_id} was not found")
+        _validate_dataset_ids(cursor, dataset_ids)
+        placeholders = ", ".join(["%s"] * len(dataset_ids))
+        cursor.execute(
+            f"""
+            SELECT dataset_id
+            FROM evaluation.batch_datasets
+            WHERE batch_id = %s AND dataset_id IN ({placeholders})
+            """,
+            (batch_id, *dataset_ids),
+        )
+        duplicates = [int(row["dataset_id"]) for row in cursor.fetchall()]
+        if duplicates:
+            joined = ", ".join(str(dataset_id) for dataset_id in duplicates)
+            raise EvaluationDatabaseError(
+                f"Datasets already belong to batch {batch_id}: {joined}"
+            )
+        cursor.execute(
+            """
+            SELECT COALESCE(MAX(position), 0) AS last_position
+            FROM evaluation.batch_datasets
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        )
+        position = int(_one(cursor, "Could not read batch position")["last_position"])
+        for dataset_id in dataset_ids:
+            position += 1
+            cursor.execute(
+                """
+                INSERT INTO evaluation.batch_datasets (
+                    batch_id, dataset_id, position
+                )
+                VALUES (%s, %s, %s)
+                """,
+                (batch_id, dataset_id, position),
+            )
+        _refresh_batch_hash(cursor, batch_id)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def remove_batch_datasets(batch_id: int, dataset_ids: list[int]) -> None:
+    dataset_ids = _normalised_dataset_ids(dataset_ids)
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) AS dataset_count FROM evaluation.batch_datasets "
+            "WHERE batch_id = %s",
+            (batch_id,),
+        )
+        current_count = int(_one(cursor, "Could not read batch")["dataset_count"])
+        if current_count == 0:
+            raise EvaluationDatabaseError(f"Batch {batch_id} was not found or is empty")
+        placeholders = ", ".join(["%s"] * len(dataset_ids))
+        cursor.execute(
+            f"""
+            SELECT dataset_id
+            FROM evaluation.batch_datasets
+            WHERE batch_id = %s AND dataset_id IN ({placeholders})
+            """,
+            (batch_id, *dataset_ids),
+        )
+        found = {int(row["dataset_id"]) for row in cursor.fetchall()}
+        missing = [dataset_id for dataset_id in dataset_ids if dataset_id not in found]
+        if missing:
+            joined = ", ".join(str(dataset_id) for dataset_id in missing)
+            raise EvaluationDatabaseError(
+                f"Datasets are not members of batch {batch_id}: {joined}"
+            )
+        if current_count - len(dataset_ids) < 1:
+            raise EvaluationDatabaseError("A batch must retain at least one dataset")
+        cursor.execute(
+            f"""
+            DELETE FROM evaluation.batch_datasets
+            WHERE batch_id = %s AND dataset_id IN ({placeholders})
+            """,
+            (batch_id, *dataset_ids),
+        )
+        _refresh_batch_hash(cursor, batch_id)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def save_prompt_snapshot(
     *,
     target_id: int,
@@ -298,28 +601,40 @@ def save_prompt_snapshot(
 def create_evaluation(
     *,
     target_id: int,
-    dataset_id: int,
+    dataset_id: int | None = None,
+    batch_id: int | None = None,
+    batch_hash_snapshot: str | None = None,
     prompt_id: int,
     name: str,
     requested_runs: int,
     model_requested: str,
     temperature: float,
 ) -> int:
+    if (dataset_id is None) == (batch_id is None):
+        raise ValueError("An evaluation requires exactly one dataset or one batch")
+    input_mode = "batch" if batch_id is not None else "single"
     connection = get_connection()
     try:
         cursor = connection.cursor()
         cursor.execute(
             """
             INSERT INTO evaluation.evaluations (
-                target_id, dataset_id, prompt_id, name, status,
+                target_id, dataset_id, batch_id, input_mode,
+                batch_hash_snapshot, prompt_id, name, status,
                 requested_runs, model_requested, temperature, started_at
             )
             OUTPUT INSERTED.evaluation_id
-            VALUES (%s, %s, %s, %s, N'running', %s, %s, %s, SYSUTCDATETIME())
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s, N'running',
+                %s, %s, %s, SYSUTCDATETIME()
+            )
             """,
             (
                 target_id,
                 dataset_id,
+                batch_id,
+                input_mode,
+                batch_hash_snapshot,
                 prompt_id,
                 name,
                 requested_runs,
@@ -342,6 +657,7 @@ def create_evaluation(
 def save_result(
     *,
     evaluation_id: int,
+    dataset_id: int,
     run_number: int,
     status: str,
     actual_result: dict[str, Any] | None,
@@ -354,13 +670,20 @@ def save_result(
         cursor.execute(
             """
             INSERT INTO evaluation.results (
-                evaluation_id, run_number, status, actual_result_json,
+                evaluation_id, dataset_id, run_number, status, actual_result_json,
                 comparison_json, error_message
             )
             OUTPUT INSERTED.result_id
-            VALUES (%s, %s, %s, %s, NULL, %s)
+            VALUES (%s, %s, %s, %s, %s, NULL, %s)
             """,
-            (evaluation_id, run_number, status, result_json, error_message),
+            (
+                evaluation_id,
+                dataset_id,
+                run_number,
+                status,
+                result_json,
+                error_message,
+            ),
         )
         result_id = int(_one(cursor, "Result insert returned no ID")["result_id"])
         connection.commit()
@@ -438,10 +761,13 @@ def get_evaluation(evaluation_id: int) -> dict[str, Any]:
             SELECT e.evaluation_id, e.name, e.status, e.requested_runs,
                    e.model_requested, e.temperature, e.started_at,
                    e.completed_at, e.target_id, t.name AS target_name,
-                   e.dataset_id, d.name AS dataset_name, e.prompt_id
+                   e.input_mode, e.dataset_id, d.name AS dataset_name,
+                   e.batch_id, b.name AS batch_name,
+                   e.batch_hash_snapshot, e.prompt_id
             FROM evaluation.evaluations AS e
             JOIN evaluation.targets AS t ON t.target_id = e.target_id
-            JOIN evaluation.datasets AS d ON d.dataset_id = e.dataset_id
+            LEFT JOIN evaluation.datasets AS d ON d.dataset_id = e.dataset_id
+            LEFT JOIN evaluation.batches AS b ON b.batch_id = e.batch_id
             WHERE e.evaluation_id = %s
             """,
             (evaluation_id,),
@@ -525,11 +851,13 @@ def get_target_dashboard(target_id: int) -> dict[str, Any]:
             """
             SELECT e.evaluation_id, e.name, e.status, e.requested_runs,
                    e.model_requested, e.temperature, e.started_at,
-                   e.completed_at, e.created_at, e.dataset_id,
+                   e.completed_at, e.created_at, e.input_mode, e.dataset_id,
                    d.name AS dataset_name, d.version AS dataset_version,
-                   d.dataset_hash, e.prompt_id
+                   d.dataset_hash, e.batch_id, b.name AS batch_name,
+                   e.batch_hash_snapshot, e.prompt_id
             FROM evaluation.evaluations AS e
-            JOIN evaluation.datasets AS d ON d.dataset_id = e.dataset_id
+            LEFT JOIN evaluation.datasets AS d ON d.dataset_id = e.dataset_id
+            LEFT JOIN evaluation.batches AS b ON b.batch_id = e.batch_id
             WHERE e.target_id = %s
             ORDER BY e.created_at DESC, e.evaluation_id DESC
             """,
@@ -546,7 +874,9 @@ def get_target_dashboard(target_id: int) -> dict[str, Any]:
         if evaluations:
             cursor.execute(
                 """
-                SELECT r.result_id, r.evaluation_id, r.run_number,
+                SELECT r.result_id, r.evaluation_id, r.dataset_id,
+                       d.name AS dataset_name, d.version AS dataset_version,
+                       r.run_number,
                        r.status, r.actual_result_json, r.error_message,
                        r.created_at,
                        p.performance_id, p.model_returned, p.finish_reason,
@@ -555,6 +885,8 @@ def get_target_dashboard(target_id: int) -> dict[str, Any]:
                 FROM evaluation.results AS r
                 JOIN evaluation.evaluations AS e
                     ON e.evaluation_id = r.evaluation_id
+                JOIN evaluation.datasets AS d
+                    ON d.dataset_id = r.dataset_id
                 LEFT JOIN evaluation.performance AS p
                     ON p.result_id = r.result_id
                 WHERE e.target_id = %s
@@ -568,6 +900,9 @@ def get_target_dashboard(target_id: int) -> dict[str, Any]:
                     continue
                 result = {
                     "result_id": row["result_id"],
+                    "dataset_id": row["dataset_id"],
+                    "dataset_name": row["dataset_name"],
+                    "dataset_version": row["dataset_version"],
                     "run_number": row["run_number"],
                     "status": row["status"],
                     "actual_result": _decoded_result_json(

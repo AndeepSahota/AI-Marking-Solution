@@ -8,7 +8,7 @@ import sys
 from typing import Any
 
 from evaluation import database, importer
-from evaluation.orchestrator import run_evaluation
+from evaluation.orchestrator import run_batch_evaluation, run_evaluation
 from evaluation.runners import available_runners
 
 
@@ -32,6 +32,19 @@ def _required_text(value: str | None, prompt: str) -> str:
     if not selected:
         raise ValueError(f"{prompt.rstrip(': ')} is required")
     return selected
+
+
+def _id_list(value: str) -> list[int]:
+    parts = [part for part in re.split(r"[\s,]+", value.strip()) if part]
+    if not parts:
+        raise argparse.ArgumentTypeError("at least one ID is required")
+    try:
+        parsed = [_positive_int(part) for part in parts]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("IDs must be positive integers") from exc
+    if len(parsed) != len(set(parsed)):
+        raise argparse.ArgumentTypeError("IDs cannot be repeated")
+    return parsed
 
 
 def _select_row(
@@ -72,6 +85,17 @@ def _dataset_from_args(dataset_id: int | None) -> dict[str, Any]:
         id_field="dataset_id",
         heading="Datasets",
         describe=lambda row: f"{row['name']} v{row['version']}",
+    )
+
+
+def _batch_from_args(batch_id: int | None) -> dict[str, Any]:
+    if batch_id is not None:
+        return database.get_batch(batch_id)
+    return _select_row(
+        database.list_batches(),
+        id_field="batch_id",
+        heading="Batches",
+        describe=lambda row: f"{row['name']} ({row['dataset_count']} datasets)",
     )
 
 
@@ -120,10 +144,44 @@ def _print_datasets() -> None:
         )
 
 
+def _print_batches() -> None:
+    rows = database.list_batches()
+    if not rows:
+        print("No dataset batches have been created.")
+        return
+    print("ID  Datasets  Name")
+    for row in rows:
+        print(
+            f"{row['batch_id']:<3} "
+            f"{row['dataset_count']:<9} "
+            f"{row['name']}"
+        )
+
+
+def _print_batch(batch: dict[str, Any]) -> None:
+    print(f"Batch: {batch['batch_id']} — {batch['name']}")
+    print(f"Datasets: {batch['dataset_count']}")
+    if batch.get("description"):
+        print(f"Description: {batch['description']}")
+    print("ID  Position  Version  Name")
+    for dataset in batch["datasets"]:
+        print(
+            f"{dataset['dataset_id']:<3} "
+            f"{dataset['position']:<9} "
+            f"{dataset['version']:<8} "
+            f"{dataset['name']}"
+        )
+
+
 def _progress(event: dict[str, Any]) -> None:
+    dataset = ""
+    if event.get("dataset_id") is not None:
+        dataset = f" dataset #{event['dataset_id']}"
+        if event.get("dataset_name"):
+            dataset += f" ({event['dataset_name']})"
     line = (
         f"Run {event['run_number']}/{event['requested_runs']}: "
-        f"{event['status']} ({event['duration_ms']} ms)"
+        f"{event['status']}{dataset} ({event['duration_ms']} ms)"
     )
     if event.get("error"):
         line += f" — {event['error']}"
@@ -156,11 +214,45 @@ def _build_parser() -> argparse.ArgumentParser:
     dataset_import.add_argument("--marking-result", type=_positive_int)
     dataset_import.add_argument("--name")
 
+    batch = commands.add_parser("batch", help="Manage reusable dataset batches")
+    batch_commands = batch.add_subparsers(dest="batch_command", required=True)
+    batch_commands.add_parser("list", help="List dataset batches")
+    batch_show = batch_commands.add_parser("show", help="Show one dataset batch")
+    batch_show.add_argument("batch_id", type=_positive_int)
+    batch_create = batch_commands.add_parser("create", help="Create a dataset batch")
+    batch_create.add_argument("--name")
+    batch_create.add_argument("--description")
+    batch_create.add_argument(
+        "--datasets",
+        type=_id_list,
+        help="Comma-separated existing dataset IDs",
+    )
+    batch_create.add_argument(
+        "--marking-results",
+        type=_id_list,
+        help="Comma-separated production marking-result IDs to import",
+    )
+    batch_edit = batch_commands.add_parser("edit", help="Edit a dataset batch")
+    batch_edit.add_argument("batch_id", type=_positive_int)
+    batch_edit.add_argument("--name")
+    batch_edit.add_argument("--description")
+    batch_edit.add_argument("--add-datasets", type=_id_list)
+    batch_edit.add_argument("--add-marking-results", type=_id_list)
+    batch_edit.add_argument("--remove-datasets", type=_id_list)
+
     run = commands.add_parser("run", help="Run an evaluation")
     run.add_argument("--target", type=_positive_int)
     run.add_argument("--dataset", type=_positive_int)
     run.add_argument("--runs", type=_positive_int, default=10)
     run.add_argument("--name")
+
+    run_batch = commands.add_parser(
+        "run-batch",
+        help="Run every dataset in a batch once",
+    )
+    run_batch.add_argument("--target", type=_positive_int)
+    run_batch.add_argument("--batch", type=_positive_int)
+    run_batch.add_argument("--name")
 
     dashboard = commands.add_parser(
         "dashboard",
@@ -210,6 +302,92 @@ def _execute(args: argparse.Namespace) -> None:
         print(f"Reusable dataset {dataset_id} imported and frozen.")
         return
 
+    if args.command == "batch" and args.batch_command == "list":
+        _print_batches()
+        return
+
+    if args.command == "batch" and args.batch_command == "show":
+        _print_batch(database.get_batch(args.batch_id))
+        return
+
+    if args.command == "batch" and args.batch_command == "create":
+        name = _required_text(args.name, "Batch name: ")
+        dataset_ids = list(args.datasets or [])
+        marking_result_ids = args.marking_results
+        if args.datasets is None and args.marking_results is None:
+            existing = input(
+                "Existing dataset IDs (comma-separated, optional): "
+            ).strip()
+            production = input(
+                "Production marking-result IDs (comma-separated, optional): "
+            ).strip()
+            dataset_ids.extend(_id_list(existing) if existing else [])
+            marking_result_ids = _id_list(production) if production else []
+        if marking_result_ids:
+            imported = importer.import_production_datasets(marking_result_ids)
+            dataset_ids.extend(imported)
+            print(f"Imported datasets: {', '.join(map(str, imported))}")
+        batch_id = database.create_batch(
+            name=name,
+            description=args.description,
+            dataset_ids=dataset_ids,
+        )
+        print(f"Dataset batch {batch_id} created with {len(dataset_ids)} datasets.")
+        return
+
+    if args.command == "batch" and args.batch_command == "edit":
+        batch = database.get_batch(args.batch_id)
+        interactive = all(
+            value is None
+            for value in (
+                args.name,
+                args.description,
+                args.add_datasets,
+                args.add_marking_results,
+                args.remove_datasets,
+            )
+        )
+        name = args.name
+        description = args.description
+        add_datasets = list(args.add_datasets or [])
+        add_marking_results = list(args.add_marking_results or [])
+        remove_datasets = list(args.remove_datasets or [])
+        if interactive:
+            _print_batch(batch)
+            name_input = input("New name (blank keeps current): ").strip()
+            description_input = input(
+                "New description (blank keeps current): "
+            ).strip()
+            add_input = input(
+                "Existing dataset IDs to add (comma-separated, optional): "
+            ).strip()
+            import_input = input(
+                "Production marking-result IDs to import and add (optional): "
+            ).strip()
+            remove_input = input(
+                "Dataset IDs to remove (comma-separated, optional): "
+            ).strip()
+            name = name_input or None
+            description = description_input or None
+            add_datasets = _id_list(add_input) if add_input else []
+            add_marking_results = _id_list(import_input) if import_input else []
+            remove_datasets = _id_list(remove_input) if remove_input else []
+        if add_marking_results:
+            imported = importer.import_production_datasets(add_marking_results)
+            add_datasets.extend(imported)
+            print(f"Imported datasets: {', '.join(map(str, imported))}")
+        database.update_batch(
+            args.batch_id,
+            name=name,
+            description=description,
+        )
+        if add_datasets:
+            database.add_batch_datasets(args.batch_id, add_datasets)
+        if remove_datasets:
+            database.remove_batch_datasets(args.batch_id, remove_datasets)
+        print(f"Dataset batch {args.batch_id} updated.")
+        return
+
     if args.command == "run":
         target = _target_from_args(args.target)
         dataset = _dataset_from_args(args.dataset)
@@ -221,6 +399,26 @@ def _execute(args: argparse.Namespace) -> None:
             target_id=int(target["target_id"]),
             dataset_id=int(dataset["dataset_id"]),
             requested_runs=args.runs,
+            name=args.name,
+            progress=_progress,
+        )
+        print(
+            f"\nEvaluation {result['evaluation_id']} {result['status']}: "
+            f"{result['successful_runs']} successful, "
+            f"{result['failed_runs']} failed."
+        )
+        return
+
+    if args.command == "run-batch":
+        target = _target_from_args(args.target)
+        batch = _batch_from_args(args.batch)
+        print(
+            f"\nRunning {batch['dataset_count']} datasets once each for "
+            f"{target['name']} using batch {batch['name']}..."
+        )
+        result = run_batch_evaluation(
+            target_id=int(target["target_id"]),
+            batch_id=int(batch["batch_id"]),
             name=args.name,
             progress=_progress,
         )
@@ -247,7 +445,10 @@ def _execute(args: argparse.Namespace) -> None:
         print(f"Evaluation: {row['evaluation_id']} — {row['name']}")
         print(f"Status: {row['status']}")
         print(f"Target: {row['target_name']} ({row['target_id']})")
-        print(f"Dataset: {row['dataset_name']} ({row['dataset_id']})")
+        if row["input_mode"] == "batch":
+            print(f"Batch: {row['batch_name']} ({row['batch_id']})")
+        else:
+            print(f"Dataset: {row['dataset_name']} ({row['dataset_id']})")
         print(f"Prompt: {row['prompt_id']}")
         print(f"Requested runs: {row['requested_runs']}")
         print(f"Results: {row['result_counts']}")

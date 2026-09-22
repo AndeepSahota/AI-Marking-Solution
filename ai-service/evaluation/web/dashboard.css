@@ -216,6 +216,135 @@ h1 {
     gap: 8px;
 }
 
+.field-selector {
+    margin-bottom: 20px;
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 13px;
+}
+
+.field-selector-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.field-selector-heading h3 {
+    margin-bottom: 5px;
+    font-size: 1rem;
+}
+
+.field-selector-heading p:last-child {
+    margin-bottom: 0;
+}
+
+.field-selector-controls {
+    margin-top: 16px;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.field-selector-controls label {
+    width: min(560px, 100%);
+}
+
+.field-selector-controls label > span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.field-select {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 36px 8px 11px;
+    color: var(--text);
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: 0.82rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.field-select:focus {
+    outline: 2px solid rgba(255, 157, 46, 0.35);
+    outline-offset: 1px;
+    border-color: var(--accent);
+}
+
+.add-field-button {
+    min-height: 40px;
+    padding: 8px 14px;
+    color: #17120c;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font-weight: 750;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.add-field-button:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.add-field-button:disabled,
+.clear-fields:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.selected-fields {
+    min-height: 28px;
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.field-selector-empty {
+    margin: 0;
+    font-size: 0.78rem;
+}
+
+.field-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 6px 5px 10px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(255, 157, 46, 0.38);
+    border-radius: 999px;
+    font: 0.75rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.field-chip button {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--accent);
+    background: rgba(255, 157, 46, 0.1);
+    border: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.field-chip button:hover {
+    color: var(--text);
+    background: rgba(255, 157, 46, 0.24);
+}
+
 .pill,
 .status {
     display: inline-flex;
@@ -352,6 +481,20 @@ h1 {
     white-space: nowrap;
 }
 
+.dataset-cell {
+    min-width: 190px;
+    white-space: nowrap;
+}
+
+.query-value {
+    min-width: 130px;
+    max-width: 360px;
+    max-height: 9rem;
+    overflow: auto;
+    font: 0.78rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+}
+
 details summary {
     color: var(--accent);
     cursor: pointer;
@@ -412,8 +555,22 @@ details summary {
     }
 
     .target-header,
-    .evaluation-header {
+    .evaluation-header,
+    .field-selector-heading {
         display: block;
+    }
+
+    .field-selector-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .add-field-button {
+        width: 100%;
+    }
+
+    .clear-fields {
+        margin-top: 10px;
     }
 
     .dataset-badge {

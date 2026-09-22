@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from evaluation.dashboard import app as dashboard_app
 from evaluation.database import _decoded_result_json
 from evaluation.importer import build_frozen_dataset
-from evaluation.orchestrator import run_evaluation
+from evaluation.orchestrator import run_batch_evaluation, run_evaluation
 
 
 class DatasetImporterTests(unittest.TestCase):
@@ -152,6 +152,60 @@ class EvaluationOrchestratorTests(unittest.TestCase):
         )
         self.assertEqual(result["successful_runs"], 2)
         self.assertEqual(result["failed_runs"], 1)
+
+    @patch("evaluation.orchestrator.database")
+    @patch("evaluation.orchestrator.get_runner")
+    def test_batch_runs_each_dataset_once_under_one_evaluation(
+        self,
+        get_runner,
+        database,
+    ):
+        datasets = [
+            {
+                "dataset_id": dataset_id,
+                "name": f"Student {dataset_id}",
+                "input_data": {
+                    "selected_scheme": {"question_number": "5"},
+                    "selected_thread_extraction": {"assessment_objectives": {}},
+                },
+            }
+            for dataset_id in (4, 7, 9)
+        ]
+        database.get_target.return_value = self.target
+        database.get_batch.return_value = {
+            "batch_id": 3,
+            "name": "Question 5 cohort",
+            "batch_hash": "abc123",
+            "datasets": datasets,
+        }
+        database.hash_json.return_value = "question-hash"
+        database.save_prompt_snapshot.return_value = 8
+        database.create_evaluation.return_value = 61
+        database.save_result.side_effect = [301, 302, 303]
+        get_runner.return_value = self.runner
+
+        result = run_batch_evaluation(target_id=1, batch_id=3)
+
+        self.assertEqual(self.runner["validate"].call_count, 3)
+        self.assertEqual(self.runner["capture_prompt"].call_count, 1)
+        self.assertEqual(self.runner["execute"].call_count, 3)
+        database.create_evaluation.assert_called_once_with(
+            target_id=1,
+            batch_id=3,
+            batch_hash_snapshot="abc123",
+            prompt_id=8,
+            name="Aggregation: descriptor accuracy — batch Question 5 cohort",
+            requested_runs=3,
+            model_requested="gpt-4o-mini",
+            temperature=0.0,
+        )
+        self.assertEqual(
+            [call.kwargs["dataset_id"] for call in database.save_result.call_args_list],
+            [4, 7, 9],
+        )
+        database.complete_evaluation.assert_called_once_with(61, "complete")
+        self.assertEqual(result["input_mode"], "batch")
+        self.assertEqual(result["dataset_ids"], [4, 7, 9])
 
 
 class EvaluationDashboardTests(unittest.TestCase):
