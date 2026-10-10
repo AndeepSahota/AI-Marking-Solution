@@ -103,7 +103,8 @@ export function sanitizeFinalResult(value) {
         || result.max_score < 1 || result.score < 0 || result.score > result.max_score
         || !text(result.summary)
         || !Array.isArray(result.breakdown) || result.breakdown.length === 0
-        || !Array.isArray(result.evidence)) return invalid
+        || !Array.isArray(result.evidence)
+        || typeof result.teacher_review_required !== 'boolean') return invalid
 
     const breakdown = []
     const sections = new Set()
@@ -160,6 +161,7 @@ export function sanitizeFinalResult(value) {
             maxScoreDelta: result.max_score_delta,
             percentage: Math.round(result.score / result.max_score * 100),
             summary: text(result.summary),
+            teacherReviewRequired: result.teacher_review_required,
             breakdown,
             evidence,
             featuredEvidenceByThread: sanitizeFeaturedEvidenceByThread(

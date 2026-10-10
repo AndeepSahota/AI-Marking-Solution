@@ -17,11 +17,19 @@ from observability.event_log import log_descriptor_validation_comparison
 DESCRIPTOR_LIST_MISMATCH = "descriptor_list_mismatch"
 
 _INLINE_BULLET = re.compile(
-    r"(?:[•▪◦●○*]\s*|(?<!\S)(?:[-–—]|(?:\d+|[A-Za-z])[.)])\s+|(?=\bNB:\s*))"
+    r"(?:[•▪◦●○*]\s*|(?<!\?\s)(?<!\S)[-–—]\s+|(?<!\S)(?:\d+|[A-Za-z])[.)]\s+|(?=\bNB:\s*))"
 )
 _LEADING_BULLET = re.compile(
     r"^\s*(?:[•▪◦●○*]|[-–—]|(?:\d+|[A-Za-z])[.)])\s+"
 )
+# Falls back to sentence boundaries when a band has no bullet markers at all —
+# common in real AQA mark schemes, which often write each band as a short
+# prose paragraph instead of a bulleted list. Deliberately conservative (only
+# splits on ./!/? followed by whitespace and a capital letter or opening
+# parenthesis) since this is a heuristic, not real sentence tokenisation — it
+# will misfire on a genuine abbreviation, but that's rare in this text and
+# preferable to the alternative of never splitting prose bands at all.
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
 
 
 def split_descriptor_bullets(descriptor: str) -> list[str]:
@@ -40,11 +48,40 @@ def split_descriptor_bullets(descriptor: str) -> list[str]:
     if not flattened:
         return []
 
-    return [
+    bullet_points = [
         point.strip()
         for point in _INLINE_BULLET.split(flattened)
         if point.strip()
     ]
+
+    # No bullet markers found at all — the band is written as flowing prose.
+    # Extraction still splits each distinct sentence into its own descriptor
+    # point in that case (see the extraction prompt), so fall back to the
+    # same split here rather than reporting "1 point" against the model's
+    # several; otherwise every prose-style band fails validation outright.
+    if len(bullet_points) <= 1:
+        sentence_points = [
+            point.strip()
+            for point in _SENTENCE_BOUNDARY.split(flattened)
+            if point.strip()
+        ]
+        if len(sentence_points) > 1:
+            return sentence_points
+
+    return bullet_points
+
+
+def _has_bullet_markers(descriptor: str) -> bool:
+    """Whether the source descriptor contains an actual bullet marker.
+
+    Distinguishes a genuinely bulleted/numbered band (where the source itself
+    unambiguously defines point boundaries) from flowing prose (where the
+    sentence-boundary fallback in split_descriptor_bullets is only a guess).
+    """
+    if not isinstance(descriptor, str):
+        return False
+    flattened = " ".join(descriptor.replace("\r\n", "\n").replace("\r", "\n").split())
+    return bool(_INLINE_BULLET.search(flattened))
 
 
 def _normalise_for_comparison(value: str) -> str:
@@ -145,12 +182,27 @@ def validate_descriptor_shapes(
                     _normalise_for_comparison(item)
                     for item in model_list
                 ]
+                # A genuinely bulleted/numbered band has one unambiguous
+                # source-defined split, so the model must match it exactly.
+                # Flowing prose has no single correct split — our own
+                # sentence-boundary guess and the model's are both judgment
+                # calls, and demanding they agree exactly rejects perfectly
+                # good extractions whenever the two guesses land differently
+                # (observed to vary between otherwise-identical calls on the
+                # same file). For prose, defer entirely to the content-
+                # integrity check instead, which verifies the same words
+                # survived without caring where the boundaries fall.
                 shape_matches = (
                     bool(parsed_descriptors)
                     and valid_model_list
-                    and len(parsed_descriptors) == len(model_list)
-                    and normalised_application_descriptors
-                    == normalised_model_descriptors
+                    and (
+                        not _has_bullet_markers(descriptor)
+                        or (
+                            len(parsed_descriptors) == len(model_list)
+                            and normalised_application_descriptors
+                            == normalised_model_descriptors
+                        )
+                    )
                 )
 
                 log_descriptor_validation_comparison(
