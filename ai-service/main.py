@@ -33,6 +33,8 @@ from ocr_service import extract_text_from_file
 from student_ocr_service import extract_student_ocr
 from rag_service import add_exemplar, get_similar, list_exemplars, delete_exemplar
 from security import ms_ocr_sanitisation
+from specialists.orchestrate import mark_ao_with_specialists
+from specialists.resolve import resolve_specialist_final_result
 from validation.descriptor_id_enrichment import add_descriptor_ids
 from validation.descriptor_integrity_validation import (
     validate_descriptor_content_integrity,
@@ -229,6 +231,22 @@ async def mark_with_scheme_text(
     assessment_focus = _assessment_objective_descriptions_from_scheme(scheme_text)
     exemplars       = get_similar(student_text, question_number, n=3)
 
+    # Route AO4-only questions through the independent-specialists marking
+    # architecture instead of the existing aggregation + single-call final
+    # marking. Tested separately against real essays: nearly doubled band
+    # accuracy over the existing pipeline. Scoped to AO4-only because the
+    # specialist code doesn't yet know how to combine across several AOs in
+    # one question -- anything else keeps using the existing pipeline below,
+    # completely untouched by this check.
+    try:
+        _probe_thread_extraction = _json.loads(thread_extraction)
+        use_specialists = (
+            isinstance(_probe_thread_extraction, dict)
+            and set(_probe_thread_extraction.get("assessment_objectives", {})) == {"AO4"}
+        )
+    except (TypeError, _json.JSONDecodeError):
+        use_specialists = False
+
     raw = generate_llm_response(
         # Holistic marking receives the complete selected-question scheme,
         # including its AO descriptions, and derives the task from that rubric.
@@ -240,85 +258,112 @@ async def mark_with_scheme_text(
         exemplars=exemplars or None,
     )
 
-    try:
-        rubric_breakdown = raw.get("rubric_breakdown", [])
-        if not rubric_breakdown:
-            raise ValueError("Aggregation requires an awarded rubric band")
-
-        awarded_band = rubric_breakdown[0].get("awarded_band")
-        if not awarded_band:
-            raise ValueError("Aggregation requires an awarded rubric band")
-        if not assessment_focus:
-            raise ValueError(
-                "Aggregation requires assessment-objective descriptions "
-                "from the selected scheme"
-            )
-
-        selected_thread_extraction = _json.loads(thread_extraction)
-        next_band_threads = get_next_band_threads(
-            awarded_band,
-            selected_thread_extraction,
-        )
-
-        aggregation_mark_scheme = {
-            "awarded_band": awarded_band,
-            "thread_extraction": selected_thread_extraction,
-            "next_band_context": next_band_threads,
-        }
-
-        aggregation_result = generate_aggregation_response(
-            assessment_focus=assessment_focus,
-            student_response=wrapped_student_text,
-            extracted_result=raw,
-            mark_scheme_extraction=aggregation_mark_scheme,
-            expected_token=expected_token,
-        )
-        aggregation = {
-            "status": "complete",
-            "result": aggregation_result,
-        }
-    except (ValueError, TypeError, _json.JSONDecodeError) as e:
+    if use_specialists:
         aggregation = {
             "status": "skipped",
-            "reason": str(e),
+            "reason": "Using specialist marking architecture for AO4",
         }
-    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
-        aggregation = {
-            "status": "failed",
-            "reason": str(e),
-        }
+        try:
+            ao_raw = _probe_thread_extraction["assessment_objectives"]["AO4"]
+            ao = {
+                "ao": "AO4",
+                "marks_available": _probe_thread_extraction.get("marks_available"),
+                "band_marks": ao_raw["band_marks"],
+                "threads": ao_raw["threads"],
+            }
+            scheme = _json.loads(scheme_text)
+            specialist_result = mark_ao_with_specialists(
+                question=scheme.get("description", ""),
+                essay_text=raw_text,
+                ao=ao,
+            )
+            final_result = resolve_specialist_final_result(specialist_result, ao["threads"])
+        except (ValueError, TypeError, KeyError, _json.JSONDecodeError) as e:
+            final_result = {"status": "skipped", "reason": str(e)}
+            print("[FINAL MARKING] Skipped (specialists): required inputs unavailable", flush=True)
+        except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
+            final_result = {"status": "failed", "reason": str(e)}
+            print("[FINAL MARKING] Failed (specialists): result could not be verified", flush=True)
+    else:
+        try:
+            rubric_breakdown = raw.get("rubric_breakdown", [])
+            if not rubric_breakdown:
+                raise ValueError("Aggregation requires an awarded rubric band")
 
-    try:
-        final_context = build_final_marking_context(
-            aggregation, _json.loads(scheme_text), _json.loads(thread_extraction)
-        )
-        final_input, lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(
-            _json.dumps(final_context, ensure_ascii=False)
-        )
-        if lookalikes:
-            log_security_stripped(lookalikes)
-        wrapped_final_input, final_token = ms_ocr_sanitisation.wrap_for_prompt(
-            ms_ocr_sanitisation.sanitize(final_input)
-        )
-        final_result = {
-            "status": "complete",
-            "result": generate_final_marking_response(
-                wrapped_final_input, final_token, final_context
-            ),
-        }
-    except (ValueError, TypeError) as e:
-        final_result = {"status": "skipped", "reason": str(e)}
-        print("[FINAL MARKING] Skipped: required inputs unavailable", flush=True)
-    except FinalMarkingValidationError as e:
-        final_result = {
-            "status": "failed",
-            "reason": str(e),
-            "model_result": e.model_result,
-        }
-        print("[FINAL MARKING] Failed validation; model result retained", flush=True)
-    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
-        final_result = {"status": "failed", "reason": str(e)}
-        print("[FINAL MARKING] Failed: result could not be verified", flush=True)
+            awarded_band = rubric_breakdown[0].get("awarded_band")
+            if not awarded_band:
+                raise ValueError("Aggregation requires an awarded rubric band")
+            if not assessment_focus:
+                raise ValueError(
+                    "Aggregation requires assessment-objective descriptions "
+                    "from the selected scheme"
+                )
+
+            selected_thread_extraction = _json.loads(thread_extraction)
+            next_band_threads = get_next_band_threads(
+                awarded_band,
+                selected_thread_extraction,
+            )
+
+            aggregation_mark_scheme = {
+                "awarded_band": awarded_band,
+                "thread_extraction": selected_thread_extraction,
+                "next_band_context": next_band_threads,
+            }
+
+            aggregation_result = generate_aggregation_response(
+                assessment_focus=assessment_focus,
+                student_response=wrapped_student_text,
+                extracted_result=raw,
+                mark_scheme_extraction=aggregation_mark_scheme,
+                expected_token=expected_token,
+            )
+            aggregation = {
+                "status": "complete",
+                "result": aggregation_result,
+            }
+        except (ValueError, TypeError, _json.JSONDecodeError) as e:
+            aggregation = {
+                "status": "skipped",
+                "reason": str(e),
+            }
+        except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
+            aggregation = {
+                "status": "failed",
+                "reason": str(e),
+            }
+
+        try:
+            final_context = build_final_marking_context(
+                aggregation, _json.loads(scheme_text), _json.loads(thread_extraction)
+            )
+            final_input, lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(
+                _json.dumps(final_context, ensure_ascii=False)
+            )
+            if lookalikes:
+                log_security_stripped(lookalikes)
+            wrapped_final_input, final_token = ms_ocr_sanitisation.wrap_for_prompt(
+                ms_ocr_sanitisation.sanitize(final_input)
+            )
+            final_result = {
+                "status": "complete",
+                "result": generate_final_marking_response(
+                    wrapped_final_input, final_token, final_context
+                ),
+            }
+        except (ValueError, TypeError) as e:
+            final_result = {"status": "skipped", "reason": str(e)}
+            print("[FINAL MARKING] Skipped: required inputs unavailable", flush=True)
+        except FinalMarkingValidationError as e:
+            final_result = {
+                "status": "failed",
+                "reason": str(e),
+                "model_result": e.model_result,
+            }
+            print("[FINAL MARKING] Failed validation; model result retained", flush=True)
+        except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
+            final_result = {"status": "failed", "reason": str(e)}
+            print("[FINAL MARKING] Failed: result could not be verified", flush=True)
 
     return {
         "score":                    raw.get("score", 0),

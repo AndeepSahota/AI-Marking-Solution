@@ -24,6 +24,16 @@ from final_marking.final_prompt import (
     build_final_marking_user_prompt,
 )
 from final_marking.context import reconcile_final_score, resolve_final_marking_result
+from specialists.thread_specialist_prompt import (
+    SYSTEM_PROMPT as THREAD_SPECIALIST_SYSTEM_PROMPT,
+    build_thread_specialist_user_prompt,
+)
+from specialists.thread_b_judgement_prompt import (
+    SYSTEM_PROMPT as JUDGEMENT_SPECIALIST_SYSTEM_PROMPT,
+    build_judgement_specialist_user_prompt,
+)
+from schemas.thread_specialist_result import ThreadSpecialistResult, ThreadStepResult
+from specialists.steps import resolve_level_from_steps
 from schemas.thread_description_result import ThreadDescriptionResult
 from observability.event_log import (
     log_extraction_refusal,
@@ -501,6 +511,140 @@ def generate_aggregation_response(
     return resolved
 
 
+def generate_thread_specialist_response(
+    question,
+    student_response,
+    thread_description,
+    levels,
+    expected_token,
+    include_performance=False,
+):
+    """Judge ONE thread against the real student response directly.
+
+    Deliberately given no visibility into the other threads for this AO, any
+    other specialist's output, or any earlier stage's score -- independence
+    is the entire design, not an oversight. Uses gpt-4o, not gpt-4o-mini:
+    the same model final marking was moved to after testing showed the
+    weaker tier underperformed on this kind of judgement.
+    """
+    user_prompt = build_thread_specialist_user_prompt(
+        question=question,
+        student_response=student_response,
+        thread_description=thread_description,
+        levels=levels,
+    )
+
+    try:
+        response = client.chat.completions.parse(
+            model="gpt-4o",
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": THREAD_SPECIALIST_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ThreadStepResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+    except OpenAIError as e:
+        raise ExtractionError("Thread specialist LLM request failed") from e
+
+    message = response.choices[0].message
+
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No thread specialist result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    verify_token(expected_token, result.delimiter_token)
+
+    raw = result.model_dump(exclude={"delimiter_token"})
+    resolved = resolve_level_from_steps(raw["steps"], levels, student_response)
+    if include_performance:
+        return resolved, _response_performance(response)
+    return resolved
+
+
+def generate_judgement_specialist_response(
+    question,
+    student_response,
+    thread_description,
+    levels,
+    expected_token,
+    temperature=0.0,
+    include_performance=False,
+):
+    """Same job as generate_thread_specialist_response, but for the
+    "assertions and judgements" thread specifically -- uses the checklist
+    + real-exemplar prompt built after diagnosing that this one thread was
+    the overwhelming source of the Level 2 clustering found across 15 real
+    essays (10/15, vs the other two threads' ~33-40%). Same output schema,
+    different system prompt -- nothing downstream needs to know which one
+    produced the result.
+
+    temperature is a parameter (not hardcoded) so the self-consistency
+    wrapper in specialists/consistency.py can request real sample diversity
+    (0.5) for its ensembled calls, while a single direct call still
+    defaults to the deterministic 0.0 used everywhere else in this
+    pipeline.
+    """
+    user_prompt = build_judgement_specialist_user_prompt(
+        question=question,
+        student_response=student_response,
+        thread_description=thread_description,
+        levels=levels,
+    )
+
+    try:
+        response = client.chat.completions.parse(
+            model="gpt-4o",
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": JUDGEMENT_SPECIALIST_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ThreadSpecialistResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+    except OpenAIError as e:
+        raise ExtractionError("Judgement specialist LLM request failed") from e
+
+    message = response.choices[0].message
+
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No judgement specialist result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    verify_token(expected_token, result.delimiter_token)
+
+    resolved = result.model_dump(exclude={"delimiter_token"})
+    if include_performance:
+        return resolved, _response_performance(response)
+    return resolved
+
+
 def generate_final_marking_response(
     delimited_input,
     expected_token,
@@ -510,7 +654,7 @@ def generate_final_marking_response(
     print("[FINAL MARKING] Sending evidence and scheme to the LLM", flush=True)
     try:
         response = client.chat.completions.parse(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             temperature=0.0,
             messages=[
                 {"role": "system", "content": FINAL_MARKING_SYSTEM_PROMPT},

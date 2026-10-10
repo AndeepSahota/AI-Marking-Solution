@@ -1,0 +1,22 @@
+id   lesson  student    real         stage1 (holistic)    stage3 (final)       delta (real->final) 
+---------------------------------------------------------------------------------------------------------
+1    1       Andeep     ? (add id to real_marks.json) 17/15 (Level 2)      skipped/failed       -                   
+2    2       Davin      ? (add id to real_marks.json) 0/15 (1 mark)        skipped/failed       -                   
+3    2       Andeep     ? (add id to real_marks.json) 0/15 (0 marks)       skipped/failed       -                   
+4    2       Jordan     ? (add id to real_marks.json) 0/15 (0 marks)       skipped/failed       -                   
+5    2       Nicole     ? (add id to real_marks.json) 0/15 (1 mark)        skipped/failed       -                   
+6    3       Andeep     ? (add id to real_marks.json) 5/15 (Level 2)       7/15 (Level 3)       -                   
+7    3       Davin      ? (add id to real_marks.json) 8/15 (Level 3)       7/15 (Level 3)       -                   
+8    3       Jordan     ? (add id to real_marks.json) 8/15 (Level 3)       10/15 (Level 4)      -                   
+9    3       Nicole     ? (add id to real_marks.json) 2/15 (Level 1)       7/15 (Level 3)       -                   
+10   3       Taran      ? (add id to real_marks.json) 5/15 (Level 2)       7/15 (Level 3)       -                   
+11   4       Andeep     4/15 (Level 2) 5/15 (Level 2)       8/15 (Level 3)       +4 marks  <-- BAND MISMATCH
+12   4       Davin      3/15 (Level 1) 5/15 (Level 2)       8/15 (Level 3)       +5 marks  <-- BAND MISMATCH
+13   4       Jordan     ? (add id to real_marks.json) 5/15 (Level 2)       8/15 (Level 3)       -                   
+14   4       Nicole     ? (add id to real_marks.json) 8/15 (Level 3)       10/15 (Level 4)      -                   
+15   4       Umar       3/15 (Level 1) 3/15 (Level 1)       8/15 (Level 3)       +5 marks  <-- BAND MISMATCH
+16   4       Taran      8/15 (Level 3) 8/15 (Level 3)       7/15 (Level 3)       -1 marks            
+17   5       Andeep     10/15 (Level 4) 8/15 (Level 3)       10/15 (Level 4)      +0 marks            
+18   5       Davin      ? (add id to real_marks.json) 5/15 (Level 2)       8/15 (Level 3)       -                   
+---------------------------------------------------------------------------------------------------------
+Band match rate: 2/5 (40%)
