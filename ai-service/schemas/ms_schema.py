@@ -46,6 +46,11 @@ class Question(StrictBaseModel):
     question_number: str
     marks: int | NotFound
     description: str
+    # The question's own wording, verbatim, when the mark scheme prints it.
+    # Separate from `description` (a short summary by design): essay
+    # questions are often only on the question paper, so this is frequently
+    # NOT_FOUND -- the teacher confirms or supplies it before marking.
+    question_text: str | NotFound
     assessment_objectives: list[AssessmentObjective]
     band_constraints: list[BandConstraint]
 

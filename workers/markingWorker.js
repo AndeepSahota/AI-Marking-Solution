@@ -99,7 +99,8 @@ export async function processMarkingRequest(job) {
     const aiResult = await getMarkFromAIWithSchemeText(
         file,
         scheme,
-        threadExtraction
+        threadExtraction,
+        ocrRow.confirmed_question_text ?? ''
     )
     logMarkAiReturned(job, Date.now() - aiStart)
 

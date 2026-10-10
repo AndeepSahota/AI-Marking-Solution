@@ -118,12 +118,12 @@ export async function reuseMarkScheme(sourceLessonId, classId) {
     return data
 }
 
-export async function selectQuestion(lessonId, selectedQuestionIndex) {
+export async function selectQuestion(lessonId, selectedQuestionIndex, questionText) {
     const response = await fetch(`${API_BASE}/lessons/${lessonId}/select-question`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ selectedQuestionIndex }),
+        body: JSON.stringify({ selectedQuestionIndex, questionText }),
     })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Failed to select question')

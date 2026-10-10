@@ -6,7 +6,8 @@ const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000'
 export async function getMarkFromAIWithSchemeText(
     studentWorkFile,
     schemeText,
-    threadExtraction = ''
+    threadExtraction = '',
+    questionText = ''
 ) {
     const form = new FormData()
     form.append('student_work', studentWorkFile.buffer, {
@@ -15,6 +16,7 @@ export async function getMarkFromAIWithSchemeText(
     })
     form.append('scheme_text', schemeText)
     form.append('thread_extraction', threadExtraction)
+    form.append('question_text', questionText)
 
     let response
     try {

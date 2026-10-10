@@ -184,6 +184,18 @@ BEGIN
 END;
 GO
 
+-- Added later: the question wording the teacher confirmed for the selected
+-- question. Essay questions are often printed only on the question paper,
+-- not the mark scheme, so extraction can't be relied on to find them; the
+-- teacher confirms (or pastes) it before marking. NULL on lessons created
+-- before this existed -- marking falls back to the scheme's short summary.
+IF COL_LENGTH('dbo.teacher_ocr', 'confirmed_question_text') IS NULL
+BEGIN
+    ALTER TABLE dbo.teacher_ocr
+        ADD confirmed_question_text NVARCHAR(2000) NULL;
+END;
+GO
+
 /* ---- Asynchronous marking jobs ------------------------------------------ */
 -- One row represents one attempt to mark one student's work. Service Bus
 -- delivers the work, while this table is the durable application-level source

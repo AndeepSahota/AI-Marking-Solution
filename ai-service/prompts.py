@@ -57,6 +57,7 @@ Return a JSON object with exactly this structure:
             "question_number": <e.g. "Q1", "Question 4", "Section A">,
             "marks": <marks available for this question>,
             "description": <what this question asks the student to do, 10 words or fewer>,
+            "question_text": <the question's own wording exactly as printed in the mark scheme, or "value not found">,
             "assessment_objectives": [
                 {{
                     "ao": <AO name e.g. "AO1" or "AO5/AO6">,
@@ -91,6 +92,11 @@ Rules:
 - For a points-based scheme with no AOs or bands, use ao: "General" with individual criteria as bands.
 - Extract exactly what is written. Do not add information or fill in gaps.
 - Respond with valid JSON only. No intro text, no explanation outside the JSON.
+- `question_text` is the question students were asked, copied verbatim, only
+  when the mark scheme itself prints it. Many mark schemes give only a heading
+  ("Question 4 (15 Marks)") followed by indicative content and a level table;
+  in that case return "value not found". Never build a question from the AO
+  wording, the indicative content, the band descriptors or the heading.
 - Identify any note, restriction, qualification, cap, or instruction introduced
   by `NB:`, `Note:`, `Important:`, or equivalent wording.
 - A band constraint is not an assessable student-performance descriptor. Do not

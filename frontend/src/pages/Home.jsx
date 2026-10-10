@@ -131,11 +131,9 @@ function Home() {
       setError(null)
       try {
         const result = await reuseMarkScheme(selectedLesson.id, selectedClassId)
-        if (result.has_multiple_questions) {
-          navigate(`/select-question/${result.id}`)
-        } else {
-          navigate(`/student-marking/${result.id}`)
-        }
+        // Every lesson goes through the picker, even single-question papers:
+        // the teacher has to confirm the question wording before marking.
+        navigate(`/select-question/${result.id}`)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -157,11 +155,7 @@ function Home() {
         (event) => handleProgressEvent(event, totalPagesRef)
       )
 
-      if (result.has_multiple_questions) {
-        navigate(`/select-question/${result.id}`)
-      } else {
-        navigate(`/student-marking/${result.id}`)
-      }
+      navigate(`/select-question/${result.id}`)
     } catch (err) {
       setError(err.message)
       setLoading(false)

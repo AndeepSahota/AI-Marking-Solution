@@ -203,7 +203,8 @@ def _assessment_objective_descriptions_from_scheme(
 async def mark_with_scheme_text(
     student_work:      UploadFile = File(...),
     scheme_text:       str        = Form(...),
-    thread_extraction: str        = Form(default='')
+    thread_extraction: str        = Form(default=''),
+    question_text:     str        = Form(default='')
 ):
     student_bytes = await student_work.read()
     structured_ocr = extract_student_ocr(student_bytes, student_work.filename)
@@ -227,6 +228,15 @@ async def mark_with_scheme_text(
     student_text                        = ms_ocr_sanitisation.sanitize(raw_text)
     wrapped_student_text, expected_token = ms_ocr_sanitisation.wrap_for_prompt(student_text)
 
+    # The question wording the teacher confirmed. Teacher-typed text that goes
+    # straight into prompts, so it gets the same delimiter stripping and
+    # sanitisation as every other free-text input. Empty on lessons created
+    # before confirmation existed -- callers below fall back as before.
+    question_text, question_lookalikes = ms_ocr_sanitisation.strip_delimiter_like_patterns(question_text)
+    if question_lookalikes:
+        log_security_stripped(question_lookalikes)
+    question_text = ms_ocr_sanitisation.sanitize(question_text).strip()
+
     question_number = _question_number_from_scheme(scheme_text)
     assessment_focus = _assessment_objective_descriptions_from_scheme(scheme_text)
     exemplars       = get_similar(student_text, question_number, n=3)
@@ -249,8 +259,10 @@ async def mark_with_scheme_text(
 
     raw = generate_llm_response(
         # Holistic marking receives the complete selected-question scheme,
-        # including its AO descriptions, and derives the task from that rubric.
-        question="",
+        # including its AO descriptions. With a confirmed question it also
+        # checks the question against the scheme (question_mismatch); without
+        # one it derives the task from the rubric, as before.
+        question=question_text,
         essay=wrapped_student_text,
         rubric=scheme_text,
         expected_token=expected_token,
@@ -273,7 +285,7 @@ async def mark_with_scheme_text(
             }
             scheme = _json.loads(scheme_text)
             specialist_result = mark_ao_with_specialists(
-                question=scheme.get("description", ""),
+                question=question_text or scheme.get("description", ""),
                 essay_text=raw_text,
                 ao=ao,
             )

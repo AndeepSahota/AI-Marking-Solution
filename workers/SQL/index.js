@@ -111,7 +111,7 @@ async function inTransaction(work) {
 
 const SQL_LESSON_OCR_TEXT = `
     SELECT t.ocr_text, t.structured_scheme, t.thread_extraction,
-           t.selected_question_index
+           t.selected_question_index, t.confirmed_question_text
     FROM dbo.teacher_ocr AS t
     JOIN dbo.lessons AS l ON t.lesson_id = l.id
     JOIN dbo.classes AS c ON l.class_id = c.id

@@ -145,6 +145,10 @@ router.get('/:id/questions', async (req, res, next) => {
             question_number: q.question_number,
             marks: q.marks,
             description: q.description,
+            // The mark scheme's own printed wording, or null when it doesn't
+            // print one -- the picker pre-fills the confirm box from this.
+            question_text: typeof q.question_text === 'string'
+                && q.question_text !== 'value not found' ? q.question_text : null,
         }))
 
         res.json({ paper_type: paperType, questions: questionsList })
@@ -153,17 +157,24 @@ router.get('/:id/questions', async (req, res, next) => {
     }
 })
 
-// PATCH /lessons/:id/select-question — store which question from a multi-question
-// paper this lesson marks. Ownership is enforced inside updateSelectedQuestion,
+// PATCH /lessons/:id/select-question — store which question this lesson marks
+// and the question wording the teacher confirmed for it. Ownership is enforced inside updateSelectedQuestion,
 // via the same lessons -> classes -> teacher_id join every other lessonDb method uses.
 router.patch('/:id/select-question', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.id)
-        const { selectedQuestionIndex } = req.body
+        const { selectedQuestionIndex, questionText } = req.body
         if (selectedQuestionIndex === undefined || selectedQuestionIndex === null) {
             return res.status(400).json({ error: 'selectedQuestionIndex is required' })
         }
-        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex)
+        const trimmedQuestion = typeof questionText === 'string' ? questionText.trim() : ''
+        if (!trimmedQuestion) {
+            return res.status(400).json({ error: 'questionText is required' })
+        }
+        if (trimmedQuestion.length > 2000) {
+            return res.status(400).json({ error: 'questionText must be 2000 characters or fewer' })
+        }
+        await lessonDb.updateSelectedQuestion(lessonId, req.user.id, selectedQuestionIndex, trimmedQuestion)
         res.json({ ok: true })
     } catch (err) {
         next(err)
