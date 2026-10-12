@@ -53,6 +53,23 @@ genuinely no:
 5. Is that critical engagement SUSTAINED across the whole response, not just
    present in one isolated moment?
 
+WHAT EARNS NOTHING
+Before answering any checklist question with yes, compare the passage with
+the QUESTION and ask what in the source text it points at. A passage counts
+for nothing on this checklist if it only:
+
+- repeats or rephrases the question's own wording (for example, restating
+  that the writer creates the effect the question names); or
+- gives a verdict or feeling ("this is effective", "this creates tension")
+  without pointing at any specific event, detail, word or quotation from
+  the source text.
+
+A connective such as "as" or "because" does not turn such a passage into
+reasoning: reasoning must connect the claim to something specific in the
+source text that the passage itself names. In your reasoning, name the
+specific detail each yes-answer rests on; if you cannot name one, the
+answer is no.
+
 The level awarded should reflect the highest question genuinely answered
 yes, with every question before it also genuinely yes -- do not skip ahead
 to a higher level because of a single strong moment if the response does not

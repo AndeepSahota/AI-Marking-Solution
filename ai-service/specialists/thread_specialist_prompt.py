@@ -50,6 +50,22 @@ not choose the final level; it is determined from your steps.
 Neither length nor confident phrasing is evidence for a step. A passage
 earns a step only if it shows what the higher level adds.
 
+WHAT EARNS NOTHING
+Before using any passage as evidence for a step, compare it with the
+QUESTION and ask what in the source text it points at. A passage earns no
+step -- not even the entry step -- if it only:
+
+- repeats or rephrases the question's own wording (for example, restating
+  that the writer creates the effect the question names); or
+- gives a verdict or feeling ("this is effective", "this creates tension")
+  without pointing at any specific event, detail, word or quotation from
+  the source text.
+
+Such a passage is the student echoing the task, not demonstrating a skill,
+however confidently it is phrased. In each step's explanation, name the
+specific detail from the source text the quoted passage points at; if you
+cannot name one, the passage does not earn the step.
+
 Do not invent a passage to avoid a null quote -- an honest null is correct
 when nothing in the response demonstrates the difference.
 
