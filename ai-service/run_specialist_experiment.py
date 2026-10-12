@@ -65,10 +65,14 @@ def band_of(mark: int, thresholds=((1, 3), (4, 6), (7, 9), (10, 12), (13, 15))) 
     return "?"
 
 
-# gpt-4o: $2.50 / 1M input tokens, $10.00 / 1M output tokens -- confirmed
-# current pricing, not assumed.
-PRICE_PER_INPUT_TOKEN = 2.50 / 1_000_000
-PRICE_PER_OUTPUT_TOKEN = 10.00 / 1_000_000
+from llm_service import SPECIALIST_MODEL, SPECIALIST_REASONING_EFFORT
+
+# $ per 1M (input, output) tokens. gpt-4o confirmed; gpt-6-luna from
+# third-party trackers (2026-10), not yet checked against OpenAI's own page.
+# Ignores the cached-input discount, so it slightly overstates real spend.
+PRICES = {"gpt-4o": (2.50, 10.00), "gpt-6-luna": (0.10, 0.50)}
+PRICE_PER_INPUT_TOKEN = PRICES[SPECIALIST_MODEL][0] / 1_000_000
+PRICE_PER_OUTPUT_TOKEN = PRICES[SPECIALIST_MODEL][1] / 1_000_000
 
 
 def cost_of(prompt_tokens: int, completion_tokens: int) -> float:
@@ -78,14 +82,19 @@ def cost_of(prompt_tokens: int, completion_tokens: int) -> float:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--ids", default=None, help="comma-separated record ids, e.g. the smoke set")
     args = parser.parse_args()
 
     real_marks = json.loads(REAL_MARKS_PATH.read_text())
     real_marks = {k: v for k, v in real_marks.items() if not k.startswith("_")}
+    if args.ids:
+        wanted = args.ids.split(",")
+        real_marks = {k: v for k, v in real_marks.items() if k in wanted}
     if args.limit:
         real_marks = dict(list(real_marks.items())[: args.limit])
+    print(f"specialist model: {SPECIALIST_MODEL}  reasoning_effort: {SPECIALIST_REASONING_EFFORT or 'default'}")
 
-    print(f"{'id':<5} {'real':<14} {'existing final':<16} {'specialists':<16} {'a/b/c levels':<16} {'missing':<8} {'cost':<8} {'running total':<14}")
+    print(f"{'id':<5} {'real':<14} {'existing final':<16} {'specialists':<16} {'a/b/c levels':<34} {'missing':<8} {'cost':<8} {'running total':<14}")
     print("-" * 95)
 
     matched = 0
@@ -142,7 +151,11 @@ def main():
         per_thread_levels = {
             r["thread_key"]: level_of(r["descriptor_id"]) for r in specialist_result["per_thread"]
         }
-        per_thread_str = " ".join(f"{k}={v}" for k, v in sorted(per_thread_levels.items()))
+        samples_by_thread = {r["thread_key"]: r.get("sample_levels") for r in specialist_result["per_thread"]}
+        per_thread_str = " ".join(
+            f"{k}={v}" + (f"{samples_by_thread[k]}".replace(" ", "") if samples_by_thread.get(k) else "")
+            for k, v in sorted(per_thread_levels.items())
+        )
 
         usage = specialist_result["usage"]
         essay_cost = cost_of(usage["prompt_tokens"], usage["completion_tokens"])
@@ -151,12 +164,12 @@ def main():
         total += 1
         matched += band_of(real_mark) == specialist_result["awarded_band"]
 
-        print(f"{record_id:<5} {real_str:<14} {existing_str:<16} {specialist_str:<16} {per_thread_str:<16} {missing_str:<8} ${essay_cost:<7.4f} ${running_cost:<13.4f}")
+        print(f"{record_id:<5} {real_str:<14} {existing_str:<16} {specialist_str:<16} {per_thread_str:<34} {missing_str:<8} ${essay_cost:<7.4f} ${running_cost:<13.4f}")
 
     if total:
         print("-" * 95)
         print(f"Specialist-architecture band match rate: {matched}/{total} ({matched/total:.0%})")
-        print(f"Total spend this run: ${running_cost:.4f} (gpt-4o, {total} essays x 5 specialist calls each: a, c, and b x3 for ensembling)")
+        print(f"Total spend this run: ${running_cost:.4f} ({SPECIALIST_MODEL}, {total} essays)")
 
 
 if __name__ == "__main__":

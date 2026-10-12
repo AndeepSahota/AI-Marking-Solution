@@ -119,6 +119,23 @@ load_dotenv()
 # This is why the key is never hardcoded - it is pulled securly from .env
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Model for the per-thread specialists only -- every other stage keeps its own
+# model. Configurable so a newer model can be trialled against the same
+# prompts without touching the rest of the pipeline.
+SPECIALIST_MODEL = os.getenv("SPECIALIST_MODEL", "gpt-4o")
+SPECIALIST_REASONING_EFFORT = os.getenv("SPECIALIST_REASONING_EFFORT", "")
+
+
+def _specialist_model_kwargs(temperature):
+    """gpt-4o takes a temperature; reasoning models (e.g. gpt-6-luna) reject
+    any temperature but the default and take a reasoning effort instead."""
+    if SPECIALIST_MODEL.startswith("gpt-4o"):
+        return {"model": SPECIALIST_MODEL, "temperature": temperature}
+    kwargs = {"model": SPECIALIST_MODEL}
+    if SPECIALIST_REASONING_EFFORT:
+        kwargs["reasoning_effort"] = SPECIALIST_REASONING_EFFORT
+    return kwargs
+
 
 def _response_performance(response):
     """Extract provider telemetry without changing normal application output."""
@@ -536,8 +553,7 @@ def generate_thread_specialist_response(
 
     try:
         response = client.chat.completions.parse(
-            model="gpt-4o",
-            temperature=0.0,
+            **_specialist_model_kwargs(0.0),
             messages=[
                 {"role": "system", "content": THREAD_SPECIALIST_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
@@ -607,8 +623,7 @@ def generate_judgement_specialist_response(
 
     try:
         response = client.chat.completions.parse(
-            model="gpt-4o",
-            temperature=temperature,
+            **_specialist_model_kwargs(temperature),
             messages=[
                 {"role": "system", "content": JUDGEMENT_SPECIALIST_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},

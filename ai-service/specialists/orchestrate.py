@@ -9,7 +9,17 @@ wrap_for_prompt() calls, not one reused wrapping.
 from security import ms_ocr_sanitisation
 from llm_service import generate_thread_specialist_response
 from specialists.combine import combine_specialist_results, mark_for_level
-from specialists.consistency import generate_judgement_specialist_response_consistent
+import os
+
+from specialists.consistency import (
+    generate_judgement_specialist_response_consistent,
+    generate_thread_specialist_response_consistent,
+)
+
+# How many samples the generic (non-judgement) specialists take, median
+# vote. 1 = a single call, the gpt-4o behaviour. Raise it for models that
+# can't run at temperature 0 (e.g. gpt-6-luna).
+_GENERIC_SAMPLES = int(os.getenv("SPECIALIST_AC_SAMPLES", "1"))
 
 # Hardcoded to AO4's own lettering, where "b" is specifically the
 # "assertions and judgements" thread -- every real essay tested so far is
@@ -41,6 +51,16 @@ def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
                 sanitized_essay=sanitized,
                 thread_description=thread["thread_description"],
                 levels=thread["levels"],
+            )
+            usage = result.pop("usage")
+            sample_levels = result.pop("sample_levels")
+        elif _GENERIC_SAMPLES > 1:
+            result = generate_thread_specialist_response_consistent(
+                question=question,
+                sanitized_essay=sanitized,
+                thread_description=thread["thread_description"],
+                levels=thread["levels"],
+                n_samples=_GENERIC_SAMPLES,
             )
             usage = result.pop("usage")
             sample_levels = result.pop("sample_levels")

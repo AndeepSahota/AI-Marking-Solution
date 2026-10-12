@@ -14,7 +14,7 @@ from collections import Counter
 from statistics import median
 
 from security import ms_ocr_sanitisation
-from llm_service import generate_judgement_specialist_response
+from llm_service import generate_judgement_specialist_response, generate_thread_specialist_response
 
 _LEVEL_SUFFIX = re.compile(r"-(\d+)[a-z]+$")
 
@@ -32,6 +32,30 @@ def generate_judgement_specialist_response_consistent(
     n_samples: int = 3,
     temperature: float = 0.5,
 ) -> dict:
+    return _median_of_samples(
+        generate_judgement_specialist_response,
+        question, sanitized_essay, thread_description, levels, n_samples,
+        temperature=temperature,
+    )
+
+
+def generate_thread_specialist_response_consistent(
+    question: str,
+    sanitized_essay: str,
+    thread_description: str,
+    levels: list[dict],
+    n_samples: int = 3,
+) -> dict:
+    """Same median vote for the generic step-test specialists (A, C). Needed
+    for reasoning models such as gpt-6-luna, which only run at the default
+    temperature, so a single call is noticeably random."""
+    return _median_of_samples(
+        generate_thread_specialist_response,
+        question, sanitized_essay, thread_description, levels, n_samples,
+    )
+
+
+def _median_of_samples(generate, question, sanitized_essay, thread_description, levels, n_samples, **extra):
     """sanitized_essay: already through ms_ocr_sanitisation.sanitize() --
     this function does its own wrap_for_prompt() per sample, since each of
     the n_samples calls needs its own fresh anti-injection token, the same
@@ -43,14 +67,14 @@ def generate_judgement_specialist_response_consistent(
 
     for _ in range(n_samples):
         wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized_essay)
-        result, performance = generate_judgement_specialist_response(
+        result, performance = generate(
             question=question,
             student_response=wrapped,
             thread_description=thread_description,
             levels=levels,
             expected_token=token,
-            temperature=temperature,
             include_performance=True,
+            **extra,
         )
         samples.append(result)
         total_prompt_tokens += performance.get("prompt_tokens") or 0
