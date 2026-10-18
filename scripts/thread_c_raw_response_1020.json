@@ -1,0 +1,40 @@
+{
+  "delimiter_token": "bb8c834c6b3972c98668f787858bc71b",
+  "steps": [
+    {
+      "from_descriptor_id": null,
+      "to_descriptor_id": "ao4-1c",
+      "difference": "The use of references is limited.",
+      "quote": "This is shown in the qoute \"he sat in the stem of the boat with his arm aroud mara\".",
+      "explanation": "The response includes a reference to the text, but the use of references is limited as there are only a few references provided."
+    },
+    {
+      "from_descriptor_id": "ao4-1c",
+      "to_descriptor_id": "ao4-2c",
+      "difference": "The selection of references is valid, but not developed.",
+      "quote": "This is shown in the qoute \"he sat in the stem of the boat with his arm aroud mara\".",
+      "explanation": "The reference is valid as it relates to the sense of fear and helplessness, but it is not developed further with detailed analysis or connection to the overall argument."
+    },
+    {
+      "from_descriptor_id": "ao4-2c",
+      "to_descriptor_id": "ao4-3c",
+      "difference": "The selection of references is appropriate and relevant to the points being made.",
+      "quote": "This is shown in the qoute \"she was reaching down with both arms\" this qoute shows how shocked and devestated she felt while experiance this momment and this qoute also shows she was helpless to save yusuf by herself.",
+      "explanation": "The references are appropriate and relevant to the points being made about fear and helplessness, as they directly illustrate the characters' actions and emotions in the context of the narrative."
+    },
+    {
+      "from_descriptor_id": "ao4-3c",
+      "to_descriptor_id": "ao4-4c",
+      "difference": "The selection of references is appropriate, detailed and fully supports the points being made.",
+      "quote": null,
+      "explanation": "While the references are appropriate and relevant, they lack the detail and depth needed to fully support the points being made. The analysis is not sufficiently detailed to reach this level."
+    },
+    {
+      "from_descriptor_id": "ao4-4c",
+      "to_descriptor_id": "ao4-5c",
+      "difference": "The selection of references is apt and discriminating and is persuasive in clarifying the points being made.",
+      "quote": null,
+      "explanation": "The response does not demonstrate apt and discriminating selection of references that persuasively clarify the points being made. The references are not used in a way that is particularly insightful or persuasive."
+    }
+  ]
+}

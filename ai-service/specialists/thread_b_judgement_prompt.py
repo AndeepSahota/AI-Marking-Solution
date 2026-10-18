@@ -40,9 +40,13 @@ genuinely no:
 1. Does the response offer any claim or opinion about the text at all,
    beyond simply describing what happens? If no: the lowest level applies.
 2. Is that claim backed by ANY reasoning -- even basic -- connecting it to
-   the text, or is it a bare, undeveloped assertion? A claim with no "because"
-   or equivalent explanation behind it is NOT backed by reasoning, however
-   confidently it is stated.
+   the text, or is it a bare, undeveloped assertion? A connection to a quote
+   is not automatically reasoning: naming a quote and then labelling what it
+   "shows" or "suggests" (a feeling, a trait, an effect) is still just a more
+   specific assertion unless it goes on to explain HOW or WHY that detail
+   produces the effect. A claim -- quoted or not -- with no explanation of
+   the mechanism behind it is NOT backed by reasoning, however confidently
+   it is stated.
 3. Does the reasoning show genuine understanding of the text's effect, or is
    it surface-level and obvious -- the kind of point almost any reader would
    make without real engagement?
@@ -85,6 +89,15 @@ This is a claim with nothing behind it -- no reasoning connects it to
 anything specific in the text. This is the lowest level on this thread,
 regardless of how confidently it is stated or how much other material
 surrounds it.
+
+Quote plus label, still answers only question 1, not question 2:
+"the noun \"careful\" suggests that he is wise and cautious to his
+surroundings."
+This names a specific word and attaches a trait to it, which can look like
+reasoning at a glance -- but it never explains HOW or WHY that word produces
+that impression. It stops at a label, the same as a bare assertion with a
+quote stapled to it. This is still the lowest level on this thread, not
+Level 2 -- a quote on its own does not upgrade an assertion into reasoning.
 
 Developed judgement, answers questions 1 through 4:
 "The phrase 'but his fingers only felt air' showcases fear and helplessness

@@ -14,7 +14,11 @@ from collections import Counter
 from statistics import median
 
 from security import ms_ocr_sanitisation
-from llm_service import generate_judgement_specialist_response, generate_thread_specialist_response
+from llm_service import (
+    generate_judgement_specialist_response,
+    generate_thread_specialist_response,
+    generate_reference_specialist_response,
+)
 
 _LEVEL_SUFFIX = re.compile(r"-(\d+)[a-z]+$")
 
@@ -51,6 +55,28 @@ def generate_thread_specialist_response_consistent(
     temperature, so a single call is noticeably random."""
     return _median_of_samples(
         generate_thread_specialist_response,
+        question, sanitized_essay, thread_description, levels, n_samples,
+    )
+
+
+def generate_reference_specialist_response_consistent(
+    question: str,
+    sanitized_essay: str,
+    thread_description: str,
+    levels: list[dict],
+    n_samples: int = 3,
+) -> dict:
+    """Same median vote for the reference specialist (thread C) -- direct
+    evidence this is needed, not a guess: running the same essay through
+    this thread's prompt 3 times in a row (even after sharpening its
+    wording twice) still produced two different answers across adjacent
+    levels. See scripts/thread_c_descriptor_echo_diagnosis.txt for the
+    real evidence this instability isn't a one-directional bias, which is
+    what makes a median vote the right tool here rather than another
+    prompt rewrite.
+    """
+    return _median_of_samples(
+        generate_reference_specialist_response,
         question, sanitized_essay, thread_description, levels, n_samples,
     )
 

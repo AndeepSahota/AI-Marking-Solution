@@ -7,26 +7,37 @@ wrap_for_prompt() calls, not one reused wrapping.
 """
 
 from security import ms_ocr_sanitisation
-from llm_service import generate_thread_specialist_response
+from llm_service import generate_thread_specialist_response, generate_idea_specialist_response
 from specialists.combine import combine_specialist_results, mark_for_level
 import os
 
 from specialists.consistency import (
     generate_judgement_specialist_response_consistent,
     generate_thread_specialist_response_consistent,
+    generate_reference_specialist_response_consistent,
 )
 
 # How many samples the generic (non-judgement) specialists take, median
 # vote. 1 = a single call, the gpt-4o behaviour. Raise it for models that
 # can't run at temperature 0 (e.g. gpt-6-luna).
+#
+# NOTE: when this is >1, thread A still falls back to the plain generic
+# step-test specialist (generate_thread_specialist_response), not its own
+# dedicated idea prompt below -- generate_thread_specialist_response_consistent
+# hardcodes which function it ensembles. Not an issue at the gpt-4o default
+# (=1), but worth fixing if a reasoning-model swap for threads A/C is
+# revisited.
 _GENERIC_SAMPLES = int(os.getenv("SPECIALIST_AC_SAMPLES", "1"))
 
-# Hardcoded to AO4's own lettering, where "b" is specifically the
-# "assertions and judgements" thread -- every real essay tested so far is
-# this one AO. A different mark scheme's thread lettering is not guaranteed
-# to mean the same thing; generalising this beyond AO4 is future work, not
-# attempted here.
+# Hardcoded to AO4's own lettering -- "a" is "ideas, events, themes or
+# settings", "b" is "assertions and judgements", "c" is "reference
+# selection and support" -- every real essay tested so far is this one AO.
+# A different mark scheme's thread lettering is not guaranteed to mean the
+# same thing; generalising this beyond AO4 is future work, not attempted
+# here.
 _JUDGEMENT_THREAD_KEY = "b"
+_IDEA_THREAD_KEY = "a"
+_REFERENCE_THREAD_KEY = "c"
 
 
 def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
@@ -54,6 +65,21 @@ def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
             )
             usage = result.pop("usage")
             sample_levels = result.pop("sample_levels")
+        elif thread_key == _REFERENCE_THREAD_KEY:
+            # Ensembled (n=3, temperature=0.0, median vote) -- this thread's
+            # own repeated-run testing (even after sharpening its prompt
+            # twice) still showed the same essay flip between two adjacent
+            # levels, with no one-directional bias -- genuine noise around a
+            # fuzzy boundary, which a median vote is suited to even though
+            # the underlying prompt couldn't be made to stop doing it.
+            result = generate_reference_specialist_response_consistent(
+                question=question,
+                sanitized_essay=sanitized,
+                thread_description=thread["thread_description"],
+                levels=thread["levels"],
+            )
+            usage = result.pop("usage")
+            sample_levels = result.pop("sample_levels")
         elif _GENERIC_SAMPLES > 1:
             result = generate_thread_specialist_response_consistent(
                 question=question,
@@ -66,7 +92,12 @@ def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
             sample_levels = result.pop("sample_levels")
         else:
             wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized)
-            result, performance = generate_thread_specialist_response(
+            specialist_call = (
+                generate_idea_specialist_response
+                if thread_key == _IDEA_THREAD_KEY
+                else generate_thread_specialist_response
+            )
+            result, performance = specialist_call(
                 question=question,
                 student_response=wrapped,
                 thread_description=thread["thread_description"],

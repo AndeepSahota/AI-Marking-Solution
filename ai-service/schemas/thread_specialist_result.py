@@ -45,3 +45,32 @@ class ThreadStepResult(StrictBaseModel):
     """
     delimiter_token: str
     steps: list[SpecialistStep]
+
+
+class ReferenceSpecialistStep(StrictBaseModel):
+    """Same as SpecialistStep, but "explanation" is split into three boxes
+    plus a dedicated slot for descriptor wording -- thread C kept earning
+    steps by using the level descriptor's own words ("appropriate and
+    relevant") as if restating the label were the same as justifying it.
+    Giving descriptor wording its own field (`descriptor_phrase_matched`)
+    means the model never has to avoid those words; it only has to keep
+    them out of the other two fields, which ask for plain description and
+    reasoning instead. specialists/steps.py checks that split in code.
+    """
+    from_descriptor_id: str | None
+    to_descriptor_id: str = Field(min_length=1)
+    difference: str = Field(min_length=1)
+    quote: str | None
+    # Plain description of what the quote shows, in the model's own words
+    # -- no descriptor vocabulary. None only when quote is also None.
+    what_student_does: str | None
+    # The actual reasoning connecting what_student_does to this level's
+    # requirement -- still no descriptor vocabulary here.
+    why_this_meets_criterion: str | None
+    # The ONLY field allowed to contain the level descriptor's own wording.
+    descriptor_phrase_matched: str | None
+
+
+class ReferenceStepResult(StrictBaseModel):
+    delimiter_token: str
+    steps: list[ReferenceSpecialistStep]

@@ -28,12 +28,20 @@ from specialists.thread_specialist_prompt import (
     SYSTEM_PROMPT as THREAD_SPECIALIST_SYSTEM_PROMPT,
     build_thread_specialist_user_prompt,
 )
+from specialists.thread_a_ideas_prompt import (
+    SYSTEM_PROMPT as IDEA_SPECIALIST_SYSTEM_PROMPT,
+    build_idea_specialist_user_prompt,
+)
+from specialists.thread_c_references_prompt import (
+    SYSTEM_PROMPT as REFERENCE_SPECIALIST_SYSTEM_PROMPT,
+    build_reference_specialist_user_prompt,
+)
 from specialists.thread_b_judgement_prompt import (
     SYSTEM_PROMPT as JUDGEMENT_SPECIALIST_SYSTEM_PROMPT,
     build_judgement_specialist_user_prompt,
 )
-from schemas.thread_specialist_result import ThreadSpecialistResult, ThreadStepResult
-from specialists.steps import resolve_level_from_steps
+from schemas.thread_specialist_result import ThreadSpecialistResult, ThreadStepResult, ReferenceStepResult
+from specialists.steps import resolve_level_from_steps, resolve_reference_level_from_steps
 from schemas.thread_description_result import ThreadDescriptionResult
 from observability.event_log import (
     log_extraction_refusal,
@@ -586,6 +594,164 @@ def generate_thread_specialist_response(
 
     raw = result.model_dump(exclude={"delimiter_token"})
     resolved = resolve_level_from_steps(raw["steps"], levels, student_response)
+    if include_performance:
+        return resolved, _response_performance(response)
+    return resolved
+
+
+def generate_idea_specialist_response(
+    question,
+    student_response,
+    thread_description,
+    levels,
+    expected_token,
+    include_performance=False,
+):
+    """Same job as generate_thread_specialist_response, but for the
+    "ideas, events, themes or settings" thread specifically -- uses a
+    dedicated prompt built after diagnosing that this thread was wrongly
+    crediting a quote plus an interpretive verb ("suggests"/"shows"/
+    "creates") plus a label as a genuine comment, with nothing explaining
+    why the detail produces that effect.
+
+    Same output schema as the generic specialist (ThreadStepResult,
+    reduced in code by the same resolve_level_from_steps) -- this version
+    only changes the system prompt's instructions, asking the model to run
+    four concrete checks (so-what, swap, effect-not-fact, does-it-build)
+    before earning a step. An earlier attempt tried to verify this in code
+    by counting new vocabulary in a split label/mechanism field, and it
+    overcorrected badly -- a genuine explanation can legitimately reuse the
+    quote's own words, so word-counting couldn't tell real reasoning apart
+    from lazy repetition. This judgment is semantic, not lexical, so it
+    stays a prompt-level judgment, same as thread B's checklist.
+
+    Deliberately its own function and its own prompt file, not a branch in
+    generate_thread_specialist_response: an earlier, different attempt
+    added an equivalent rule to the prompt thread A and thread C share, and
+    it measurably broke thread C, which was never diagnosed as having this
+    problem. Thread C stays on generate_thread_specialist_response.
+    """
+    user_prompt = build_idea_specialist_user_prompt(
+        question=question,
+        student_response=student_response,
+        thread_description=thread_description,
+        levels=levels,
+    )
+
+    try:
+        response = client.chat.completions.parse(
+            **_specialist_model_kwargs(0.0),
+            messages=[
+                {"role": "system", "content": IDEA_SPECIALIST_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ThreadStepResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+    except OpenAIError as e:
+        raise ExtractionError("Idea specialist LLM request failed") from e
+
+    message = response.choices[0].message
+
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No idea specialist result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    verify_token(expected_token, result.delimiter_token)
+
+    raw = result.model_dump(exclude={"delimiter_token"})
+    resolved = resolve_level_from_steps(raw["steps"], levels, student_response)
+    if include_performance:
+        return resolved, _response_performance(response)
+    return resolved
+
+
+def generate_reference_specialist_response(
+    question,
+    student_response,
+    thread_description,
+    levels,
+    expected_token,
+    include_performance=False,
+):
+    """Same job as generate_thread_specialist_response, but for the
+    "reference selection and support" thread specifically -- uses a
+    dedicated prompt built after diagnosing that this thread's step
+    explanations kept echoing the level descriptor's own wording back as
+    "proof" (e.g. "appropriate and relevant to the points being made",
+    copied almost verbatim from the Level 3 text) instead of giving an
+    independent reason tied to the actual quote. Suspected to be why this
+    thread's answers flip between adjacent levels on repeated identical
+    runs -- see scripts/thread_c_descriptor_echo_diagnosis.txt and
+    scripts/thread_c_raw_response_1020.json for the real evidence.
+
+    Different output schema from the generic specialist: ReferenceStepResult
+    splits "explanation" into "what_student_does", "why_this_meets_criterion"
+    (plain language, no descriptor vocabulary) and "descriptor_phrase_matched"
+    (the only field allowed to contain it) -- resolve_reference_level_from_steps
+    checks in code that the first two fields don't leak the descriptor's own
+    words. Two earlier prompt-only attempts (a self-check instruction, then a
+    blanket word ban) didn't hold up -- see specialists/steps.py.
+
+    Deliberately its own function and its own prompt file, not a branch in
+    generate_thread_specialist_response: thread A already moved to its own
+    dedicated file for the same reason (a shared-file fix validated on one
+    thread broke the other).
+    """
+    user_prompt = build_reference_specialist_user_prompt(
+        question=question,
+        student_response=student_response,
+        thread_description=thread_description,
+        levels=levels,
+    )
+
+    try:
+        response = client.chat.completions.parse(
+            **_specialist_model_kwargs(0.0),
+            messages=[
+                {"role": "system", "content": REFERENCE_SPECIALIST_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=ReferenceStepResult,
+        )
+    except LengthFinishReasonError as e:
+        log_marking_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_marking_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+    except OpenAIError as e:
+        raise ExtractionError("Reference specialist LLM request failed") from e
+
+    message = response.choices[0].message
+
+    if message.refusal:
+        log_marking_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+
+    result = message.parsed
+    if result is None:
+        log_marking_empty()
+        raise ExtractionIncompleteError(
+            "No reference specialist result, refusal, truncation, or content-filter signal was returned"
+        )
+
+    verify_token(expected_token, result.delimiter_token)
+
+    raw = result.model_dump(exclude={"delimiter_token"})
+    resolved = resolve_reference_level_from_steps(raw["steps"], levels, student_response)
     if include_performance:
         return resolved, _response_performance(response)
     return resolved
