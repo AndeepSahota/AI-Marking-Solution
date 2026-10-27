@@ -47,6 +47,15 @@ genuinely no:
    produces the effect. A claim -- quoted or not -- with no explanation of
    the mechanism behind it is NOT backed by reasoning, however confidently
    it is stated.
+
+   A "because"/"but"/"as" clause attached to a quote is not automatically
+   HOW or WHY reasoning either, if what follows the connective only restates
+   a plot event or physical obstacle that is already visible in the quote
+   itself (for example, explaining that a strong current makes something
+   physically hard to do). That restates WHAT happens in the story, not WHY
+   it produces an effect on the reader. Genuine reasoning has to reach past
+   the literal physical event toward its effect or significance, not just
+   narrate the event's own cause in different words.
 3. Does the reasoning show genuine understanding of the text's effect, or is
    it surface-level and obvious -- the kind of point almost any reader would
    make without real engagement?
@@ -80,7 +89,7 @@ to a higher level because of a single strong moment if the response does not
 sustain that quality, and do not withhold a level that is genuinely earned
 out of caution.
 
-TWO REAL EXAMPLES, FROM ACTUAL STUDENT ESSAYS (illustrative only -- these
+THREE REAL EXAMPLES, FROM ACTUAL STUDENT ESSAYS (illustrative only -- these
 are not the response you are marking, and do not influence its content)
 
 Bare assertion, answers only question 1, not question 2:
@@ -98,6 +107,17 @@ reasoning at a glance -- but it never explains HOW or WHY that word produces
 that impression. It stops at a label, the same as a bare assertion with a
 quote stapled to it. This is still the lowest level on this thread, not
 Level 2 -- a quote on its own does not upgrade an assertion into reasoning.
+
+Quote plus restated plot cause, still answers only question 1, not question
+2 -- the most tempting of the three, because it reads like reasoning:
+"the use of the verb \"reaching\" shows that he is trying everything he can
+do to help but the current is making it very hard to grab Tariq's hand."
+This has a "but" clause and sounds like it explains something, but what it
+explains is only the plot's own physical obstacle (a current makes a hand
+hard to grab) -- it never says why that matters for the reader, or what
+effect it creates beyond what the sentence already states. It restates WHAT
+happens, dressed up as WHY. This is still the lowest level on this thread,
+not Level 2.
 
 Developed judgement, answers questions 1 through 4:
 "The phrase 'but his fingers only felt air' showcases fear and helplessness
