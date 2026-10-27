@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json as _json
 from pathlib import Path
@@ -31,9 +32,21 @@ from llm_service import (
 )
 from ocr_service import extract_text_from_file
 from student_ocr_service import extract_student_ocr
-from rag_service import add_exemplar, get_similar, list_exemplars, delete_exemplar
+from rag_service import (
+    add_exemplar,
+    delete_exemplar,
+    get_examples_by_band,
+    get_similar,
+    list_exemplars,
+    scheme_fingerprint,
+)
 from security import ms_ocr_sanitisation
-from specialists.orchestrate import mark_ao_with_specialists
+from specialists.orchestrate import (
+    ENGINE_CURRENT,
+    ENGINE_GENERAL,
+    general_engine_ao,
+    mark_ao_with_specialists,
+)
 from specialists.resolve import resolve_specialist_final_result
 from validation.descriptor_id_enrichment import add_descriptor_ids
 from validation.descriptor_integrity_validation import (
@@ -160,6 +173,24 @@ async def ocr_file(file: UploadFile = File(...)):
         "thread_scheme": thread_scheme,
     }
 
+def _scheme_key(thread_extraction) -> str | None:
+    """Fingerprint of the selected question's mark scheme, for matching
+    stored examples to the scheme they were marked on."""
+    try:
+        return scheme_fingerprint(_json.loads(thread_extraction))
+    except (TypeError, _json.JSONDecodeError):
+        return None
+
+def _holistic_level(holistic_result) -> int | None:
+    """The holistic marker's awarded level number ("Level 3" -> 3), used only
+    to break ties between specialist threads. None if it can't be read."""
+    try:
+        band = holistic_result["rubric_breakdown"][0]["awarded_band"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    match = re.search(r"\d+", band or "")
+    return int(match.group()) if match else None
+
 def _question_number_from_scheme(scheme_text: str):
     try:
         parsed = _json.loads(scheme_text)
@@ -239,23 +270,28 @@ async def mark_with_scheme_text(
 
     question_number = _question_number_from_scheme(scheme_text)
     assessment_focus = _assessment_objective_descriptions_from_scheme(scheme_text)
-    exemplars       = get_similar(student_text, question_number, n=3)
+    scheme_key      = _scheme_key(thread_extraction)
+    exemplars       = get_similar(student_text, scheme_key, n=3)
 
-    # Route AO4-only questions through the independent-specialists marking
-    # architecture instead of the existing aggregation + single-call final
-    # marking. Tested separately against real essays: nearly doubled band
-    # accuracy over the existing pipeline. Scoped to AO4-only because the
-    # specialist code doesn't yet know how to combine across several AOs in
-    # one question -- anything else keeps using the existing pipeline below,
-    # completely untouched by this check.
+    # Route single-AO, level-based questions through the independent-
+    # specialists marking architecture instead of the existing aggregation +
+    # single-call final marking. Anything with several AOs, point-based
+    # questions (stored with no level threads, e.g. Q1), or descriptor IDs
+    # the climbing code can't parse keeps using the existing pipeline below.
+    # AO4 stays on the AO4-tuned "current" engine unless
+    # SPECIALIST_AO4_ENGINE=general -- kept until the two are compared.
+    specialist_ao = None
     try:
         _probe_thread_extraction = _json.loads(thread_extraction)
-        use_specialists = (
-            isinstance(_probe_thread_extraction, dict)
-            and set(_probe_thread_extraction.get("assessment_objectives", {})) == {"AO4"}
-        )
+        if isinstance(_probe_thread_extraction, dict):
+            specialist_ao = general_engine_ao(_probe_thread_extraction)
     except (TypeError, _json.JSONDecodeError):
-        use_specialists = False
+        specialist_ao = None
+    use_specialists = specialist_ao is not None
+    if use_specialists and specialist_ao[0] == "AO4":
+        specialist_engine = os.getenv("SPECIALIST_AO4_ENGINE", ENGINE_CURRENT)
+    else:
+        specialist_engine = ENGINE_GENERAL
 
     raw = generate_llm_response(
         # Holistic marking receives the complete selected-question scheme,
@@ -271,14 +307,14 @@ async def mark_with_scheme_text(
     )
 
     if use_specialists:
+        ao_key, ao_raw = specialist_ao
         aggregation = {
             "status": "skipped",
-            "reason": "Using specialist marking architecture for AO4",
+            "reason": f"Using specialist marking architecture ({specialist_engine}) for {ao_key}",
         }
         try:
-            ao_raw = _probe_thread_extraction["assessment_objectives"]["AO4"]
             ao = {
-                "ao": "AO4",
+                "ao": ao_key,
                 "marks_available": _probe_thread_extraction.get("marks_available"),
                 "band_marks": ao_raw["band_marks"],
                 "threads": ao_raw["threads"],
@@ -288,6 +324,13 @@ async def mark_with_scheme_text(
                 question=question_text or scheme.get("description", ""),
                 essay_text=raw_text,
                 ao=ao,
+                engine=specialist_engine,
+                holistic_level=_holistic_level(raw),
+                examples=(
+                    get_examples_by_band(scheme_key, exclude_texts=(raw_text,))
+                    if specialist_engine == ENGINE_GENERAL
+                    else None
+                ),
             )
             final_result = resolve_specialist_final_result(specialist_result, ao["threads"])
         except (ValueError, TypeError, KeyError, _json.JSONDecodeError) as e:
@@ -401,9 +444,20 @@ async def create_exemplar(
     question_number: str        = Form(...),
     score:           int        = Form(...),
     max_marks:       int        = Form(...),
+    thread_extraction: str      = Form(...),
     band:            int        = Form(default=None),
     source:          str        = Form(default=""),
 ):
+    # The same per-question thread_extraction JSON the marking endpoint
+    # receives -- an example is only ever shown alongside the mark scheme it
+    # was marked on.
+    scheme_key = _scheme_key(thread_extraction)
+    if not scheme_key:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail="thread_extraction must be the selected question's mark scheme, with levels",
+        )
     file_bytes  = await file.read()
     essay_text  = extract_text_from_file(file_bytes, file.filename)
     exemplar_id = add_exemplar(
@@ -411,10 +465,17 @@ async def create_exemplar(
         question_number=question_number,
         score=score,
         max_marks=max_marks,
+        scheme_key=scheme_key,
         band=band,
         source=source,
     )
-    return {"id": exemplar_id, "question_number": question_number, "score": score, "max_marks": max_marks}
+    return {
+        "id": exemplar_id,
+        "question_number": question_number,
+        "scheme_key": scheme_key,
+        "score": score,
+        "max_marks": max_marks,
+    }
 
 @app.get("/exemplars")
 async def get_exemplars():

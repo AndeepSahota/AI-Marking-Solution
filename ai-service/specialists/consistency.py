@@ -49,13 +49,19 @@ def generate_thread_specialist_response_consistent(
     thread_description: str,
     levels: list[dict],
     n_samples: int = 3,
+    temperature: float = 0.0,
+    examples: list[dict] | None = None,
 ) -> dict:
-    """Same median vote for the generic step-test specialists (A, C). Needed
-    for reasoning models such as gpt-6-luna, which only run at the default
-    temperature, so a single call is noticeably random."""
+    """Same median vote for the shared step-test specialist. Used by the
+    general engine (every thread, temperature 0.5 -- the setting that showed
+    real sample diversity for thread B) and by reasoning models such as
+    gpt-6-luna, which ignore temperature, so a single call is noticeably
+    random."""
     return _median_of_samples(
         generate_thread_specialist_response,
         question, sanitized_essay, thread_description, levels, n_samples,
+        temperature=temperature,
+        examples=examples,
     )
 
 

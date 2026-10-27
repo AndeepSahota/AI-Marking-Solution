@@ -6,10 +6,12 @@ shared across several, so three specialist calls need three separate
 wrap_for_prompt() calls, not one reused wrapping.
 """
 
+import os
+import re
+
 from security import ms_ocr_sanitisation
 from llm_service import generate_thread_specialist_response, generate_idea_specialist_response
-from specialists.combine import combine_specialist_results, mark_for_level
-import os
+from specialists.combine import combine_specialist_results, mark_for_level, vote_levels
 
 from specialists.consistency import (
     generate_judgement_specialist_response_consistent,
@@ -39,12 +41,74 @@ _JUDGEMENT_THREAD_KEY = "b"
 _IDEA_THREAD_KEY = "a"
 _REFERENCE_THREAD_KEY = "c"
 
+ENGINE_CURRENT = "current"
+ENGINE_GENERAL = "general"
 
-def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
+# The general engine runs every thread through the one shared specialist,
+# 3 samples at temperature 0.5 (thread B's setting, the one with direct
+# evidence of real sample diversity), median vote.
+_GENERAL_SAMPLES = 3
+_GENERAL_TEMPERATURE = 0.5
+
+# Descriptor IDs the level-climbing code can parse. Real stored schemes
+# include OCR misreads such as "a05-4a" (zero for the letter O) -- anything
+# that doesn't match is refused rather than guessed at.
+_DESCRIPTOR_ID_SHAPE = re.compile(r"^ao\d+-\d+[a-z]+$")
+_LEVEL_NUMBER = re.compile(r"-(\d+)[a-z]+$")
+
+
+def general_engine_ao(question_extraction: dict) -> tuple[str, dict] | None:
+    """(ao_key, ao_data) if this question can go through the general engine,
+    else None (caller keeps the old route). Requires exactly one AO, that AO
+    to have level-based threads (point-based questions such as Q1 are stored
+    with no threads), band marks, and every descriptor ID in the parseable
+    "ao4-3a" shape."""
+    aos = question_extraction.get("assessment_objectives") or {}
+    if len(aos) != 1:
+        return None
+    ao_key, ao_data = next(iter(aos.items()))
+    threads = ao_data.get("threads") or {}
+    if not threads or not ao_data.get("band_marks"):
+        return None
+    for thread in threads.values():
+        levels = thread.get("levels") or []
+        if not levels:
+            return None
+        if any(not _DESCRIPTOR_ID_SHAPE.match(level.get("descriptor_id", "")) for level in levels):
+            return None
+    return ao_key, ao_data
+
+
+def _levels_lowest_first(levels: list[dict]) -> list[dict]:
+    # Some stored schemes list levels highest-first; the climbing code
+    # assumes lowest-first.
+    return sorted(levels, key=lambda level: int(_LEVEL_NUMBER.search(level["descriptor_id"]).group(1)))
+
+
+def mark_ao_with_specialists(
+    question: str,
+    essay_text: str,
+    ao: dict,
+    engine: str = ENGINE_CURRENT,
+    holistic_level: int | None = None,
+    examples: list[dict] | None = None,
+) -> dict:
     """ao: {"ao": "AO4", "marks_available": 15, "band_marks": [...],
     "threads": {"a": {"thread_description": ..., "levels": [...]}, ...}}
     -- same shape already stored in thread_extraction for this AO.
+
+    engine: "current" is the AO4-tuned version (dedicated A/B/C prompts,
+    ties to the lower level), kept for comparison. "general" sends every
+    thread through the one shared specialist, and uses holistic_level to
+    break ties. examples: marked answers from the exemplar store, shown to
+    every general-engine specialist -- the caller is responsible for never
+    including the essay being marked.
     """
+    if engine == ENGINE_GENERAL:
+        return _mark_ao_general(question, essay_text, ao, holistic_level, examples)
+    if engine != ENGINE_CURRENT:
+        raise ValueError(f"Unknown specialist engine: {engine}")
+
     sanitized = ms_ocr_sanitisation.sanitize(essay_text)
 
     per_thread_results = []
@@ -116,17 +180,68 @@ def mark_ao_with_specialists(question: str, essay_text: str, ao: dict) -> dict:
         total_completion_tokens += usage.get("completion_tokens") or 0
 
     combined = combine_specialist_results(per_thread_results)
-    awarded = mark_for_level(combined["overall_level"], ao["band_marks"])
+    return _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)
 
+
+def _mark_ao_general(
+    question: str,
+    essay_text: str,
+    ao: dict,
+    holistic_level: int | None,
+    examples: list[dict] | None,
+) -> dict:
+    sanitized = ms_ocr_sanitisation.sanitize(essay_text)
+
+    per_thread_results = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    for thread_key, thread in ao["threads"].items():
+        result = generate_thread_specialist_response_consistent(
+            question=question,
+            sanitized_essay=sanitized,
+            thread_description=thread["thread_description"],
+            levels=_levels_lowest_first(thread["levels"]),
+            n_samples=_GENERAL_SAMPLES,
+            temperature=_GENERAL_TEMPERATURE,
+            examples=examples,
+        )
+        usage = result.pop("usage")
+        sample_levels = result.pop("sample_levels")
+        per_thread_results.append({"thread_key": thread_key, **result, "sample_levels": sample_levels})
+        total_prompt_tokens += usage.get("prompt_tokens") or 0
+        total_completion_tokens += usage.get("completion_tokens") or 0
+
+    combined = combine_specialist_results(per_thread_results, holistic_level=holistic_level)
+    result = _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)
+    result["run_levels"] = _complete_run_levels(per_thread_results, holistic_level)
+    result["review_flag"] = len(set(result["run_levels"])) > 1
+    return result
+
+
+def _complete_run_levels(per_thread_results: list[dict], holistic_level: int | None) -> list[int]:
+    """Treat sample i of every thread as one complete marking, and give the
+    final level each of those complete runs would have produced on its own.
+    If they differ, the run-to-run disagreement would change the final
+    level -- the only disagreement worth asking a teacher about."""
+    sample_lists = [entry["sample_levels"] for entry in per_thread_results]
+    return [
+        vote_levels([samples[i] for samples in sample_lists], holistic_level)[0]
+        for i in range(min(len(s) for s in sample_lists))
+    ]
+
+
+def _result(ao, combined, per_thread_results, prompt_tokens, completion_tokens) -> dict:
+    awarded = mark_for_level(combined["overall_level"], ao["band_marks"])
     return {
         "ao": ao["ao"],
         "awarded_band": awarded["band"],
         "marks": awarded["marks"],
         "max_marks": ao["marks_available"],
         "missing_threads": combined["missing_threads"],
+        "tie_break": combined["tie_break"],
         "per_thread": per_thread_results,
         "usage": {
-            "prompt_tokens": total_prompt_tokens,
-            "completion_tokens": total_completion_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
         },
     }

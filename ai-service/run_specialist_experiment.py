@@ -17,6 +17,7 @@ from pathlib import Path
 
 import re
 
+from rag_service import get_examples_by_band, scheme_fingerprint
 from specialists.orchestrate import mark_ao_with_specialists
 
 _LEVEL = re.compile(r"-(\d+)[a-z]+$")
@@ -83,10 +84,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--ids", default=None, help="comma-separated record ids, e.g. the smoke set")
+    parser.add_argument("--engine", default="current", choices=["current", "general"])
+    parser.add_argument("--out", default=None, help="save per-essay results as JSON (for compare_engines.py)")
     args = parser.parse_args()
+    saved = []
 
     real_marks = json.loads(REAL_MARKS_PATH.read_text())
     real_marks = {k: v for k, v in real_marks.items() if not k.startswith("_")}
+
+    # Never show any test essay to the specialists as an example -- built from
+    # the full test set, before any --ids/--limit filtering.
+    test_essay_texts = tuple(
+        fetch_json(int(k), "student_grade").get("studentOcrText", "") for k in real_marks
+    )
     if args.ids:
         wanted = args.ids.split(",")
         real_marks = {k: v for k, v in real_marks.items() if k in wanted}
@@ -113,6 +123,11 @@ def main():
             print(f"{record_id:<5} skipped -- no Question 4 AO4 thread data for lesson {lesson_id}")
             continue
 
+        examples = (
+            get_examples_by_band(scheme_fingerprint(question_data), exclude_texts=test_essay_texts)
+            if args.engine == "general" else None
+        )
+
         ao_raw = question_data["assessment_objectives"]["AO4"]
         ao = {
             "ao": "AO4",
@@ -134,11 +149,20 @@ def main():
             existing_score = final_result["result"]["score"]
             existing_band = final_result["result"]["breakdown"][0]["awardedBand"]
 
+        # The holistic level stored when this essay was originally marked --
+        # used only as the general engine's tie-breaker, so no extra paid call.
+        holistic_band = (student_grade.get("breakdown") or [{}])[0].get("awardedBand", "")
+        holistic_digits = "".join(ch for ch in holistic_band if ch.isdigit())
+        holistic_level = int(holistic_digits) if holistic_digits else None
+
         try:
             specialist_result = mark_ao_with_specialists(
                 question="In this extract, there is an attempt to create a sense of fear and helplessness. Evaluate how successfully this is achieved. Support your views with detailed references to the text.",
                 essay_text=essay_text,
                 ao=ao,
+                engine=args.engine,
+                holistic_level=holistic_level,
+                examples=examples,
             )
         except Exception as e:
             print(f"{record_id:<5} SPECIALIST RUN FAILED: {e}")
@@ -166,10 +190,31 @@ def main():
 
         print(f"{record_id:<5} {real_str:<14} {existing_str:<16} {specialist_str:<16} {per_thread_str:<34} {missing_str:<8} ${essay_cost:<7.4f} ${running_cost:<13.4f}")
 
+        saved.append({
+            "id": record_id,
+            "teacher_mark": real_mark,
+            "teacher_band": band_of(real_mark),
+            "holistic_level": holistic_level,
+            "marks": specialist_result["marks"],
+            "band": specialist_result["awarded_band"],
+            "tie_break": specialist_result.get("tie_break"),
+            "review_flag": specialist_result.get("review_flag"),
+            "examples_shown": len(examples or []),
+            "run_levels": specialist_result.get("run_levels"),
+            "threads": {k: per_thread_levels[k] for k in sorted(per_thread_levels)},
+            "samples": {k: samples_by_thread[k] for k in sorted(samples_by_thread)},
+            "cost": essay_cost,
+        })
+
     if total:
         print("-" * 95)
+        print(f"Engine: {args.engine}")
         print(f"Specialist-architecture band match rate: {matched}/{total} ({matched/total:.0%})")
         print(f"Total spend this run: ${running_cost:.4f} ({SPECIALIST_MODEL}, {total} essays)")
+
+    if args.out:
+        Path(args.out).write_text(json.dumps({"engine": args.engine, "results": saved}, indent=2))
+        print(f"Saved results to {args.out}")
 
 
 if __name__ == "__main__":

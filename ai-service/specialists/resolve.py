@@ -65,7 +65,11 @@ def resolve_specialist_final_result(specialist_result: dict, threads: dict) -> d
                 "summary": " ".join(summary_parts),
             }],
             "evidence": evidence,
-            "teacher_review_required": bool(specialist_result["missing_threads"]),
+            # Also flagged when the specialist runs disagree in a way that
+            # changes the final level (general engine only).
+            "teacher_review_required": bool(
+                specialist_result["missing_threads"] or specialist_result.get("review_flag")
+            ),
             "featured_evidence_by_thread": [],
         },
     }

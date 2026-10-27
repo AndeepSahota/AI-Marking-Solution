@@ -542,7 +542,9 @@ def generate_thread_specialist_response(
     thread_description,
     levels,
     expected_token,
+    temperature=0.0,
     include_performance=False,
+    examples=None,
 ):
     """Judge ONE thread against the real student response directly.
 
@@ -557,11 +559,12 @@ def generate_thread_specialist_response(
         student_response=student_response,
         thread_description=thread_description,
         levels=levels,
+        examples=examples,
     )
 
     try:
         response = client.chat.completions.parse(
-            **_specialist_model_kwargs(0.0),
+            **_specialist_model_kwargs(temperature),
             messages=[
                 {"role": "system", "content": THREAD_SPECIALIST_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
