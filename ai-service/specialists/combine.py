@@ -20,12 +20,18 @@ def _level_of(descriptor_id: str) -> int | None:
 
 
 def vote_levels(levels: list[int], holistic_level: int | None = None) -> tuple[int, str | None]:
-    """Majority vote over thread levels -> (level, how a tie was broken)."""
+    """Majority vote over thread levels -> (level, how a tie was broken).
+
+    With no holistic level: a two-way tie goes to the lower level, but a
+    three-way (or wider) split takes the middle one -- taking the lowest
+    turned threads at 5/3/1 into an overall Level 1 for a 15/15 answer."""
     counts = Counter(levels)
     top_count = max(counts.values())
     tied_levels = sorted(level for level, c in counts.items() if c == top_count)
     if len(tied_levels) > 1 and holistic_level is not None:
         return min(tied_levels, key=lambda level: (abs(level - holistic_level), level)), "holistic"
+    if len(tied_levels) >= 3:
+        return tied_levels[(len(tied_levels) - 1) // 2], "middle"
     return tied_levels[0], ("lower" if len(tied_levels) > 1 else None)
 
 
@@ -37,10 +43,11 @@ def combine_specialist_results(results: list[dict], holistic_level: int | None =
     Majority vote across the threads' levels. On a tie, the tied level
     closest to holistic_level wins (the holistic mark is already computed
     before the specialists run, so it costs nothing extra). With no
-    holistic_level, or when two tied levels are equally close to it, the
-    lower one wins -- the original "don't give the benefit of the doubt"
-    rule. Note: the holistic marker is the stage known to drift toward the
-    middle, so this tie-break leans ties toward the middle too.
+    holistic_level, a three-way split takes the middle level and a two-way
+    tie the lower one; when two tied levels are equally close to the
+    holistic level, the lower one wins. Note: the holistic marker is the
+    stage known to drift toward the middle, so this tie-break leans ties
+    toward the middle too.
 
     missing_threads: any thread whose specialist found zero evidence at all
     -- a plain fact worth surfacing, same as the existing missing-thread

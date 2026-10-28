@@ -12,12 +12,27 @@ single-choice specialist returned, so combine.py, resolve.py and the
 frontend need no changes.
 """
 
+from specialists.quote_match import closest_text, find_quote
+
+
+def _quote_failure(from_id, to_id, quote, student_response) -> str:
+    """Why a step's quote was rejected, with the nearest real essay text --
+    printed to the log and kept in the reasoning trail."""
+    if not quote:
+        return "no quote given"
+    nearest, similarity = closest_text(quote, student_response)
+    message = f"quote not found in essay: {quote!r}; closest essay text ({similarity:.0%} similar): {nearest!r}"
+    print(f"[QUOTE CHECK] {from_id} -> {to_id}: {message}", flush=True)
+    return message
+
 
 def resolve_level_from_steps(steps: list[dict], levels: list[dict], student_response: str) -> dict:
     """steps: the specialist's raw steps. levels: the thread's levels, lowest
     first, exactly as supplied to the specialist. student_response: the
     delimited text the specialist was given, used to reject any quote that
-    is not an exact substring of it.
+    is not in it (see specialists/quote_match.py for the copying slips that
+    are forgiven). Evidence records the student's own text, not the
+    specialist's copy of it.
 
     Steps are looked up by their (from, to) pair rather than trusted by
     position, so a missing, misordered or invented step is simply treated as
@@ -35,9 +50,10 @@ def resolve_level_from_steps(steps: list[dict], levels: list[dict], student_resp
         if step is None:
             reasoning.append(f"{from_id} -> {to_id}: step not returned; stopped here.")
             break
-        quote = step["quote"]
-        if not quote or quote not in student_response:
-            reasoning.append(f"{from_id} -> {to_id}: not earned. {step['explanation']}")
+        quote = find_quote(step["quote"], student_response)
+        if quote is None:
+            failure = _quote_failure(from_id, to_id, step["quote"], student_response)
+            reasoning.append(f"{from_id} -> {to_id}: not earned ({failure}). {step['explanation']}")
             break
         descriptor_id = to_id
         evidence.append({"quote": quote, "explanation": step["explanation"]})
@@ -96,12 +112,13 @@ def resolve_reference_level_from_steps(steps: list[dict], levels: list[dict], st
         if step is None:
             reasoning.append(f"{from_id} -> {to_id}: step not returned; stopped here.")
             break
-        quote = step["quote"]
+        quote = find_quote(step["quote"], student_response)
         what = step.get("what_student_does") or ""
         why = step.get("why_this_meets_criterion") or ""
         matched = step.get("descriptor_phrase_matched") or ""
-        if not quote or quote not in student_response:
-            reasoning.append(f"{from_id} -> {to_id}: not earned. No valid quote.")
+        if quote is None:
+            failure = _quote_failure(from_id, to_id, step["quote"], student_response)
+            reasoning.append(f"{from_id} -> {to_id}: not earned ({failure}).")
             break
         leaked = _leaks_descriptor_wording(what) or _leaks_descriptor_wording(why)
         explanation = f"{what} {why} (matches: {matched})".strip()

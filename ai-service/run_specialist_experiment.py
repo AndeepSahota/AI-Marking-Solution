@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 
 from rag_service import get_examples_by_band, scheme_fingerprint
+from security import ms_ocr_sanitisation
 from specialists.orchestrate import mark_ao_with_specialists
 
 _LEVEL = re.compile(r"-(\d+)[a-z]+$")
@@ -203,6 +204,14 @@ def main():
             "run_levels": specialist_result.get("run_levels"),
             "threads": {k: per_thread_levels[k] for k in sorted(per_thread_levels)},
             "samples": {k: samples_by_thread[k] for k in sorted(samples_by_thread)},
+            # Raw steps (with quotes) for every sample of every thread, plus
+            # the sanitised essay they were checked against -- so changes to
+            # the quote check can be re-run offline.
+            "sample_steps": {
+                r["thread_key"]: r.get("sample_steps") or [r.get("steps")]
+                for r in specialist_result["per_thread"]
+            },
+            "essay_text": ms_ocr_sanitisation.sanitize(essay_text),
             "cost": essay_cost,
         })
 

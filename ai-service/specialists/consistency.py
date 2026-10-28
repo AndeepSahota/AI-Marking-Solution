@@ -127,6 +127,10 @@ def _median_of_samples(generate, question, sanitized_essay, thread_description, 
     return {
         **representative,
         "sample_levels": sample_levels,
+        # Every sample's raw steps (quotes included), not just the
+        # representative's -- lets a quote-check change be re-tested on saved
+        # results without paying for new calls.
+        "sample_steps": [s.get("steps") for s in samples],
         "usage": {
             "prompt_tokens": total_prompt_tokens,
             "completion_tokens": total_completion_tokens,
