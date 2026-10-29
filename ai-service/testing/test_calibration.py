@@ -71,6 +71,47 @@ class CalibrationLookupTests(unittest.TestCase):
         self.assertIsNone(calibration_for(ao))
 
 
+class RunsPerThreadTests(unittest.TestCase):
+    AO = {
+        "ao": "AO4", "marks_available": 15, "band_marks": BAND_MARKS,
+        "threads": {k: {"thread_description": k, "levels": [{"descriptor_id": f"ao4-{n}{k}"} for n in (1, 2, 3)]} for k in "abc"},
+    }
+
+    def _run(self, mode, calibration):
+        calls = []
+
+        def fake_specialist(**kwargs):
+            calls.append(kwargs["n_samples"])
+            key = kwargs["thread_description"]
+            return {"descriptor_id": f"ao4-3{key}", "evidence": [{"quote": "q", "explanation": "e"}],
+                    "sample_levels": [3] * kwargs["n_samples"], "usage": {}}
+
+        saved = (orchestrate._COMBINE_MODE, orchestrate.calibration_for, orchestrate.generate_thread_specialist_response_consistent)
+        orchestrate._COMBINE_MODE = mode
+        orchestrate.calibration_for = lambda ao: calibration
+        orchestrate.generate_thread_specialist_response_consistent = fake_specialist
+        try:
+            result = orchestrate.mark_ao_with_specialists("q", "essay", self.AO, engine="general")
+        finally:
+            orchestrate._COMBINE_MODE, orchestrate.calibration_for, orchestrate.generate_thread_specialist_response_consistent = saved
+        return calls, result
+
+    def test_calibrated_mode_runs_each_thread_six_times(self):
+        calls, result = self._run(orchestrate.COMBINE_CALIBRATED, CALIBRATION)
+        self.assertEqual(calls, [6, 6, 6])
+        self.assertEqual(result["combine_mode"], "calibrated")
+
+    def test_vote_mode_keeps_three_runs(self):
+        calls, result = self._run(orchestrate.COMBINE_VOTE, CALIBRATION)
+        self.assertEqual(calls, [3, 3, 3])
+        self.assertEqual(result["combine_mode"], "vote")
+
+    def test_calibrated_mode_without_boundaries_falls_back_to_three_runs_and_vote(self):
+        calls, result = self._run(orchestrate.COMBINE_CALIBRATED, None)
+        self.assertEqual(calls, [3, 3, 3])
+        self.assertEqual(result["combine_mode"], "vote")
+
+
 class SwitchTests(unittest.TestCase):
     def test_default_is_majority_vote(self):
         self.assertEqual(orchestrate.COMBINE_VOTE, "vote")

@@ -60,6 +60,13 @@ COMBINE_VOTE = "vote"
 COMBINE_CALIBRATED = "calibrated"
 _COMBINE_MODE = os.getenv("SPECIALIST_COMBINE", COMBINE_VOTE)
 
+# Calibrated mode runs each thread twice as often (two lots of 3, averaged):
+# a single lot's fine score moved ~0.15 between runs -- more than the gap
+# between levels -- and averaging two lots took leave-one-out from 13-16/18
+# (depending on the run) to 16/18, with the near-boundary flag catching
+# every remaining miss.
+_CALIBRATED_SAMPLES = 6
+
 # Descriptor IDs the level-climbing code can parse. Real stored schemes
 # include OCR misreads such as "a05-4a" (zero for the letter O) -- anything
 # that doesn't match is refused rather than guessed at.
@@ -201,6 +208,8 @@ def _mark_ao_general(
     examples: list[dict] | None,
 ) -> dict:
     sanitized = ms_ocr_sanitisation.sanitize(essay_text)
+    calibration = calibration_for(ao) if _COMBINE_MODE == COMBINE_CALIBRATED else None
+    n_samples = _CALIBRATED_SAMPLES if calibration else _GENERAL_SAMPLES
 
     per_thread_results = []
     total_prompt_tokens = 0
@@ -211,7 +220,7 @@ def _mark_ao_general(
             sanitized_essay=sanitized,
             thread_description=thread["thread_description"],
             levels=_levels_lowest_first(thread["levels"]),
-            n_samples=_GENERAL_SAMPLES,
+            n_samples=n_samples,
             temperature=_GENERAL_TEMPERATURE,
             examples=examples,
         )
@@ -227,7 +236,6 @@ def _mark_ao_general(
     result["review_flag"] = len(set(result["run_levels"])) > 1
     result["combine_mode"] = COMBINE_VOTE
 
-    calibration = calibration_for(ao) if _COMBINE_MODE == COMBINE_CALIBRATED else None
     if calibration:
         calibrated = combine_calibrated(
             per_thread_levels=[_level_number(entry["descriptor_id"]) for entry in per_thread_results],
