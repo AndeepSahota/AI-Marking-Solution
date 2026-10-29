@@ -1,10 +1,8 @@
 """Prompt for the "reference selection and support" thread specialist
 specifically.
 
-Diagnostic finding (2026-10-15, see
-scripts/thread_c_descriptor_echo_diagnosis.txt and
-scripts/thread_c_raw_response_1020.json for the real, unedited model
-output): whichever way a step goes -- earned or not -- this thread's
+Diagnostic finding (2026-10-15; the raw model output is kept outside the
+repo, as it quotes student essays): whichever way a step goes -- earned or not -- this thread's
 explanations kept reusing the exact phrase from the level descriptor it
 was shown (e.g. "appropriate and relevant to the points being made",
 copied almost verbatim from the Level 3 text) instead of giving an

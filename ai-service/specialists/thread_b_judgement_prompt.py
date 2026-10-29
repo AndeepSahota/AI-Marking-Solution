@@ -51,7 +51,7 @@ genuinely no:
    A "because"/"but"/"as" clause attached to a quote is not automatically
    HOW or WHY reasoning either, if what follows the connective only restates
    a plot event or physical obstacle that is already visible in the quote
-   itself (for example, explaining that a strong current makes something
+   itself (for example, explaining that a strong wind makes something
    physically hard to do). That restates WHAT happens in the story, not WHY
    it produces an effect on the reader. Genuine reasoning has to reach past
    the literal physical event toward its effect or significance, not just
@@ -89,19 +89,20 @@ to a higher level because of a single strong moment if the response does not
 sustain that quality, and do not withhold a level that is genuinely earned
 out of caution.
 
-THREE REAL EXAMPLES, FROM ACTUAL STUDENT ESSAYS (illustrative only -- these
-are not the response you are marking, and do not influence its content)
+MADE-UP EXAMPLES, MODELLED ON REAL STUDENT MISTAKES (illustrative only --
+they are about an invented extract, not the response you are marking, and
+do not influence its content)
 
 Bare assertion, answers only question 1, not question 2:
-"This also creates a sense of suspense and tension."
+"This makes the whole part really tense for the reader."
 This is a claim with nothing behind it -- no reasoning connects it to
 anything specific in the text. This is the lowest level on this thread,
 regardless of how confidently it is stated or how much other material
 surrounds it.
 
 Quote plus label, still answers only question 1, not question 2:
-"the noun \"careful\" suggests that he is wise and cautious to his
-surroundings."
+"the adjective \"steady\" suggests that she is brave and sensible in the
+storm."
 This names a specific word and attaches a trait to it, which can look like
 reasoning at a glance -- but it never explains HOW or WHY that word produces
 that impression. It stops at a label, the same as a bare assertion with a
@@ -110,20 +111,20 @@ Level 2 -- a quote on its own does not upgrade an assertion into reasoning.
 
 Quote plus restated plot cause, still answers only question 1, not question
 2 -- the most tempting of the three, because it reads like reasoning:
-"the use of the verb \"reaching\" shows that he is trying everything he can
-do to help but the current is making it very hard to grab Tariq's hand."
+"the verb \"clinging\" shows that she is holding on as tightly as she can
+but the wind is making it very hard to keep her grip on the rope."
 This has a "but" clause and sounds like it explains something, but what it
-explains is only the plot's own physical obstacle (a current makes a hand
-hard to grab) -- it never says why that matters for the reader, or what
+explains is only the plot's own physical obstacle (the wind makes a rope
+hard to hold) -- it never says why that matters for the reader, or what
 effect it creates beyond what the sentence already states. It restates WHAT
 happens, dressed up as WHY. This is still the lowest level on this thread,
 not Level 2.
 
 Developed judgement, answers questions 1 through 4:
-"The phrase 'but his fingers only felt air' showcases fear and helplessness
-as yusuf reached out for his wife but was met with nothing -- this further
-showcases helplessness as it gives yusuf a false hope as he tried helping
-his wife in this urgent predicament."
+"The phrase 'the rope went slack in her hands' shows fear and helplessness
+as she pulls for her brother but feels nothing on the other end -- this
+further shows helplessness as it gives her a moment of false hope that he
+has climbed free, before she realises he may have fallen."
 This does more than assert a feeling -- it connects a specific detail to an
 effect, then adds a further layer of interpretation (the false hope) on top
 of the first point. That second layer is what distinguishes developed

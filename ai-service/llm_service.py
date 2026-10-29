@@ -697,8 +697,8 @@ def generate_reference_specialist_response(
     copied almost verbatim from the Level 3 text) instead of giving an
     independent reason tied to the actual quote. Suspected to be why this
     thread's answers flip between adjacent levels on repeated identical
-    runs -- see scripts/thread_c_descriptor_echo_diagnosis.txt and
-    scripts/thread_c_raw_response_1020.json for the real evidence.
+    runs (diagnosis notes kept outside the repo, as they quote student
+    essays).
 
     Different output schema from the generic specialist: ReferenceStepResult
     splits "explanation" into "what_student_does", "why_this_meets_criterion"

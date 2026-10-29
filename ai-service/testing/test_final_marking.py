@@ -58,7 +58,7 @@ def inputs():
     }}}
     aggregation = {"status": "complete", "result": {
         "evidence": [{
-            "quote": ' The verb "quiet" suggests ~~that the~~ a sense of fear. ',
+            "quote": ' The word "silent" hints ~~at the~~ a feeling of dread. ',
             "descriptor_ids": ["ao4-2a", "ao4-1a", "ao4-1b"],
         }],
     }}

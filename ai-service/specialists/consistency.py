@@ -76,8 +76,8 @@ def generate_reference_specialist_response_consistent(
     evidence this is needed, not a guess: running the same essay through
     this thread's prompt 3 times in a row (even after sharpening its
     wording twice) still produced two different answers across adjacent
-    levels. See scripts/thread_c_descriptor_echo_diagnosis.txt for the
-    real evidence this instability isn't a one-directional bias, which is
+    levels. The diagnosis (kept outside the repo, as it quotes student
+    essays) showed this instability isn't a one-directional bias, which is
     what makes a median vote the right tool here rather than another
     prompt rewrite.
     """

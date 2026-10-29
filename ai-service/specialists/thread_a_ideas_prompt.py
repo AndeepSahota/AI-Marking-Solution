@@ -1,7 +1,8 @@
 """Prompt for the "ideas, events, themes or settings" thread specialist
 specifically.
 
-Diagnostic finding (2026-10-14, see scripts/thread_a_level1_diagnosis.txt):
+Diagnostic finding (2026-10-14; notes kept outside the repo, as they quote
+student essays):
 across the 7 real essays with a genuine Level-1 mark, this thread wrongly
 climbed to Level 2 on 3 of them. Every wrong case had the identical shape:
 a quote followed by an interpretive verb ("suggests"/"shows"/"creates") and
@@ -113,23 +114,24 @@ A passage can pass test 1 (quote contains its own explanation) while still
 being a flat restatement with no real content -- always check all four, not
 just one.
 
-FOUR REAL EXAMPLES, FROM ACTUAL STUDENT ESSAYS (illustrative only -- these
-are not the response you are marking, and do not influence its content)
+FOUR MADE-UP EXAMPLES, MODELLED ON REAL STUDENT MISTAKES (illustrative only
+-- they are about an invented extract, not the response you are marking,
+and do not influence its content)
 
 Fails all four tests, earns nothing beyond the entry step:
-"the noun \"careful\" suggests that he is wise and cautious to his
-surroundings."
-So-what: no real answer -- "wise and cautious" is the full extent of it.
+"the adjective \"steady\" suggests that she is brave and sensible in the
+storm."
+So-what: no real answer -- "brave and sensible" is the full extent of it.
 Swap: this sentence could follow almost any adjective in any essay. Effect:
 states a character fact only. Build: lands once and stops.
 
 Fails all four tests -- echoes the question's own key terms, not real
 commentary:
-"The narrator creates a sense of fear and helplessness by showing how
-worried the wife was and she tried helping him."
+"The writer creates a sense of fear and helplessness because the brother
+was scared and he shouted for help."
 So-what: strip away "creates a sense of fear and helplessness" (the
-question's own phrase) and what's left is only a plot detail (she was
-worried, she tried to help). Swap: this sentence's structure could be
+question's own phrase) and what's left is only a plot detail (he was
+scared, he shouted for help). Swap: this sentence's structure could be
 attached to almost any character's reaction in almost any extract. Effect:
 restates what happens, not why it produces fear or helplessness. Build:
 one claim, no further layer.
@@ -137,30 +139,29 @@ one claim, no further layer.
 Fails test 3 specifically (effect, not fact) -- a quote CAN contain its own
 explanation (see the passing example below), but restating physical
 difficulty is not the same as reaching for emotional effect:
-"the use of the verb \"reaching\" shows that he is trying everything he
-can do to help but the current is making it very hard to grab Tariq's
-hand."
+"the verb \"clinging\" shows that she is holding on as tightly as she can
+but the wind is making it very hard to keep her grip on the rope."
 So-what: there IS a clause after the verb, which can look like it passes
 test 1 -- but read what that clause actually says: it describes physical
-effort and difficulty, not fear or helplessness. Swap: "trying everything
-he can but X is making it hard" fits almost any physical struggle in any
-story. Effect: this is still a plot fact (what he is doing, what is
-stopping him), not an explanation of the feeling it produces. Build: one
-claim, no further layer. Compare directly to the passing example below --
-both quote a verb and add a clause, but only one clause actually reaches
-toward fear/helplessness rather than just restating what is physically
-happening.
+effort and difficulty, not fear or helplessness. Swap: "holding on as
+tightly as she can but X is making it hard" fits almost any physical
+struggle in any story. Effect: this is still a plot fact (what she is
+doing, what is stopping her), not an explanation of the feeling it
+produces. Build: one claim, no further layer. Compare directly to the
+passing example below -- both quote a detail and add a clause, but only one
+clause actually reaches toward fear/helplessness rather than just
+restating what is physically happening.
 
 Passes all four tests, earns the step:
-"The phrase 'but his fingers only felt air' showcases fear and helplessness
-as yusuf reached out for his wife but was met with nothing -- this further
-showcases helplessness as it gives yusuf a false hope as he tried helping
-his wife in this urgent predicament."
-So-what: the quote's own "as... was met with nothing" already explains why
-the phrase produces fear. Swap: tied specifically to this moment and this
-quote, not generic. Effect: reaches toward the feeling the detail produces,
-not just a fact. Build: adds a second layer ("false hope") on top of the
-first point.
+"The phrase 'the rope went slack in her hands' shows fear and helplessness
+as she pulls for her brother but feels nothing on the other end -- this
+further shows helplessness as it gives her a moment of false hope that he
+has climbed free, before she realises he may have fallen."
+So-what: the student's own "feels nothing on the other end" already
+explains why the phrase produces fear. Swap: tied specifically to this
+moment and this quote, not generic. Effect: reaches toward the feeling the
+detail produces, not just a fact. Build: adds a second layer ("false hope")
+on top of the first point.
 
 Do not invent a passage to avoid a null quote -- an honest null is correct
 when nothing in the response demonstrates the difference.
