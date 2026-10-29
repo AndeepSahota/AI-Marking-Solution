@@ -86,6 +86,7 @@ def main():
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--ids", default=None, help="comma-separated record ids, e.g. the smoke set")
     parser.add_argument("--engine", default="current", choices=["current", "general"])
+    parser.add_argument("--no-examples", action="store_true", help="general engine without the example store")
     parser.add_argument("--out", default=None, help="save per-essay results as JSON (for compare_engines.py)")
     args = parser.parse_args()
     saved = []
@@ -126,7 +127,7 @@ def main():
 
         examples = (
             get_examples_by_band(scheme_fingerprint(question_data), exclude_texts=test_essay_texts)
-            if args.engine == "general" else None
+            if args.engine == "general" and not args.no_examples else None
         )
 
         ao_raw = question_data["assessment_objectives"]["AO4"]
