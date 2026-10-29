@@ -11,6 +11,7 @@ import re
 
 from security import ms_ocr_sanitisation
 from llm_service import generate_thread_specialist_response, generate_idea_specialist_response
+from specialists.calibration import calibration_for, combine_calibrated, fine_score
 from specialists.combine import combine_specialist_results, mark_for_level, vote_levels
 
 from specialists.consistency import (
@@ -49,6 +50,15 @@ ENGINE_GENERAL = "general"
 # evidence of real sample diversity), median vote.
 _GENERAL_SAMPLES = 3
 _GENERAL_TEMPERATURE = 0.5
+
+# How the general engine turns thread levels into one mark. "vote" (default)
+# is majority vote. "calibrated" averages every run of every thread into one
+# fine score and cuts it at boundaries learned from teacher-marked essays on
+# the same mark scheme (specialists/calibrations.json); schemes with no
+# learned boundaries still use the vote.
+COMBINE_VOTE = "vote"
+COMBINE_CALIBRATED = "calibrated"
+_COMBINE_MODE = os.getenv("SPECIALIST_COMBINE", COMBINE_VOTE)
 
 # Descriptor IDs the level-climbing code can parse. Real stored schemes
 # include OCR misreads such as "a05-4a" (zero for the letter O) -- anything
@@ -215,7 +225,30 @@ def _mark_ao_general(
     result = _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)
     result["run_levels"] = _complete_run_levels(per_thread_results, holistic_level)
     result["review_flag"] = len(set(result["run_levels"])) > 1
+    result["combine_mode"] = COMBINE_VOTE
+
+    calibration = calibration_for(ao) if _COMBINE_MODE == COMBINE_CALIBRATED else None
+    if calibration:
+        calibrated = combine_calibrated(
+            per_thread_levels=[_level_number(entry["descriptor_id"]) for entry in per_thread_results],
+            score=fine_score(per_thread_results),
+            band_marks=ao["band_marks"],
+            calibration=calibration,
+        )
+        result.update({
+            "awarded_band": calibrated["band"],
+            "marks": calibrated["marks"],
+            "fine_score": calibrated["fine_score"],
+            # Replaces the run-disagreement flag: on the 18 test essays,
+            # sitting near a learned boundary caught the misses far better.
+            "review_flag": calibrated["near_boundary"],
+            "combine_mode": COMBINE_CALIBRATED,
+        })
     return result
+
+
+def _level_number(descriptor_id: str) -> int:
+    return int(_LEVEL_NUMBER.search(descriptor_id).group(1))
 
 
 def _complete_run_levels(per_thread_results: list[dict], holistic_level: int | None) -> list[int]:

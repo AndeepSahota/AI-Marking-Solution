@@ -1,0 +1,10 @@
+{
+  "9e3703bc1e37b448": {
+    "description": "AO4, Q4 'fear and helplessness' (5 levels, 15 marks)",
+    "cuts": [2.1667, 2.3889, 2.8333],
+    "near_boundary_margin": 0.1,
+    "fitted_on": "18 teacher-marked essays, general engine with no examples, run of 2026-10-29",
+    "essays_per_level": {"1": 9, "2": 2, "3": 5, "4": 2, "5": 0},
+    "notes": "Leave-one-out: 16/18 right level (vs 8/18 majority vote), 15/18 on a second run. The L1/L2 and L3/L4 cuts each rest on 2 essays; no Level 5 essays, so there is no L4/L5 cut. Fine scores move ~0.15 between runs, hence the 0.1 near-boundary margin."
+  }
+}

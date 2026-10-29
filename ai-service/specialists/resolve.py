@@ -18,6 +18,12 @@ def _level_of(descriptor_id: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _combine_description(specialist_result: dict) -> str:
+    if specialist_result.get("combine_mode") == "calibrated":
+        return "by a calibrated score against teacher-marked essays"
+    return "by majority vote"
+
+
 def resolve_specialist_final_result(specialist_result: dict, threads: dict) -> dict:
     """specialist_result: the dict returned by mark_ao_with_specialists().
     threads: the same ao["threads"] dict passed into mark_ao_with_specialists,
@@ -55,7 +61,7 @@ def resolve_specialist_final_result(specialist_result: dict, threads: dict) -> d
             "max_score_delta": 0,
             "summary": (
                 f"Marked by independent specialists, one per thread, combined "
-                f"by majority vote: {specialist_result['awarded_band']}."
+                f"{_combine_description(specialist_result)}: {specialist_result['awarded_band']}."
             ),
             "breakdown": [{
                 "section": specialist_result["ao"],
