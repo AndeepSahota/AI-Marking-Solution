@@ -5131,3 +5131,26 @@ body::after {
     align-self: center;
   }
 }
+
+/* ── Feedback: one reason per skill (components/ResultCard.jsx) ── */
+.breakdown-skill-reasons {
+  list-style: none;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.breakdown-skill-reasons li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.breakdown-skill-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}

@@ -9,8 +9,8 @@ import {
     chooseBlind,
     levelsFor,
     selectedQuestionExtraction,
-    stripEngineInternals,
 } from '../services/reviewService.js'
+import { teacherFacingEnvelope, teacherFacingResult } from '../services/teacherFacing.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
 import { getOcrFromAI, getMarkFromAIWithSchemeText } from '../services/aiService.js'
@@ -370,12 +370,12 @@ router.get('/:lessonId/results', async (req, res, next) => {
             .map(r => ({
                 studentId: r.student_id,
                 markedAt: r.marked_at,
-                result: JSON.parse(r.student_grade),
+                result: teacherFacingResult(JSON.parse(r.student_grade)),
                 aggregation: r.aggregation_result
-                    ? JSON.parse(r.aggregation_result)
+                    ? teacherFacingEnvelope(JSON.parse(r.aggregation_result))
                     : null,
                 finalResult: r.final_result
-                    ? stripEngineInternals(JSON.parse(r.final_result))
+                    ? teacherFacingEnvelope(JSON.parse(r.final_result))
                     : null,
             }))
         res.json({ results, blindPendingStudentIds: blindPending, reviewAvailable })

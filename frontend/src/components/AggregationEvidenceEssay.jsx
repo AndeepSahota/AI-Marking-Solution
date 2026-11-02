@@ -11,16 +11,6 @@ const COLORS = [
   { bg: 'rgba(139,92,246,0.20)', border: '#a78bfa' },
 ]
 
-function descriptorIdsForEvidence(evidence) {
-  const descriptorIds = evidence.descriptorIds ?? evidence.descriptor_ids
-  if (Array.isArray(descriptorIds)) {
-    return [...new Set(descriptorIds.filter(Boolean).map(String))]
-  }
-
-  const legacyDescriptorId = evidence.descriptorId ?? evidence.descriptor_id
-  return legacyDescriptorId ? [String(legacyDescriptorId)] : []
-}
-
 function flattenAggregationEvidence(aggregationResult) {
   return (aggregationResult?.evidence ?? [])
     .map((evidence, evidenceIndex) => ({
@@ -28,7 +18,6 @@ function flattenAggregationEvidence(aggregationResult) {
       quote: evidence.quote ?? '',
       explanation: evidence.explanation ?? '',
       summary: evidence.summary ?? '',
-      descriptorIds: descriptorIdsForEvidence(evidence),
     }))
     .map((card, colorIndex) => ({ ...card, colorIndex }))
 }
@@ -94,7 +83,7 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
 
   return (
     <section className="descriptor-evidence-wrap" aria-label="Marking evidence in student response">
-      <div className="annotated-section-label descriptor-evidence-heading">Descriptor Evidence</div>
+      <div className="annotated-section-label descriptor-evidence-heading">Evidence</div>
       <div
         className="descriptor-evidence-body descriptor-evidence-body--alternating"
         ref={containerRef}
@@ -122,9 +111,6 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                     else highlightRefs.current.delete(card.id)
                   }}
                   style={{ background: color.bg, borderBottomColor: color.border }}
-                  title={card.descriptorIds.length > 0
-                    ? `Descriptors: ${card.descriptorIds.join(', ')}`
-                    : 'Descriptor unavailable'}
                 >
                   {renderOcrText(segment.content, `highlight-${card.id}`)}
                   <span className="descriptor-evidence-badge" style={{ background: color.border }}>
@@ -156,17 +142,6 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
                   <span className="descriptor-evidence-card-number" style={{ background: color.border }}>
                     {card.colorIndex + 1}
                   </span>
-                  <div className="descriptor-evidence-card-ids">
-                    {card.descriptorIds.length > 0 ? (
-                      card.descriptorIds.map(descriptorId => (
-                        <code key={descriptorId} className="descriptor-evidence-card-id">
-                          {descriptorId}
-                        </code>
-                      ))
-                    ) : (
-                      <code className="descriptor-evidence-card-id">Descriptor unavailable</code>
-                    )}
-                  </div>
                 </div>
                 {card.summary ? (
                   <>

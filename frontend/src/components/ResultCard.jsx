@@ -13,6 +13,7 @@ function descriptorsForBreakdownItem(scheme, item) {
 function ResultCard({ studentName, result, scheme }) {
   const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
   const showAoScores = Array.isArray(result.breakdown) && result.breakdown.length > 1
+  const skillReasons = result.engine?.threads ?? []
 
   const getGradeColour = (pct) => {
     if (pct >= 70) return '#10b981'
@@ -87,6 +88,18 @@ function ResultCard({ studentName, result, scheme }) {
                     {(item.summary || item.reason) && (
                       <p className="breakdown-summary">{item.summary || item.reason}</p>
                     )}
+                    {/* One plain-English reason per skill from the marking
+                        engine, in place of per-skill levels. */}
+                    {!showAoScores && skillReasons.length > 0 && (
+                      <ul className="breakdown-skill-reasons">
+                        {skillReasons.map(skill => (
+                          <li key={skill.label}>
+                            <span className="breakdown-skill-label">{skill.label}</span>
+                            <span>{skill.reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   {showAoScores && (
                     <span className="breakdown-score">{item.marks} / {item.maxMarks}</span>
@@ -102,11 +115,9 @@ function ResultCard({ studentName, result, scheme }) {
                     {descriptors.map((descriptor, descriptorIndex) => {
                       const isStructured = descriptor && typeof descriptor === 'object'
                       const text = isStructured ? descriptor.text : descriptor
-                      const id = isStructured ? descriptor.id : null
 
                       return (
-                        <li key={id ?? descriptorIndex} className="breakdown-descriptor">
-                          {id && <code className="breakdown-descriptor-id">{id}</code>}
+                        <li key={descriptorIndex} className="breakdown-descriptor">
                           <span>{text}</span>
                         </li>
                       )
