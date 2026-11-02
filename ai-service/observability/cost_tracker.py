@@ -7,7 +7,9 @@ without each LLM call having to report its own usage.
 
 Prices are OpenAI list prices in US dollars per million tokens. Models not
 listed are counted but priced as unknown rather than guessed. Datalab (the
-handwriting OCR) is priced only if DATALAB_COST_PER_PAGE_USD is set.
+handwriting OCR) is priced per page: the Extract API's list price in its
+default "balanced" mode, unless DATALAB_COST_PER_PAGE_USD overrides it (for
+a negotiated rate, or if the mode changes).
 """
 
 import contextvars
@@ -19,6 +21,10 @@ _PRICES_PER_MILLION = {
     "gpt-4o": (2.50, 1.25, 10.00),
     "text-embedding-3-small": (0.02, 0.02, 0.0),
 }
+
+# Datalab Extract, "balanced" (the default mode; student_ocr_service sends no
+# mode): $15 per 1,000 pages, from documentation.datalab.to, November 2026.
+_DATALAB_PER_PAGE_USD = 0.015
 
 _current = contextvars.ContextVar("essay_cost", default=None)
 _stage = contextvars.ContextVar("cost_stage", default="other")
@@ -40,6 +46,14 @@ def _price(model: str):
         if model.startswith(prefix):
             return _PRICES_PER_MILLION[prefix]
     return None
+
+
+def _datalab_per_page() -> float:
+    override = os.getenv("DATALAB_COST_PER_PAGE_USD")
+    try:
+        return float(override) if override else _DATALAB_PER_PAGE_USD
+    except ValueError:
+        return _DATALAB_PER_PAGE_USD
 
 
 def record_openai(model: str, prompt_tokens: int, cached_tokens: int, completion_tokens: int) -> None:
@@ -81,17 +95,16 @@ def summary() -> dict | None:
         for key in ("prompt_tokens", "cached_tokens", "completion_tokens"):
             entry[key] += call[key]
 
-    per_page = os.getenv("DATALAB_COST_PER_PAGE_USD")
-    datalab_cost = float(per_page) * current["datalab_pages"] if per_page else None
+    datalab_cost = _datalab_per_page() * current["datalab_pages"]
     openai_cost = sum(entry["cost_usd"] for entry in by_stage.values())
     for entry in by_stage.values():
         entry["cost_usd"] = round(entry["cost_usd"], 4)
     return {
         "openai_usd": round(openai_cost, 4),
-        "datalab_usd": round(datalab_cost, 4) if datalab_cost is not None else None,
+        "datalab_usd": round(datalab_cost, 4),
         "datalab_pages": current["datalab_pages"],
-        "total_usd": round(openai_cost + (datalab_cost or 0.0), 4),
-        "total_is_complete": datalab_cost is not None and not unpriced,
+        "total_usd": round(openai_cost + datalab_cost, 4),
+        "total_is_complete": not unpriced,
         "unpriced_models": sorted(unpriced),
         "by_stage": by_stage,
     }
@@ -101,6 +114,6 @@ def log_line(result: dict | None) -> str:
     if not result:
         return "[COST] not tracked"
     stages = ", ".join(f"{name} ${v['cost_usd']:.4f} ({v['calls']} calls)" for name, v in result["by_stage"].items())
-    datalab = f"${result['datalab_usd']:.4f}" if result["datalab_usd"] is not None else f"price not set ({result['datalab_pages']} page(s))"
+    datalab = f"${result['datalab_usd']:.4f} ({result['datalab_pages']} page(s))"
     note = "" if result["total_is_complete"] else " [incomplete: some costs unknown]"
     return f"[COST] essay total ${result['total_usd']:.4f}{note} | OpenAI ${result['openai_usd']:.4f}: {stages} | OCR: {datalab}"

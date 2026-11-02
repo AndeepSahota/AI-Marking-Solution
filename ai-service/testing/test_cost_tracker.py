@@ -39,13 +39,16 @@ class CostTrackerTests(unittest.TestCase):
         self.assertEqual(result["unpriced_models"], ["gpt-6-luna"])
         self.assertFalse(result["total_is_complete"])
 
-    def test_ocr_cost_unknown_until_a_page_price_is_set(self):
+    def test_ocr_priced_at_the_list_price_unless_overridden(self):
         cost_tracker.record_datalab(2)
-        self.assertIsNone(cost_tracker.summary()["datalab_usd"])
-        os.environ["DATALAB_COST_PER_PAGE_USD"] = "0.01"
         result = cost_tracker.summary()
-        self.assertAlmostEqual(result["datalab_usd"], 0.02)
+        self.assertAlmostEqual(result["datalab_usd"], 0.03)
         self.assertTrue(result["total_is_complete"])
+        self.assertIn("$0.0300 (2 page(s))", cost_tracker.log_line(result))
+        os.environ["DATALAB_COST_PER_PAGE_USD"] = "0.01"
+        self.assertAlmostEqual(cost_tracker.summary()["datalab_usd"], 0.02)
+        os.environ["DATALAB_COST_PER_PAGE_USD"] = "not a number"
+        self.assertAlmostEqual(cost_tracker.summary()["datalab_usd"], 0.03)
         os.environ.pop("DATALAB_COST_PER_PAGE_USD")
 
     def test_nothing_recorded_outside_a_marking_request(self):
