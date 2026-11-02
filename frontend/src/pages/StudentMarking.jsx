@@ -7,6 +7,7 @@ import {
   getResultPresence,
   getMarkingJobStatuses,
   getUploadUrl,
+  completeUpload,
   uploadToBlob,
   markStudentWork,
 } from '../services/api'
@@ -248,6 +249,7 @@ function StudentMarking() {
       )
 
       await uploadToBlob(uploadUrl, file)
+      await completeUpload(lessonId, studentId)
 
       // A successful PUT means only that the Blob upload completed.
       // No marking is triggered here.

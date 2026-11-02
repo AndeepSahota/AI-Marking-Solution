@@ -88,7 +88,7 @@ export async function findStudentUpload(teacherId, lessonId, studentId) {
     const prefix = `${teacherId}/${lessonId}/${studentId}/`
     let latestBlob = null
 
-    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+    for await (const blob of containerClient.listBlobsFlat({ prefix, includeMetadata: true })) {
         const relativeName = blob.name.slice(prefix.length)
 
         if (!relativeName) continue
@@ -118,6 +118,51 @@ export async function findStudentUpload(teacherId, lessonId, studentId) {
         blobName: latestBlob.name,
         fileName: latestBlob.name.slice(prefix.length),
         mimeType: latestBlob.properties.contentType || 'application/octet-stream',
+        cleaned: latestBlob.metadata?.[CLEANED_KEY] === CLEANED_VERSION,
+    }
+}
+
+// Set on a Blob once its metadata (GPS, camera details, PDF author...) has
+// been stripped -- see services/uploadCleaner.js.
+const CLEANED_KEY = 'metadatastripped'
+const CLEANED_VERSION = '1'
+
+// Stores the cleaned file as the student's only upload: writes it under
+// cleanedName, then deletes every other Blob for the student (the original
+// and any earlier uploads it replaced), so no uncleaned copy is kept.
+export async function replaceStudentUpload(teacherId, lessonId, studentId, cleanedName, buffer, contentType) {
+    const cleanedBlobName = blobPathFor(teacherId, lessonId, studentId, cleanedName)
+    await containerClient.getBlockBlobClient(cleanedBlobName).uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: contentType },
+        metadata: { [CLEANED_KEY]: CLEANED_VERSION },
+    })
+    await keepOnlyStudentUpload(teacherId, lessonId, studentId, cleanedBlobName)
+}
+
+// Deletes every Blob for the student except keepBlobName.
+export async function keepOnlyStudentUpload(teacherId, lessonId, studentId, keepBlobName) {
+    const prefix = `${teacherId}/${lessonId}/${studentId}/`
+    for await (const blob of containerClient.listBlobsFlat({ prefix })) {
+        if (blob.name !== keepBlobName) await containerClient.deleteBlob(blob.name)
+    }
+}
+
+export async function deleteStudentUpload(blobName) {
+    await containerClient.deleteBlob(blobName)
+}
+
+// Every student Blob, for the one-off clean-up of uploads stored before
+// cleaning existed (blob/clean-existing-uploads.mjs).
+export async function* listAllStudentUploads() {
+    for await (const blob of containerClient.listBlobsFlat({ includeMetadata: true })) {
+        const [teacherId, lessonId, studentId, ...rest] = blob.name.split('/')
+        if (!rest.length) continue
+        yield {
+            teacherId: Number(teacherId),
+            lessonId: Number(lessonId),
+            studentId: Number(studentId),
+            cleaned: blob.metadata?.[CLEANED_KEY] === CLEANED_VERSION,
+        }
     }
 }
 // Taking the prefix defined at the top, we loop through the entirety of that blob, and 

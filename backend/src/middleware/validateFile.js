@@ -1,45 +1,13 @@
 import { fileTypeFromBuffer } from 'file-type'
-import sharp from 'sharp'
-import heicConvert from 'heic-convert'
 import config from '../config/index.js'
 import { logCheck } from '../logging/fileLogger.js'
-import { stripPdfMetadata } from './validatePdf.js'
+import { stripMetadata } from './stripMetadata.js'
 
 function secLog(req, slot, check, status, detail) {
     logCheck(req, slot, check, status, detail)
     if (process.env.NODE_ENV !== 'production') {
         req._securityLog.push({ source: 'backend', slot, check, status, detail })
     }
-}
-
-export async function stripMetadata(file) {
-    switch (file.mimetype) {
-        case 'image/jpeg': {
-            file.buffer = await sharp(file.buffer).jpeg({ quality: 95 }).toBuffer()
-            break
-        }
-        case 'image/png': {
-            file.buffer = await sharp(file.buffer).jpeg({ quality: 95 }).toBuffer()
-            file.mimetype = 'image/jpeg'
-            break
-        }
-        case 'image/webp': {
-            file.buffer = await sharp(file.buffer).webp({ quality: 95 }).toBuffer()
-            break
-        }
-        case 'image/heic':
-        case 'image/heif': {
-            const jpegArrayBuffer = await heicConvert({ buffer: file.buffer, format: 'JPEG', quality: 0.95 })
-            file.buffer = await sharp(Buffer.from(jpegArrayBuffer)).jpeg({ quality: 95 }).toBuffer()
-            file.mimetype = 'image/jpeg'
-            break
-        }
-        case 'application/pdf': {
-            return stripPdfMetadata(file)
-        }
-    }
-    file.size = file.buffer.length
-    return null
 }
 
 // Factory — pass the slots you want validated.

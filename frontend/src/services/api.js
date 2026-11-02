@@ -212,6 +212,18 @@ export async function getUploadUrl(lessonId, studentId, fileName) {
     return data.uploadUrl
 }
 
+// Tells the backend the direct-to-blob upload has finished, so it can check
+// the file and strip its metadata (e.g. GPS location in phone photos).
+export async function completeUpload(lessonId, studentId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/students/${studentId}/upload-complete`, {
+        method: 'POST',
+        credentials: 'include',
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || 'Upload could not be checked')
+    return data
+}
+
 // PUTs straight to blob storage using the SAS URL above — bypasses our own
 // backend entirely for the file bytes. Not our API, so no API_BASE and no
 // credentials (auth is the SAS query string itself, not our session

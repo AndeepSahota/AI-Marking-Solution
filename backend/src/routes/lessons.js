@@ -27,10 +27,10 @@ import {
 } from '../logging/markingLogger.js'
 import {
     generateUploadUrl,
-    findStudentUpload,
     downloadStudentWork,
 } from '../services/blobService.js'
 import { sendStudentMarkingRequest } from '../services/queueService.js'
+import { UploadRejectedError, cleanStudentUpload } from '../services/uploadCleaner.js'
 import { selectedDescriptorThreads } from '../services/descriptorThreadMap.js'
 
 const router = express.Router()
@@ -453,6 +453,30 @@ router.post('/:lessonId/students/:studentId/upload-url', async (req, res, next) 
     }
 })
 
+// POST /lessons/:lessonId/students/:studentId/upload-complete -- called by
+// the browser straight after its direct-to-Blob upload. Checks the file's
+// real type and strips its metadata (GPS location in phone photos, PDF
+// author) before it is kept. See services/uploadCleaner.js.
+router.post('/:lessonId/students/:studentId/upload-complete', async (req, res, next) => {
+    try {
+        const lessonId = Number(req.params.lessonId)
+        const studentId = Number(req.params.studentId)
+        if (!Number.isSafeInteger(lessonId) || lessonId <= 0 || !Number.isSafeInteger(studentId) || studentId <= 0) {
+            return res.status(400).json({ error: 'Valid lesson and student are required' })
+        }
+
+        const valid = await markingDb.validateStudent(studentId, lessonId, req.user.id)
+        if (!valid) return res.status(404).json({ error: 'Student not found in this lesson' })
+
+        const upload = await cleanStudentUpload(req.user.id, lessonId, studentId)
+        if (!upload) return res.status(404).json({ error: 'No uploaded work found for this student' })
+        res.json({ ok: true })
+    } catch (err) {
+        if (err instanceof UploadRejectedError) return res.status(415).json({ error: err.message })
+        next(err)
+    }
+})
+
 // POST /lessons/:lessonId/mark-student — verify the authenticated teacher,
 // lesson, student and uploaded work, then hand the request to the marking
 // worker through Service Bus. Marking is deliberately no longer performed by
@@ -498,11 +522,14 @@ router.post('/:lessonId/mark-student', async (req, res, next) => {
             })
         }
 
-        const upload = await findStudentUpload(
-            teacherId,
-            lessonId,
-            studentId
-        )
+        // Backstop: normally already cleaned by POST .../upload-complete.
+        let upload
+        try {
+            upload = await cleanStudentUpload(teacherId, lessonId, studentId)
+        } catch (err) {
+            if (err instanceof UploadRejectedError) return res.status(415).json({ error: err.message })
+            throw err
+        }
         if (!upload) {
             return res.status(404).json({
                 error: 'No uploaded work found for this student'
