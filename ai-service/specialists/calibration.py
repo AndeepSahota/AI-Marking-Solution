@@ -19,9 +19,12 @@ _BAND_NUMBER_DIGITS = "0123456789"
 _LOWEST_SCORE = 1.0  # the lowest a thread level can be
 
 
+def scheme_key_for(ao: dict) -> str | None:
+    return scheme_fingerprint({"assessment_objectives": {ao["ao"]: {"threads": ao["threads"]}}})
+
+
 def calibration_for(ao: dict) -> dict | None:
-    key = scheme_fingerprint({"assessment_objectives": {ao["ao"]: {"threads": ao["threads"]}}})
-    return _CALIBRATIONS.get(key)
+    return _CALIBRATIONS.get(scheme_key_for(ao))
 
 
 def fine_score(per_thread_results: list[dict]) -> float:
@@ -64,10 +67,15 @@ def combine_calibrated(per_thread_levels: list[int], score: float, band_marks: l
     marks = round(low + max(0.0, min(1.0, position)) * (high - low))
 
     margin = calibration["near_boundary_margin"]
+    nearest = min(range(len(cuts)), key=lambda i: abs(score - cuts[i]))
+    near_boundary = abs(score - cuts[nearest]) <= margin
     return {
         "overall_level": level,
         "band": band["band"],
         "marks": marks,
         "fine_score": round(score, 3),
-        "near_boundary": min(abs(score - cut) for cut in cuts) <= margin,
+        "near_boundary": near_boundary,
+        # The two levels either side of the nearest boundary -- cut i sits
+        # between Level i+1 and Level i+2.
+        "borderline_levels": [nearest + 1, nearest + 2] if near_boundary else None,
     }

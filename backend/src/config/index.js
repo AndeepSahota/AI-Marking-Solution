@@ -61,6 +61,9 @@ export default {
     // Format: <namespace>.servicebus.windows.net (no scheme — the SDK
     // takes a bare fully-qualified namespace here, unlike blob's full URL)
     AZURE_SERVICEBUS_NAMESPACE: process.env.AZURE_SERVICEBUS_NAMESPACE || null,
+    // Teacher review screen (routes/review.js). Off unless explicitly "true",
+    // until it has been tested end to end.
+    TEACHER_REVIEW_ENABLED: process.env.TEACHER_REVIEW_ENABLED === 'true',
     MAX_FILE_SIZE_MB: 5,
     MAX_PDF_PAGES: 30,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],

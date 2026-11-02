@@ -18,6 +18,58 @@ def _level_of(descriptor_id: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+_DESCRIPTOR_ID = re.compile(r"\bao\d+-\d+[a-z]+\b", re.IGNORECASE)
+_MENTIONS_LEVEL = re.compile(r"\blevel\s*\d", re.IGNORECASE)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_REASON_MAX_WORDS = 30
+
+
+def _teacher_reason(entry: dict) -> str:
+    """One plain-English line for a thread, taken from the explanation of the
+    quote that earned its level. Teachers never see thread levels, letters or
+    descriptor IDs, so sentences that mention them are skipped."""
+    if not entry.get("evidence"):
+        return "No clear evidence found for this skill."
+    explanation = entry["evidence"][-1]["explanation"] or ""
+    explanation = re.sub(r"\s*\(matches:.*?\)", "", explanation)
+    for sentence in _SENTENCE_END.split(explanation.strip()):
+        sentence = sentence.strip()
+        if not sentence or _DESCRIPTOR_ID.search(sentence) or _MENTIONS_LEVEL.search(sentence):
+            continue
+        words = sentence.split()
+        return " ".join(words[:_REASON_MAX_WORDS]) + ("…" if len(words) > _REASON_MAX_WORDS else "")
+    return "Evidence found for this skill."
+
+
+def _engine_block(specialist_result: dict, threads: dict) -> dict:
+    """What the review screen needs, plus what calibration needs later.
+    fine_score and scheme_key are internal -- the backend stores them but
+    never sends them to a browser."""
+    return {
+        "level": _level_of_band(specialist_result["awarded_band"]),
+        "mark": specialist_result["marks"],
+        "max_mark": specialist_result["max_marks"],
+        "combine_mode": specialist_result.get("combine_mode"),
+        "runs_per_thread": specialist_result.get("runs_per_thread"),
+        "fine_score": specialist_result.get("fine_score"),
+        "scheme_key": specialist_result.get("scheme_key"),
+        "borderline": bool(specialist_result.get("review_flag")),
+        "borderline_levels": specialist_result.get("borderline_levels"),
+        "threads": [
+            {
+                "label": threads[entry["thread_key"]]["thread_description"].strip().rstrip("."),
+                "reason": _teacher_reason(entry),
+            }
+            for entry in specialist_result["per_thread"]
+        ],
+    }
+
+
+def _level_of_band(band: str) -> int | None:
+    digits = "".join(ch for ch in band if ch.isdigit())
+    return int(digits) if digits else None
+
+
 def _combine_description(specialist_result: dict) -> str:
     if specialist_result.get("combine_mode") == "calibrated":
         return "by a calibrated score against teacher-marked essays"
@@ -77,5 +129,6 @@ def resolve_specialist_final_result(specialist_result: dict, threads: dict) -> d
                 specialist_result["missing_threads"] or specialist_result.get("review_flag")
             ),
             "featured_evidence_by_thread": [],
+            "engine": _engine_block(specialist_result, threads),
         },
     }

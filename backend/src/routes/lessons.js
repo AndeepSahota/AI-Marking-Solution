@@ -3,7 +3,9 @@ import multer from 'multer'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { lessonDb, markingDb, markingJobDb, classDb } from '../db/index.js'
+import config from '../config/index.js'
+import { lessonDb, markingDb, markingJobDb, classDb, reviewDb } from '../db/index.js'
+import { stripEngineInternals } from '../services/reviewService.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
 import { getOcrFromAI, getMarkFromAIWithSchemeText } from '../services/aiService.js'
@@ -345,18 +347,25 @@ router.get('/:lessonId/results', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.lessonId)
         const rows = await markingDb.getResults(lessonId, req.user.id)
-        const results = rows.map(r => ({
-            studentId: r.student_id,
-            markedAt: r.marked_at,
-            result: JSON.parse(r.student_grade),
-            aggregation: r.aggregation_result
-                ? JSON.parse(r.aggregation_result)
-                : null,
-            finalResult: r.final_result
-                ? JSON.parse(r.final_result)
-                : null,
-        }))
-        res.json({ results })
+        // With teacher review on, a blind-check essay is left out until the
+        // teacher has reviewed it, so its mark can't be seen here first.
+        const blindPending = config.TEACHER_REVIEW_ENABLED
+            ? await reviewDb.blindPendingStudentIds(lessonId, req.user.id)
+            : []
+        const results = rows
+            .filter(r => !blindPending.includes(r.student_id))
+            .map(r => ({
+                studentId: r.student_id,
+                markedAt: r.marked_at,
+                result: JSON.parse(r.student_grade),
+                aggregation: r.aggregation_result
+                    ? JSON.parse(r.aggregation_result)
+                    : null,
+                finalResult: r.final_result
+                    ? stripEngineInternals(JSON.parse(r.final_result))
+                    : null,
+            }))
+        res.json({ results, blindPendingStudentIds: blindPending })
     } catch (err) {
         next(err)
     }

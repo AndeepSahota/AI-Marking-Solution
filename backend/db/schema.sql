@@ -269,6 +269,79 @@ BEGIN
 END;
 GO
 
+-- A teacher's review of one marked essay. Holds a snapshot of what the engine
+-- gave (so a review survives the essay being re-marked: re-marking deletes and
+-- re-inserts the marking_results row, which sets marking_result_id to NULL
+-- here rather than blocking or deleting the review). Never stores essay text.
+-- review_mode 'blind': the teacher chose a level before seeing the
+-- suggestion; those reviews are a held-out accuracy check and are kept out of
+-- calibration.
+IF OBJECT_ID(N'dbo.mark_reviews', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.mark_reviews (
+        id                     INT           IDENTITY(1,1) PRIMARY KEY,
+        marking_result_id      INT           NULL REFERENCES dbo.marking_results(id) ON DELETE SET NULL,
+        lesson_id              INT           NOT NULL REFERENCES dbo.lessons(id),
+        student_id             INT           NOT NULL REFERENCES dbo.students(id),
+        teacher_id             INT           NOT NULL REFERENCES dbo.teachers(id),
+        review_mode            NVARCHAR(10)  NOT NULL
+            CONSTRAINT CK_mark_reviews_mode CHECK (review_mode IN (N'normal', N'blind')),
+        outcome                NVARCHAR(10)  NOT NULL
+            CONSTRAINT CK_mark_reviews_outcome CHECK (outcome IN (N'confirmed', N'changed')),
+        scheme_key             NVARCHAR(32)  NULL,
+        engine_combine_mode    NVARCHAR(20)  NULL,
+        engine_runs_per_thread INT           NULL,
+        engine_fine_score      DECIMAL(6,3)  NULL,
+        engine_level           INT           NULL,
+        engine_mark            INT           NOT NULL,
+        engine_max_mark        INT           NOT NULL,
+        engine_marked_at       NVARCHAR(30)  NOT NULL,
+        teacher_level          INT           NOT NULL,
+        teacher_mark           INT           NULL,
+        reason_codes           NVARCHAR(200) NULL,
+        seconds_spent          INT           NULL,
+        reviewed_at            NVARCHAR(30)  NOT NULL
+            CONSTRAINT DF_mark_reviews_reviewed_at DEFAULT (CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120))
+    );
+END;
+GO
+
+-- One review per current marking result. Filtered, because reviews of
+-- earlier (since re-marked) results all have a NULL marking_result_id.
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'UX_mark_reviews_marking_result' AND object_id = OBJECT_ID(N'dbo.mark_reviews')
+)
+BEGIN
+    CREATE UNIQUE INDEX UX_mark_reviews_marking_result
+        ON dbo.mark_reviews (marking_result_id) WHERE marking_result_id IS NOT NULL;
+END;
+GO
+
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE name = N'IX_mark_reviews_lesson_student' AND object_id = OBJECT_ID(N'dbo.mark_reviews')
+)
+BEGIN
+    CREATE INDEX IX_mark_reviews_lesson_student ON dbo.mark_reviews (lesson_id, student_id);
+END;
+GO
+
+-- Essays picked at random for a blind check, chosen once per lesson. Keyed by
+-- student (not marking result) so a pick survives the essay being re-marked.
+IF OBJECT_ID(N'dbo.review_blind_picks', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.review_blind_picks (
+        id         INT          IDENTITY(1,1) PRIMARY KEY,
+        lesson_id  INT          NOT NULL REFERENCES dbo.lessons(id),
+        student_id INT          NOT NULL REFERENCES dbo.students(id),
+        picked_at  NVARCHAR(30) NOT NULL
+            CONSTRAINT DF_review_blind_picks_picked_at DEFAULT (CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120)),
+        CONSTRAINT UQ_review_blind_picks UNIQUE (lesson_id, student_id)
+    );
+END;
+GO
+
 /* ============================================================================
    AFTER the schema exists, grant the app's managed identity READ/WRITE only
    (run once, as admin). Replace <backend-container-app-name> with the backend

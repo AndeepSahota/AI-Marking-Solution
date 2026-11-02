@@ -24,6 +24,49 @@ function sanitizeFeaturedEvidenceByThread(items, evidence, { checkThreadMembersh
     return Object.fromEntries(featured)
 }
 
+const COMBINE_MODES = new Set(['calibrated', 'vote', 'current'])
+const SCHEME_KEY = /^[0-9a-f]{16}$/
+const smallInt = (value, min, max) => Number.isInteger(value) && value >= min && value <= max
+
+// The specialist engine's review/calibration details. Optional: anything
+// missing or malformed drops the whole block (null) without invalidating the
+// mark itself. fineScore and schemeKey are internal -- stored for
+// calibration, never sent to a browser (the backend strips them).
+export function sanitizeEngine(value, maxScore) {
+    if (!isObject(value)) return null
+    const nullOr = (v, check) => v === null || v === undefined || check(v)
+    if (!nullOr(value.level, v => smallInt(v, 0, 20))
+        || !smallInt(value.mark, 0, maxScore)
+        || value.max_mark !== maxScore
+        || !nullOr(value.combine_mode, v => COMBINE_MODES.has(v))
+        || !nullOr(value.runs_per_thread, v => smallInt(v, 1, 20))
+        || !nullOr(value.fine_score, v => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 20)
+        || !nullOr(value.scheme_key, v => typeof v === 'string' && SCHEME_KEY.test(v))
+        || typeof value.borderline !== 'boolean'
+        || !nullOr(value.borderline_levels, v => Array.isArray(v) && v.length === 2
+            && v.every(level => smallInt(level, 0, 20)) && v[0] < v[1])
+        || !Array.isArray(value.threads) || value.threads.length > 10) return null
+
+    const threads = []
+    for (const thread of value.threads) {
+        if (!isObject(thread) || !text(thread.label) || !text(thread.reason)) return null
+        threads.push({ label: text(thread.label).slice(0, 100), reason: text(thread.reason).slice(0, 300) })
+    }
+
+    return {
+        level: value.level ?? null,
+        mark: value.mark,
+        maxMark: value.max_mark,
+        combineMode: value.combine_mode ?? null,
+        runsPerThread: value.runs_per_thread ?? null,
+        fineScore: value.fine_score ?? null,
+        schemeKey: value.scheme_key ?? null,
+        borderline: value.borderline,
+        borderlineLevels: value.borderline_levels ?? null,
+        threads,
+    }
+}
+
 function sanitizeModelResult(value) {
     if (!isObject(value)
         || !Number.isInteger(value.score) || value.score < 0
@@ -167,6 +210,7 @@ export function sanitizeFinalResult(value) {
             featuredEvidenceByThread: sanitizeFeaturedEvidenceByThread(
                 result.featured_evidence_by_thread, evidence
             ),
+            engine: sanitizeEngine(result.engine, result.max_score),
         },
     }
 }

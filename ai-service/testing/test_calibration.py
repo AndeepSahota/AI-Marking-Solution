@@ -63,6 +63,12 @@ class NearBoundaryTests(unittest.TestCase):
     def test_does_not_flag_scores_well_inside_a_level(self):
         self.assertFalse(combine(1.5)["near_boundary"])
         self.assertFalse(combine(2.6)["near_boundary"])
+        self.assertIsNone(combine(1.5)["borderline_levels"])
+
+    def test_names_the_two_levels_either_side_of_the_nearest_boundary(self):
+        self.assertEqual(combine(2.10)["borderline_levels"], [1, 2])
+        self.assertEqual(combine(2.40)["borderline_levels"], [2, 3])
+        self.assertEqual(combine(2.80)["borderline_levels"], [3, 4])
 
 
 class CalibrationLookupTests(unittest.TestCase):

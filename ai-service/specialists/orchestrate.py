@@ -11,7 +11,7 @@ import re
 
 from security import ms_ocr_sanitisation
 from llm_service import generate_thread_specialist_response, generate_idea_specialist_response
-from specialists.calibration import calibration_for, combine_calibrated, fine_score
+from specialists.calibration import calibration_for, combine_calibrated, fine_score, scheme_key_for
 from specialists.combine import combine_specialist_results, mark_for_level, vote_levels
 
 from specialists.consistency import (
@@ -234,7 +234,12 @@ def _mark_ao_general(
     result = _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)
     result["run_levels"] = _complete_run_levels(per_thread_results, holistic_level)
     result["review_flag"] = len(set(result["run_levels"])) > 1
+    result["borderline_levels"] = (
+        [min(result["run_levels"]), max(result["run_levels"])] if result["review_flag"] else None
+    )
     result["combine_mode"] = COMBINE_VOTE
+    result["runs_per_thread"] = n_samples
+    result["fine_score"] = round(fine_score(per_thread_results), 3)
 
     if calibration:
         calibrated = combine_calibrated(
@@ -250,6 +255,7 @@ def _mark_ao_general(
             # Replaces the run-disagreement flag: on the 18 test essays,
             # sitting near a learned boundary caught the misses far better.
             "review_flag": calibrated["near_boundary"],
+            "borderline_levels": calibrated["borderline_levels"],
             "combine_mode": COMBINE_CALIBRATED,
         })
     return result
@@ -280,6 +286,12 @@ def _result(ao, combined, per_thread_results, prompt_tokens, completion_tokens) 
         "max_marks": ao["marks_available"],
         "missing_threads": combined["missing_threads"],
         "tie_break": combined["tie_break"],
+        "scheme_key": scheme_key_for(ao),
+        "combine_mode": "current",
+        "runs_per_thread": None,
+        "fine_score": None,
+        "review_flag": False,
+        "borderline_levels": None,
         "per_thread": per_thread_results,
         "usage": {
             "prompt_tokens": prompt_tokens,

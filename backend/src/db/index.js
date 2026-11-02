@@ -661,6 +661,12 @@ export const classDb = {
     // Delete the student and their derived data in foreign-key-safe order.
     deleteStudent: async (studentId) =>
         inTransaction(async (transaction) => {
+            // Teacher reviews and blind-check picks reference the student.
+            await exec(transaction, `
+                DELETE FROM dbo.mark_reviews WHERE student_id = @studentId;
+                DELETE FROM dbo.review_blind_picks WHERE student_id = @studentId;
+            `, [intParam('studentId', studentId)])
+
             await exec(transaction, `
                 DELETE FROM dbo.marking_results
                 WHERE student_id = @studentId
@@ -689,4 +695,158 @@ export const classDb = {
     // Execute fn atomically. fn receives an mssql Transaction which can be
     // passed unchanged to any accessor's optional executor argument.
     transaction: (fn) => inTransaction(fn),
+}
+
+const nullableIntParam = (name, value) =>
+    value === null || value === undefined ? { name, type: sql.Int, value: null } : intParam(name, value)
+
+const nullableDecimalParam = (name, value) => {
+    if (value !== null && value !== undefined && !Number.isFinite(value)) {
+        throw new TypeError(`${name} must be a number or null`)
+    }
+    return { name, type: sql.Decimal(6, 3), value: value ?? null }
+}
+
+// Every query is scoped to the teacher's own classes, same join as getResults.
+const SQL_REVIEW_RESULTS = `
+    SELECT mr.id AS result_id, mr.student_id, s.student_name,
+           mr.student_grade, mr.final_result, mr.marked_at,
+           r.id AS review_id, r.review_mode, r.outcome, r.teacher_level,
+           r.teacher_mark, r.reason_codes, r.reviewed_at,
+           CASE WHEN p.id IS NULL THEN 0 ELSE 1 END AS blind_pick
+    FROM dbo.marking_results AS mr
+    JOIN dbo.lessons AS l ON l.id = mr.lesson_id
+    JOIN dbo.classes AS c ON c.id = l.class_id
+    JOIN dbo.students AS s ON s.id = mr.student_id
+    LEFT JOIN dbo.mark_reviews AS r ON r.marking_result_id = mr.id
+    LEFT JOIN dbo.review_blind_picks AS p
+        ON p.lesson_id = mr.lesson_id AND p.student_id = mr.student_id
+    WHERE mr.lesson_id = @lessonId AND c.teacher_id = @teacherId
+`
+
+// Teacher reviews of marked essays (see mark_reviews in db/schema.sql).
+export const reviewDb = {
+    listResults: async (lessonId, teacherId, e = pool) =>
+        (await exec(e, SQL_REVIEW_RESULTS, [
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+        ])).recordset,
+
+    getResult: async (lessonId, studentId, teacherId, e = pool) =>
+        (await exec(e, `${SQL_REVIEW_RESULTS} AND mr.student_id = @studentId`, [
+            intParam('lessonId', lessonId),
+            intParam('teacherId', teacherId),
+            intParam('studentId', studentId),
+        ])).recordset[0],
+
+    // Blind-check students whose current marking result has no review yet --
+    // their mark stays hidden everywhere until the teacher has chosen.
+    blindPendingStudentIds: async (lessonId, teacherId, e = pool) =>
+        (await exec(e, `
+            SELECT mr.student_id
+            FROM dbo.review_blind_picks AS p
+            JOIN dbo.marking_results AS mr
+                ON mr.lesson_id = p.lesson_id AND mr.student_id = p.student_id
+            JOIN dbo.lessons AS l ON l.id = mr.lesson_id
+            JOIN dbo.classes AS c ON c.id = l.class_id
+            LEFT JOIN dbo.mark_reviews AS r ON r.marking_result_id = mr.id
+            WHERE p.lesson_id = @lessonId AND c.teacher_id = @teacherId AND r.id IS NULL
+        `, [intParam('lessonId', lessonId), intParam('teacherId', teacherId)])).recordset
+            .map(row => row.student_id),
+
+    // Picks the lesson's blind-check essays once, the first time it is asked
+    // with enough marked essays. chooseStudentIds(markedStudentIds) returns
+    // the ones to pick (possibly none, e.g. too few essays yet). Locked so two
+    // requests at once can't both pick.
+    ensureBlindPicks: async (lessonId, teacherId, chooseStudentIds) =>
+        inTransaction(async (transaction) => {
+            const existing = (await exec(transaction, `
+                SELECT p.student_id
+                FROM dbo.review_blind_picks AS p WITH (UPDLOCK, HOLDLOCK)
+                JOIN dbo.lessons AS l ON l.id = p.lesson_id
+                JOIN dbo.classes AS c ON c.id = l.class_id
+                WHERE p.lesson_id = @lessonId AND c.teacher_id = @teacherId
+            `, [intParam('lessonId', lessonId), intParam('teacherId', teacherId)])).recordset
+            if (existing.length > 0) return existing.map(row => row.student_id)
+
+            const marked = (await exec(transaction, `
+                SELECT mr.student_id
+                FROM dbo.marking_results AS mr
+                JOIN dbo.lessons AS l ON l.id = mr.lesson_id
+                JOIN dbo.classes AS c ON c.id = l.class_id
+                WHERE mr.lesson_id = @lessonId AND c.teacher_id = @teacherId
+            `, [intParam('lessonId', lessonId), intParam('teacherId', teacherId)])).recordset
+            const picked = chooseStudentIds(marked.map(row => row.student_id))
+            for (const studentId of picked) {
+                await exec(transaction, `
+                    INSERT INTO dbo.review_blind_picks (lesson_id, student_id)
+                    VALUES (@lessonId, @studentId)
+                `, [intParam('lessonId', lessonId), intParam('studentId', studentId)])
+            }
+            return picked
+        }),
+
+    // Insert or update the review of one marking result. A blind review is
+    // locked once saved: editing it after the suggestion was revealed would
+    // make it no longer blind. Returns { locked: true } in that case.
+    saveReview: async (review) =>
+        inTransaction(async (transaction) => {
+            const existing = (await exec(transaction, `
+                SELECT id, review_mode
+                FROM dbo.mark_reviews WITH (UPDLOCK, HOLDLOCK)
+                WHERE marking_result_id = @resultId
+            `, [intParam('resultId', review.resultId)])).recordset[0]
+            if (existing?.review_mode === 'blind') return { locked: true }
+
+            const params = [
+                intParam('resultId', review.resultId),
+                intParam('lessonId', review.lessonId),
+                intParam('studentId', review.studentId),
+                intParam('teacherId', review.teacherId),
+                textParam('reviewMode', 10, review.reviewMode),
+                textParam('outcome', 10, review.outcome),
+                nullableTextParam('schemeKey', 32, review.engine.schemeKey),
+                nullableTextParam('combineMode', 20, review.engine.combineMode),
+                nullableIntParam('runsPerThread', review.engine.runsPerThread),
+                nullableDecimalParam('fineScore', review.engine.fineScore),
+                nullableIntParam('engineLevel', review.engine.level),
+                intParam('engineMark', review.engine.mark),
+                intParam('engineMaxMark', review.engine.maxMark),
+                textParam('engineMarkedAt', 30, review.engine.markedAt),
+                intParam('teacherLevel', review.teacherLevel),
+                nullableIntParam('teacherMark', review.teacherMark),
+                nullableTextParam('reasonCodes', 200, review.reasonCodes.length ? review.reasonCodes.join(',') : null),
+                nullableIntParam('secondsSpent', review.secondsSpent),
+            ]
+            if (existing) {
+                await exec(transaction, `
+                    UPDATE dbo.mark_reviews SET
+                        teacher_id = @teacherId, outcome = @outcome,
+                        teacher_level = @teacherLevel, teacher_mark = @teacherMark,
+                        reason_codes = @reasonCodes,
+                        -- Time adds up across visits; a save without a time keeps the total.
+                        seconds_spent = CASE WHEN @secondsSpent IS NULL THEN seconds_spent
+                                             ELSE ISNULL(seconds_spent, 0) + @secondsSpent END,
+                        reviewed_at = CONVERT(VARCHAR(19), SYSUTCDATETIME(), 120)
+                    WHERE id = @reviewId
+                `, [...params, intParam('reviewId', existing.id)])
+            } else {
+                await exec(transaction, `
+                    INSERT INTO dbo.mark_reviews (
+                        marking_result_id, lesson_id, student_id, teacher_id,
+                        review_mode, outcome, scheme_key, engine_combine_mode,
+                        engine_runs_per_thread, engine_fine_score, engine_level,
+                        engine_mark, engine_max_mark, engine_marked_at,
+                        teacher_level, teacher_mark, reason_codes, seconds_spent
+                    ) VALUES (
+                        @resultId, @lessonId, @studentId, @teacherId,
+                        @reviewMode, @outcome, @schemeKey, @combineMode,
+                        @runsPerThread, @fineScore, @engineLevel,
+                        @engineMark, @engineMaxMark, @engineMarkedAt,
+                        @teacherLevel, @teacherMark, @reasonCodes, @secondsSpent
+                    )
+                `, params)
+            }
+            return { locked: false, mode: existing ? 'updated' : 'created' }
+        }),
 }
