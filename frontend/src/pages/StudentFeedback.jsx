@@ -14,6 +14,7 @@ function StudentFeedback() {
   const [students, setStudents] = useState([])
   const [results,        setResults]        = useState([])
   const [blindPendingIds, setBlindPendingIds] = useState([])
+  const [reviewAvailable, setReviewAvailable] = useState(false)
   const [resultsLoading, setResultsLoading] = useState(true)
   const [resultsError,   setResultsError]   = useState(null)
   const [notFound,       setNotFound]       = useState(false)
@@ -48,6 +49,7 @@ function StudentFeedback() {
       .then(data => {
         setResults(data.results)
         setBlindPendingIds(data.blindPendingStudentIds)
+        setReviewAvailable(data.reviewAvailable)
       })
       .catch(err => setResultsError(err.message))
       .finally(() => setResultsLoading(false))
@@ -77,6 +79,10 @@ function StudentFeedback() {
         <div className="marking-header-centre">
           <h2 className="marking-class-name">{lesson?.class_name ?? '…'} — Feedback</h2>
         </div>
+
+        {reviewAvailable && (
+          <Link className="review-entry-btn" to={`/review/${lessonId}`}>Review marks</Link>
+        )}
       </div>
 
       <div className="student-feedback-list">

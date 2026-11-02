@@ -158,8 +158,13 @@ export async function getMarkingResults(lessonId) {
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Failed to fetch results')
     // blindPendingStudentIds: blind-check essays left out of results until
-    // the teacher has reviewed them (only sent when teacher review is on).
-    return { results: data.results, blindPendingStudentIds: data.blindPendingStudentIds ?? [] }
+    // the teacher has reviewed them. reviewAvailable: teacher review is on
+    // and this lesson's question can be reviewed.
+    return {
+        results: data.results,
+        blindPendingStudentIds: data.blindPendingStudentIds ?? [],
+        reviewAvailable: Boolean(data.reviewAvailable),
+    }
 }
 
 // Teacher review (backend routes/review.js). The backend returns 404 while

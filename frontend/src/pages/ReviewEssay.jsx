@@ -103,7 +103,7 @@ function ReviewEssayPage() {
   const [allDone, setAllDone] = useState(false)
 
   const currentId = Number(studentId)
-  const backToClass = () => navigate(`/student-feedback/${lessonId}`)
+  const backToClass = () => navigate(`/review/${lessonId}`)
 
   useEffect(() => {
     // The class list first: it is what picks the blind checks, so the essay
@@ -150,7 +150,7 @@ function ReviewEssayPage() {
     return (
       <div className="page">
         <p className="ms-ocr-error">{message}</p>
-        <button className="back-btn review-back-standalone" onClick={backToClass}>Back to feedback</button>
+        <button className="back-btn review-back-standalone" onClick={backToClass}>Back to class list</button>
       </div>
     )
   }
@@ -180,7 +180,7 @@ function ReviewEssayPage() {
       {allDone && (
         <div className="review-done" role="status">
           <p>Every essay in this class has been reviewed.</p>
-          <button className="review-primary-btn" onClick={backToClass}>Back to feedback</button>
+          <button className="review-primary-btn" onClick={backToClass}>Back to class list</button>
         </div>
       )}
 

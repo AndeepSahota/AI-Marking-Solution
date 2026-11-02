@@ -5,7 +5,12 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import config from '../config/index.js'
 import { lessonDb, markingDb, markingJobDb, classDb, reviewDb } from '../db/index.js'
-import { stripEngineInternals } from '../services/reviewService.js'
+import {
+    chooseBlind,
+    levelsFor,
+    selectedQuestionExtraction,
+    stripEngineInternals,
+} from '../services/reviewService.js'
 import { makeFileSecurity } from '../middleware/fileSecurity.js'
 import { makeValidateFile } from '../middleware/validateFile.js'
 import { getOcrFromAI, getMarkFromAIWithSchemeText } from '../services/aiService.js'
@@ -347,11 +352,19 @@ router.get('/:lessonId/results', async (req, res, next) => {
     try {
         const lessonId = parseInt(req.params.lessonId)
         const rows = await markingDb.getResults(lessonId, req.user.id)
-        // With teacher review on, a blind-check essay is left out until the
-        // teacher has reviewed it, so its mark can't be seen here first.
-        const blindPending = config.TEACHER_REVIEW_ENABLED
-            ? await reviewDb.blindPendingStudentIds(lessonId, req.user.id)
-            : []
+        // With teacher review on, the blind checks are picked before any mark
+        // is shown, and a blind-check essay is left out until the teacher has
+        // reviewed it, so its mark can't be seen here first.
+        let reviewAvailable = false
+        let blindPending = []
+        if (config.TEACHER_REVIEW_ENABLED) {
+            const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
+            reviewAvailable = Boolean(ocrRow && levelsFor(selectedQuestionExtraction(ocrRow)))
+            if (reviewAvailable) {
+                await reviewDb.ensureBlindPicks(lessonId, req.user.id, chooseBlind)
+                blindPending = await reviewDb.blindPendingStudentIds(lessonId, req.user.id)
+            }
+        }
         const results = rows
             .filter(r => !blindPending.includes(r.student_id))
             .map(r => ({
@@ -365,7 +378,7 @@ router.get('/:lessonId/results', async (req, res, next) => {
                     ? stripEngineInternals(JSON.parse(r.final_result))
                     : null,
             }))
-        res.json({ results, blindPendingStudentIds: blindPending })
+        res.json({ results, blindPendingStudentIds: blindPending, reviewAvailable })
     } catch (err) {
         next(err)
     }

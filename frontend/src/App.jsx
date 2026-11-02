@@ -11,6 +11,7 @@ import CreateClass from './pages/CreateClass'
 import StudentMarking from './pages/StudentMarking'
 import SelectQuestion from './pages/SelectQuestion'
 import StudentFeedback from './pages/StudentFeedback'
+import ReviewClass from './pages/ReviewClass'
 import ReviewEssay from './pages/ReviewEssay'
 import './App.css'
 
@@ -157,6 +158,7 @@ function AppContent() {
                     <Route path="/student-feedback/:lessonId" element={<ProtectedRoute><StudentFeedback /></ProtectedRoute>} />
                     {/* Teacher review: the backend's TEACHER_REVIEW_ENABLED flag
                         gates it; the page says so when it's off. */}
+                    <Route path="/review/:lessonId" element={<ProtectedRoute><ReviewClass /></ProtectedRoute>} />
                     <Route path="/review/:lessonId/:studentId" element={<ProtectedRoute><ReviewEssay /></ProtectedRoute>} />
                     <Route path="*"                      element={<Navigate to="/" replace />} />
                 </Routes>
