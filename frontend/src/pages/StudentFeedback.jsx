@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getLesson, getLessonScheme, getStudents, getMarkingResults } from '../services/api'
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
@@ -13,6 +13,7 @@ function StudentFeedback() {
   const [lesson,   setLesson]   = useState(null)
   const [students, setStudents] = useState([])
   const [results,        setResults]        = useState([])
+  const [blindPendingIds, setBlindPendingIds] = useState([])
   const [resultsLoading, setResultsLoading] = useState(true)
   const [resultsError,   setResultsError]   = useState(null)
   const [notFound,       setNotFound]       = useState(false)
@@ -44,7 +45,10 @@ function StudentFeedback() {
     // A fetch failure is surfaced explicitly rather than shown as "no
     // results" — those are different states and shouldn't look the same.
     getMarkingResults(lessonId)
-      .then(setResults)
+      .then(data => {
+        setResults(data.results)
+        setBlindPendingIds(data.blindPendingStudentIds)
+      })
       .catch(err => setResultsError(err.message))
       .finally(() => setResultsLoading(false))
   }, [lessonId, navigate])
@@ -80,10 +84,21 @@ function StudentFeedback() {
           <p className="ms-ocr-error">{resultsError}</p>
         ) : resultsLoading ? (
           <p className="ms-ocr-loading">Loading results…</p>
-        ) : results.length === 0 ? (
+        ) : results.length === 0 && blindPendingIds.length === 0 ? (
           <p className="student-marking-empty">No marked work yet.</p>
         ) : (
-          results.map(r => {
+          <>
+          {/* Blind checks: their feedback is held back until the teacher has
+              chosen a level, so the AI's mark can't sway them. */}
+          {blindPendingIds.map(studentId => (
+            <div key={`blind-${studentId}`} className="result-card review-blind-feedback">
+              <span className="result-student-name">{nameFor(studentId)}</span>
+              <p className="feedback-notice">
+                <Link to={`/review/${lessonId}/${studentId}`}>Review this essay to see its feedback</Link>
+              </p>
+            </div>
+          ))}
+          {results.map(r => {
             const isEssayExpanded = essayExpanded[r.studentId]
             const { result, evidenceResult, studentText, finalUnavailable } = feedbackResult(r)
             const evidenceCount = evidenceResult?.evidence?.length ?? 0
@@ -130,7 +145,8 @@ function StudentFeedback() {
                 )}
               </div>
             )
-          })
+          })}
+          </>
         )}
       </div>
     </div>

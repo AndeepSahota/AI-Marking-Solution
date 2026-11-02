@@ -157,7 +157,40 @@ export async function getMarkingResults(lessonId) {
     const response = await fetch(`${API_BASE}/lessons/${lessonId}/results`, { credentials: 'include' })
     const data = await response.json()
     if (!response.ok) throw new Error(data.error || 'Failed to fetch results')
-    return data.results
+    // blindPendingStudentIds: blind-check essays left out of results until
+    // the teacher has reviewed them (only sent when teacher review is on).
+    return { results: data.results, blindPendingStudentIds: data.blindPendingStudentIds ?? [] }
+}
+
+// Teacher review (backend routes/review.js). The backend returns 404 while
+// TEACHER_REVIEW_ENABLED is off; err.status lets pages tell that apart.
+async function reviewRequest(path, options, fallbackMessage) {
+    const response = await fetch(`${API_BASE}/lessons/${path}`, { credentials: 'include', ...options })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+        const error = new Error(data.error || fallbackMessage)
+        error.status = response.status
+        throw error
+    }
+    return data
+}
+
+// Returns { progress: { reviewed, total }, items: [...] }
+export async function getReviewList(lessonId) {
+    return reviewRequest(`${lessonId}/review`, {}, 'Failed to load essays to review')
+}
+
+export async function getReviewEssay(lessonId, studentId) {
+    return reviewRequest(`${lessonId}/review/${studentId}`, {}, 'Failed to load essay')
+}
+
+// body: { teacherLevel, teacherMark?, reasonCodes?, secondsSpent? }
+export async function saveReview(lessonId, studentId, body) {
+    return reviewRequest(`${lessonId}/review/${studentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    }, 'Failed to save review')
 }
 
 // Requests a short-lived, write-only SAS URL scoped to one student's blob

@@ -4666,3 +4666,309 @@ body::after {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+
+/* ── Teacher review (pages/ReviewEssay.jsx, components/ChangeMarkForm.jsx) ── */
+.review-page {
+  max-width: 1120px;
+}
+
+.review-progress {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+.review-essay,
+.review-panel,
+.review-done {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px 28px;
+}
+
+.review-panel {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.review-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  color: var(--text-secondary);
+}
+
+.review-highlight {
+  background: var(--accent-soft);
+  color: inherit;
+  border-bottom: 2px solid var(--accent-2);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.review-label,
+.review-legend {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.review-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.review-suggestion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-suggestion-mark {
+  margin-top: 6px;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.review-borderline-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--warning);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 99px;
+  padding: 3px 10px;
+}
+
+.review-thread-list {
+  list-style: none;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-thread-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-thread-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.review-thread-reason {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.review-blind-note p,
+.review-saved p {
+  margin-top: 6px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.review-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.review-actions,
+.review-form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.review-primary-btn,
+.review-secondary-btn {
+  flex: 1;
+  padding: 11px 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.review-primary-btn {
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+}
+
+.review-secondary-btn {
+  background: none;
+  color: var(--text-primary);
+  border: 1px solid var(--border-hover);
+}
+
+.review-primary-btn:hover:not(:disabled) { opacity: 0.92; }
+.review-secondary-btn:hover:not(:disabled) { border-color: var(--accent); }
+
+.review-primary-btn:disabled,
+.review-secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.review-fieldset {
+  border: none;
+}
+
+.review-level-options {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.review-level-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.review-level-option--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.review-level-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.review-level-range {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.review-mark-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-mark-field input {
+  width: 120px;
+  padding: 9px 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.review-mark-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.review-field-error {
+  font-size: 0.8rem;
+  color: var(--error);
+}
+
+.review-reason-chips {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-chip {
+  padding: 6px 12px;
+  background: none;
+  border: 1px solid var(--border-hover);
+  border-radius: 99px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.review-chip--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.review-level-option:focus-visible,
+.review-chip:focus-visible,
+.review-primary-btn:focus-visible,
+.review-secondary-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.review-back-standalone {
+  margin-top: 16px;
+}
+
+.review-blind-feedback {
+  padding: 20px 28px;
+}
+
+.review-blind-feedback .feedback-notice a {
+  color: var(--accent-light);
+}
+
+@media (max-width: 880px) {
+  .review-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .review-panel {
+    position: static;
+    order: -1;
+  }
+
+  .review-essay,
+  .review-panel {
+    padding: 20px;
+  }
+}
