@@ -4,6 +4,7 @@ import time
 
 import requests
 
+from observability import cost_tracker
 from ocr_service import _get_mime_type
 
 
@@ -77,6 +78,8 @@ def _extract_student_ocr_response(file_bytes: bytes, filename: str) -> tuple[dic
 
         result_data = result.json()
         if result_data.get("status") == "complete":
+            page_count = result_data.get("page_count")
+            cost_tracker.record_datalab(page_count if isinstance(page_count, int) and page_count > 0 else 1)
             extracted = result_data.get("extraction_schema_json")
             structured_ocr = json.loads(extracted) if isinstance(extracted, str) else (extracted or {})
             raw_ocr = result_data.get("json") or {}

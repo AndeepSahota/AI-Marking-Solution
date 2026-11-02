@@ -32,6 +32,7 @@ from llm_service import (
 )
 from ocr_service import extract_text_from_file
 from student_ocr_service import extract_student_ocr
+from observability import cost_tracker
 from rag_service import (
     add_exemplar,
     delete_exemplar,
@@ -238,6 +239,8 @@ async def mark_with_scheme_text(
     question_text:     str        = Form(default='')
 ):
     student_bytes = await student_work.read()
+    cost_tracker.start()
+    cost_tracker.set_stage("ocr")
     structured_ocr = extract_student_ocr(student_bytes, student_work.filename)
     raw_text       = structured_ocr.get("handwritten_work", "")
     log_student_ocr_done(len(raw_text))
@@ -271,6 +274,7 @@ async def mark_with_scheme_text(
     question_number = _question_number_from_scheme(scheme_text)
     assessment_focus = _assessment_objective_descriptions_from_scheme(scheme_text)
     scheme_key      = _scheme_key(thread_extraction)
+    cost_tracker.set_stage("examples")
     exemplars       = get_similar(student_text, scheme_key, n=3)
 
     # Route single-AO, level-based questions through the independent-
@@ -293,6 +297,7 @@ async def mark_with_scheme_text(
     else:
         specialist_engine = ENGINE_GENERAL
 
+    cost_tracker.set_stage("holistic")
     raw = generate_llm_response(
         # Holistic marking receives the complete selected-question scheme,
         # including its AO descriptions. With a confirmed question it also
@@ -320,6 +325,7 @@ async def mark_with_scheme_text(
                 "threads": ao_raw["threads"],
             }
             scheme = _json.loads(scheme_text)
+            cost_tracker.set_stage("specialists")
             specialist_result = mark_ao_with_specialists(
                 question=question_text or scheme.get("description", ""),
                 essay_text=raw_text,
@@ -366,6 +372,7 @@ async def mark_with_scheme_text(
                 "next_band_context": next_band_threads,
             }
 
+            cost_tracker.set_stage("aggregation")
             aggregation_result = generate_aggregation_response(
                 assessment_focus=assessment_focus,
                 student_response=wrapped_student_text,
@@ -400,6 +407,7 @@ async def mark_with_scheme_text(
             wrapped_final_input, final_token = ms_ocr_sanitisation.wrap_for_prompt(
                 ms_ocr_sanitisation.sanitize(final_input)
             )
+            cost_tracker.set_stage("final marking")
             final_result = {
                 "status": "complete",
                 "result": generate_final_marking_response(
@@ -420,7 +428,11 @@ async def mark_with_scheme_text(
             final_result = {"status": "failed", "reason": str(e)}
             print("[FINAL MARKING] Failed: result could not be verified", flush=True)
 
+    cost = cost_tracker.summary()
+    print(cost_tracker.log_line(cost), flush=True)
+
     return {
+        "cost":                     cost,
         "score":                    raw.get("score", 0),
         "maxScore":                 raw.get("maxScore"),
         "strengths":                raw.get("strengths", []),

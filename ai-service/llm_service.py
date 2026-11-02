@@ -1,6 +1,7 @@
 import json
 import os
-from openai import OpenAI, OpenAIError, LengthFinishReasonError, ContentFilterFinishReasonError
+from openai import OpenAI, OpenAIError, LengthFinishReasonError, ContentFilterFinishReasonError, DefaultHttpxClient
+from observability import cost_tracker
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from segmentation.seg_prompt import SYSTEM_PROMPT as SEGMENTATION_SYSTEM_PROMPT, build_segmentation_user_prompt
@@ -125,7 +126,30 @@ load_dotenv()
 # This creates the OpenAI client object 
 # It automatically looks for OPEN_AI_KEY in your enviroment variables 
 # This is why the key is never hardcoded - it is pulled securly from .env
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def _record_usage(response) -> None:
+    """Counts every OpenAI call's tokens towards the current essay's cost.
+    Observability only -- never allowed to break a marking request."""
+    try:
+        response.read()
+        body = response.json()
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if not usage:
+            return
+        details = usage.get("prompt_tokens_details") or {}
+        cost_tracker.record_openai(
+            model=body.get("model", ""),
+            prompt_tokens=usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
+            cached_tokens=details.get("cached_tokens") or 0,
+            completion_tokens=usage.get("completion_tokens") or usage.get("output_tokens") or 0,
+        )
+    except Exception:
+        pass
+
+
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    http_client=DefaultHttpxClient(event_hooks={"response": [_record_usage]}),
+)
 
 # Model for the per-thread specialists only -- every other stage keeps its own
 # model. Configurable so a newer model can be trialled against the same
