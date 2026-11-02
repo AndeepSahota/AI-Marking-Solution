@@ -100,22 +100,32 @@ function AggregationEvidenceEssay({ text, aggregationResult }) {
               if (segment.type === 'text') {
                 return <span key={index}>{renderOcrText(segment.content, `text-${index}`)}</span>
               }
-              const card = segment.card
-              const color = COLORS[card.colorIndex % COLORS.length]
+              // Several evidence points can share one passage: one highlight,
+              // coloured as the first, with a numbered badge for each.
+              const [first] = segment.cards
+              const color = COLORS[first.colorIndex % COLORS.length]
               return (
                 <span
-                  key={card.id}
+                  key={first.id}
                   className="descriptor-evidence-highlight"
                   ref={node => {
-                    if (node) highlightRefs.current.set(card.id, node)
-                    else highlightRefs.current.delete(card.id)
+                    for (const card of segment.cards) {
+                      if (node) highlightRefs.current.set(card.id, node)
+                      else highlightRefs.current.delete(card.id)
+                    }
                   }}
                   style={{ background: color.bg, borderBottomColor: color.border }}
                 >
-                  {renderOcrText(segment.content, `highlight-${card.id}`)}
-                  <span className="descriptor-evidence-badge" style={{ background: color.border }}>
-                    {card.colorIndex + 1}
-                  </span>
+                  {renderOcrText(segment.content, `highlight-${first.id}`)}
+                  {segment.cards.map(card => (
+                    <span
+                      key={card.id}
+                      className="descriptor-evidence-badge"
+                      style={{ background: COLORS[card.colorIndex % COLORS.length].border }}
+                    >
+                      {card.colorIndex + 1}
+                    </span>
+                  ))}
                 </span>
               )
             })}
