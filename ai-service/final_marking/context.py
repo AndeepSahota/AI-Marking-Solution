@@ -175,8 +175,8 @@ def _strip_unsupported_reference_credit(evidence, context):
     quote contains no quotation mark at all.
 
     Real finding, not a hypothetical: aggregation and final marking were each
-    independently tagging bare assertions ("this creates a sense of
-    suspense and tension.") against the reference thread, crediting a
+    independently tagging bare assertions (along the lines of "this makes
+    it really tense.") against the reference thread, crediting a
     response for citing the source when it never did. The thread's own
     definition requires an actual reference — quote fidelity is already
     strictly enforced upstream (an evidence quote is always an exact

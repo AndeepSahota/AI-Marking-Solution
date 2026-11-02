@@ -115,10 +115,11 @@ shortest contiguous span that contains enough evidence for the assigned
 descriptors. A `quote` may end with `.`, `!` or `?` only when that exact
 punctuation character is present at the selected endpoint in STUDENT RESPONSE.
 
-For example, if the source contains `was met with nothing this`, a valid excerpt
-may end with `was met with nothing` without punctuation, or may include the
-source wording `was met with nothing this`. Never return `was met with nothing.`
-because that full stop does not exist at that position in the source.
+For example, if the source contains `felt nothing on the rope this`, a valid
+excerpt may end with `felt nothing on the rope` without punctuation, or may
+include the source wording `felt nothing on the rope this`. Never return
+`felt nothing on the rope.` because that full stop does not exist at that
+position in the source.
 
 Before returning each evidence item, check that the complete `quote` value is an
 exact substring of the delimited STUDENT RESPONSE. If it is not, copy it again

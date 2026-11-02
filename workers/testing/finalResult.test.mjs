@@ -10,7 +10,7 @@ const final = () => ({ status: 'complete', result: {
     breakdown: [{ section: 'AO4', awarded_band: 'Level 1', marks: 2, max_marks: 6, summary: 'Limited development.' }],
     evidence: Array.from({ length: 12 }, (_, index) => ({
         evidence_id: `e${index + 1}`, descriptor_ids: ['ao4-thread-a'],
-        quote: '  The verb "quiet" suggests ~~that the~~ fear.  ',
+        quote: '  The word "silent" hints ~~at the~~ dread.  ',
         explanation: 'Final explanation.', summary: 'Final short summary.',
     })),
     featured_evidence_by_thread: [
