@@ -80,5 +80,39 @@ class TeacherReasonTests(unittest.TestCase):
         self.assertEqual(self.reason("Meets Level 2."), "Evidence found for this skill.")
 
 
+# Made-up explanations. evidence[k - 1] climbed the thread into level k.
+CLIMB = {"evidence": [
+    {"quote": "q1", "explanation": "Describes the storm."},
+    {"quote": "q2", "explanation": "Comments on why the storm matters."},
+    {"quote": "q3", "explanation": "Explains how the storm builds tension."},
+]}
+
+
+class ReasonAtFinalLevelTests(unittest.TestCase):
+    def test_thread_above_the_final_level_is_described_at_the_final_level(self):
+        # Calibration placed the essay at Level 1 though this thread reached 3.
+        self.assertEqual(_teacher_reason(CLIMB, 1), "Describes the storm.")
+        self.assertEqual(_teacher_reason(CLIMB, 2), "Comments on why the storm matters.")
+
+    def test_thread_at_or_below_the_final_level_uses_its_own_top_step(self):
+        self.assertEqual(_teacher_reason(CLIMB, 3), "Explains how the storm builds tension.")
+        self.assertEqual(_teacher_reason(CLIMB, 5), "Explains how the storm builds tension.")
+        self.assertEqual(_teacher_reason(CLIMB, None), "Explains how the storm builds tension.")
+
+    def test_falls_back_to_a_lower_step_never_a_higher_one(self):
+        entry = {"evidence": [
+            {"quote": "q1", "explanation": "Describes the storm."},
+            {"quote": "q2", "explanation": "Meets Level 2."},
+            {"quote": "q3", "explanation": "Explains how the storm builds tension."},
+        ]}
+        self.assertEqual(_teacher_reason(entry, 2), "Describes the storm.")
+
+    def test_engine_block_uses_the_awarded_level(self):
+        engine = resolve_specialist_final_result(
+            specialist_result(awarded_band="Level 1", marks=2), THREADS
+        )["result"]["engine"]
+        self.assertEqual(engine["threads"][0]["reason"], "First step.")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,20 +24,27 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 _REASON_MAX_WORDS = 30
 
 
-def _teacher_reason(entry: dict) -> str:
-    """One plain-English line for a thread, taken from the explanation of the
-    quote that earned its level. Teachers never see thread levels, letters or
-    descriptor IDs, so sentences that mention them are skipped."""
-    if not entry.get("evidence"):
+def _teacher_reason(entry: dict, final_level: int | None = None) -> str:
+    """One plain-English line for a thread, describing what the essay did at
+    the essay's final level. evidence[k - 1] is the quote that climbed the
+    thread into level k (see steps.py), so a thread that climbed past the
+    final level -- calibration can place the essay below its threads -- is
+    described by its step at the final level, never a higher one. A thread
+    that stopped below the final level is described by its own top step.
+    Teachers never see thread levels, letters or descriptor IDs, so
+    sentences that mention them are skipped, falling back to lower steps."""
+    evidence = entry.get("evidence") or []
+    if not evidence:
         return "No clear evidence found for this skill."
-    explanation = entry["evidence"][-1]["explanation"] or ""
-    explanation = re.sub(r"\s*\(matches:.*?\)", "", explanation)
-    for sentence in _SENTENCE_END.split(explanation.strip()):
-        sentence = sentence.strip()
-        if not sentence or _DESCRIPTOR_ID.search(sentence) or _MENTIONS_LEVEL.search(sentence):
-            continue
-        words = sentence.split()
-        return " ".join(words[:_REASON_MAX_WORDS]) + ("…" if len(words) > _REASON_MAX_WORDS else "")
+    top = min(final_level, len(evidence)) if final_level else len(evidence)
+    for step in reversed(evidence[:top]):
+        explanation = re.sub(r"\s*\(matches:.*?\)", "", step["explanation"] or "")
+        for sentence in _SENTENCE_END.split(explanation.strip()):
+            sentence = sentence.strip()
+            if not sentence or _DESCRIPTOR_ID.search(sentence) or _MENTIONS_LEVEL.search(sentence):
+                continue
+            words = sentence.split()
+            return " ".join(words[:_REASON_MAX_WORDS]) + ("…" if len(words) > _REASON_MAX_WORDS else "")
     return "Evidence found for this skill."
 
 
@@ -45,8 +52,9 @@ def _engine_block(specialist_result: dict, threads: dict) -> dict:
     """What the review screen needs, plus what calibration needs later.
     fine_score and scheme_key are internal -- the backend stores them but
     never sends them to a browser."""
+    level = _level_of_band(specialist_result["awarded_band"])
     return {
-        "level": _level_of_band(specialist_result["awarded_band"]),
+        "level": level,
         "mark": specialist_result["marks"],
         "max_mark": specialist_result["max_marks"],
         "combine_mode": specialist_result.get("combine_mode"),
@@ -58,7 +66,7 @@ def _engine_block(specialist_result: dict, threads: dict) -> dict:
         "threads": [
             {
                 "label": threads[entry["thread_key"]]["thread_description"].strip().rstrip("."),
-                "reason": _teacher_reason(entry),
+                "reason": _teacher_reason(entry, level),
             }
             for entry in specialist_result["per_thread"]
         ],
