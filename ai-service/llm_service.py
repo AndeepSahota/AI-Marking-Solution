@@ -146,8 +146,14 @@ def _record_usage(response) -> None:
         pass
 
 
+# Each essay's specialist calls now run in parallel and the worker marks
+# several essays at once (specialists/parallel.py), so bursts can hit
+# OpenAI's rate limit. The client retries 429s and transient errors itself
+# with exponential backoff, honouring OpenAI's retry-after header; the
+# default of 2 retries is too few for a burst.
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
+    max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "6")),
     http_client=DefaultHttpxClient(event_hooks={"response": [_record_usage]}),
 )
 

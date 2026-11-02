@@ -15,6 +15,11 @@ import {
 
 const QUEUE_NAME = 'student-marking'
 
+// Essays marked at the same time. Each one is mostly waiting on the AI
+// service, which marks them in parallel; OpenAI rate limits are handled
+// there (OPENAI_MAX_PARALLEL, retries with backoff).
+const MAX_CONCURRENT_ESSAYS = Number.parseInt(process.env.MARKING_WORKER_CONCURRENCY ?? '3', 10) || 3
+
 function getSelectedQuestion(ocrRow) {
     if (!ocrRow.structured_scheme) return null
 
@@ -140,9 +145,16 @@ export function startMarkingWorker() {
         processError: async (args) => {
             logInfo(`Error receiving from "${QUEUE_NAME}": ${args.error.message}`)
         },
-    }, { autoCompleteMessages: false })
+    }, {
+        autoCompleteMessages: false,
+        maxConcurrentCalls: MAX_CONCURRENT_ESSAYS,
+        // Keep each message locked for as long as its essay takes. The SDK's
+        // default stops renewing after 5 minutes, after which a slow essay
+        // (or one waiting behind others) would be handed out a second time.
+        maxAutoLockRenewalDurationInMs: 30 * 60 * 1000,
+    })
 
-    logInfo(`Subscribed to "${QUEUE_NAME}" — listening for messages.`)
+    logInfo(`Subscribed to "${QUEUE_NAME}" — marking up to ${MAX_CONCURRENT_ESSAYS} essays at once.`)
 
     return receiver
 }

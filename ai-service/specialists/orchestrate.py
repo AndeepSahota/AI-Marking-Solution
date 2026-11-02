@@ -6,6 +6,7 @@ shared across several, so three specialist calls need three separate
 wrap_for_prompt() calls, not one reused wrapping.
 """
 
+import functools
 import os
 import re
 
@@ -13,6 +14,7 @@ from security import ms_ocr_sanitisation
 from llm_service import generate_thread_specialist_response, generate_idea_specialist_response
 from specialists.calibration import calibration_for, combine_calibrated, fine_score, scheme_key_for
 from specialists.combine import combine_specialist_results, mark_for_level, vote_levels
+from specialists.parallel import run_each
 
 from specialists.consistency import (
     generate_judgement_specialist_response_consistent,
@@ -128,10 +130,7 @@ def mark_ao_with_specialists(
 
     sanitized = ms_ocr_sanitisation.sanitize(essay_text)
 
-    per_thread_results = []
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-    for thread_key, thread in ao["threads"].items():
+    def mark_thread(thread_key, thread):
         if thread_key == _JUDGEMENT_THREAD_KEY:
             # Ensembled (n=3, temperature=0.5, median vote) -- this thread's
             # own repeated-run testing showed genuine run-to-run variance at
@@ -192,9 +191,16 @@ def mark_ao_with_specialists(
         per_thread_entry = {"thread_key": thread_key, **result}
         if sample_levels is not None:
             per_thread_entry["sample_levels"] = sample_levels
-        per_thread_results.append(per_thread_entry)
-        total_prompt_tokens += usage.get("prompt_tokens") or 0
-        total_completion_tokens += usage.get("completion_tokens") or 0
+        return per_thread_entry, usage
+
+    # Threads are independent, so they run at the same time (specialists/parallel.py).
+    outcomes = run_each([
+        functools.partial(mark_thread, thread_key, thread)
+        for thread_key, thread in ao["threads"].items()
+    ])
+    per_thread_results = [entry for entry, _ in outcomes]
+    total_prompt_tokens = sum(usage.get("prompt_tokens") or 0 for _, usage in outcomes)
+    total_completion_tokens = sum(usage.get("completion_tokens") or 0 for _, usage in outcomes)
 
     combined = combine_specialist_results(per_thread_results)
     return _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)
@@ -211,10 +217,7 @@ def _mark_ao_general(
     calibration = calibration_for(ao) if _COMBINE_MODE == COMBINE_CALIBRATED else None
     n_samples = _CALIBRATED_SAMPLES if calibration else _GENERAL_SAMPLES
 
-    per_thread_results = []
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-    for thread_key, thread in ao["threads"].items():
+    def mark_thread(thread_key, thread):
         result = generate_thread_specialist_response_consistent(
             question=question,
             sanitized_essay=sanitized,
@@ -226,9 +229,16 @@ def _mark_ao_general(
         )
         usage = result.pop("usage")
         sample_levels = result.pop("sample_levels")
-        per_thread_results.append({"thread_key": thread_key, **result, "sample_levels": sample_levels})
-        total_prompt_tokens += usage.get("prompt_tokens") or 0
-        total_completion_tokens += usage.get("completion_tokens") or 0
+        return {"thread_key": thread_key, **result, "sample_levels": sample_levels}, usage
+
+    # Threads are independent, so they run at the same time (specialists/parallel.py).
+    outcomes = run_each([
+        functools.partial(mark_thread, thread_key, thread)
+        for thread_key, thread in ao["threads"].items()
+    ])
+    per_thread_results = [entry for entry, _ in outcomes]
+    total_prompt_tokens = sum(usage.get("prompt_tokens") or 0 for _, usage in outcomes)
+    total_completion_tokens = sum(usage.get("completion_tokens") or 0 for _, usage in outcomes)
 
     combined = combine_specialist_results(per_thread_results, holistic_level=holistic_level)
     result = _result(ao, combined, per_thread_results, total_prompt_tokens, total_completion_tokens)

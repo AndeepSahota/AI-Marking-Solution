@@ -1,4 +1,5 @@
 import os
+import asyncio
 import re
 import sys
 import json as _json
@@ -239,9 +240,19 @@ async def mark_with_scheme_text(
     question_text:     str        = Form(default='')
 ):
     student_bytes = await student_work.read()
+    # Marking blocks on OCR and OpenAI for the best part of a minute. On a
+    # worker thread it no longer holds up the server, so the worker's
+    # several essays at once really are marked at the same time.
+    return await asyncio.to_thread(
+        _mark_with_scheme_text,
+        student_bytes, student_work.filename, scheme_text, thread_extraction, question_text,
+    )
+
+
+def _mark_with_scheme_text(student_bytes, filename, scheme_text, thread_extraction, question_text):
     cost_tracker.start()
     cost_tracker.set_stage("ocr")
-    structured_ocr = extract_student_ocr(student_bytes, student_work.filename)
+    structured_ocr = extract_student_ocr(student_bytes, filename)
     raw_text       = structured_ocr.get("handwritten_work", "")
     log_student_ocr_done(len(raw_text))
 

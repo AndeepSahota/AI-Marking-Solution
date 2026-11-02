@@ -14,6 +14,7 @@ from collections import Counter
 from statistics import median
 
 from security import ms_ocr_sanitisation
+from specialists.parallel import run_calls
 from llm_service import (
     generate_judgement_specialist_response,
     generate_thread_specialist_response,
@@ -93,13 +94,9 @@ def _median_of_samples(generate, question, sanitized_essay, thread_description, 
     the n_samples calls needs its own fresh anti-injection token, the same
     rule every other multi-call stage in this pipeline already follows.
     """
-    samples = []
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-
-    for _ in range(n_samples):
+    def one_sample():
         wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized_essay)
-        result, performance = generate(
+        return generate(
             question=question,
             student_response=wrapped,
             thread_description=thread_description,
@@ -108,9 +105,13 @@ def _median_of_samples(generate, question, sanitized_essay, thread_description, 
             include_performance=True,
             **extra,
         )
-        samples.append(result)
-        total_prompt_tokens += performance.get("prompt_tokens") or 0
-        total_completion_tokens += performance.get("completion_tokens") or 0
+
+    # The samples are independent, so they run at the same time; results
+    # keep their order, so the representative pick below is unchanged.
+    outcomes = run_calls([one_sample] * n_samples)
+    samples = [result for result, _ in outcomes]
+    total_prompt_tokens = sum(performance.get("prompt_tokens") or 0 for _, performance in outcomes)
+    total_completion_tokens = sum(performance.get("completion_tokens") or 0 for _, performance in outcomes)
 
     sample_levels = [_level_of(s["descriptor_id"]) for s in samples]
     median_level = round(median(sample_levels))
