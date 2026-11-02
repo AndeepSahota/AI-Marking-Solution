@@ -5154,3 +5154,52 @@ body::after {
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* ── Header on phones: keep logo, nav and Sign out on one line ── */
+@media (max-width: 640px) {
+  .header-inner {
+    padding: 0 16px;
+    gap: 8px;
+  }
+
+  .brand-badge,
+  .header-user-name {
+    display: none;
+  }
+
+  .header-nav-link {
+    padding: 7px 8px;
+    white-space: nowrap;
+  }
+
+  .header-logout-btn {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 400px) {
+  .brand-name {
+    display: none;
+  }
+}
+
+/* Page title rows (Back · title · action): let the title wrap rather than
+   push the action button off a phone screen. */
+@media (max-width: 640px) {
+  .marking-header {
+    gap: 10px;
+  }
+
+  .marking-header-centre {
+    min-width: 0;
+  }
+
+  .marking-class-name {
+    overflow-wrap: anywhere;
+  }
+
+  .review-entry-btn {
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+}
