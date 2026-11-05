@@ -33,17 +33,26 @@ export function selectedQuestionExtraction(ocrRow) {
 // Level choices for the review picker. Single-AO, level-based questions only
 // -- the same questions the specialist engine marks; anything else returns
 // null and the review screen isn't offered.
+// A band is a level only if it is labelled like one ("Level 3", "Band 2",
+// or a bare number such as a "0" band) -- a points question's "1 mark"
+// band is not.
+const LEVEL_LABEL = /^\s*(?:(?:level|band)\s*)?(\d+)\s*$/i
+
 export function levelsFor(questionExtraction) {
     const aos = Object.values(questionExtraction?.assessment_objectives ?? {})
     if (aos.length !== 1 || !Array.isArray(aos[0].band_marks)) return null
     const levels = []
     for (const band of aos[0].band_marks) {
-        const level = levelFromBand(band.band)
+        const label = typeof band.band === 'string' ? band.band.match(LEVEL_LABEL) : null
         const numbers = String(band.marks ?? '').match(/\d+/g)?.map(Number)
-        if (level === null || !numbers?.length) return null
-        levels.push({ level, min: Math.min(...numbers), max: Math.max(...numbers) })
+        if (!label || !numbers?.length) return null
+        levels.push({ level: Number(label[1]), min: Math.min(...numbers), max: Math.max(...numbers) })
     }
-    return levels.length ? levels.sort((a, b) => a.level - b.level) : null
+    if (levels.filter(item => item.max > 0).length < 2) return null
+    // Teachers must be able to give no credit (a blank or off-task answer)
+    // even when the scheme has no 0-mark band.
+    if (!levels.some(item => item.min === 0)) levels.push({ level: 0, min: 0, max: 0 })
+    return levels.sort((a, b) => a.level - b.level)
 }
 
 // What the engine gave this essay. Prefers the specialist engine's block;

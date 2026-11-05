@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { levelName, rangeText } from '../utils/reviewText'
 
 const REASONS = [
   { code: 'too_generous', label: 'Too generous' },
@@ -58,14 +59,15 @@ function ChangeMarkForm({ levels, suggestion, initial, saving, submitLabel, onSu
               aria-pressed={item.level === level}
               onClick={() => chooseLevel(item.level)}
             >
-              <span className="review-level-name">Level {item.level}</span>
-              <span className="review-level-range">{item.min}–{item.max} marks</span>
+              <span className="review-level-name">{levelName(item.level)}</span>
+              <span className="review-level-range">{rangeText(item)}</span>
             </button>
           ))}
         </div>
       </fieldset>
 
-      {band && (
+      {/* Only one possible mark (e.g. No credit): nothing to choose. */}
+      {band && band.min !== band.max && (
         <label className="review-mark-field">
           <span className="review-legend">Mark <span className="review-optional">(optional)</span></span>
           <input

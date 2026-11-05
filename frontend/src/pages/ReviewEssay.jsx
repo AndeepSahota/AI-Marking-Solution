@@ -6,6 +6,7 @@ import WrongQuestionWarning from '../components/WrongQuestionWarning'
 import { buildEvidenceSegments } from '../utils/evidenceSegments'
 import { renderOcrText } from '../utils/renderOcrText'
 import { nextToReview } from '../utils/reviewOrder'
+import { markText } from '../utils/reviewText'
 
 // Seconds the page has been visible since the last reset -- time in another
 // tab doesn't count towards the time spent on a review.
@@ -55,8 +56,6 @@ function HighlightedEssay({ text, quotes }) {
   )
 }
 
-const markText = (level, mark, maxMark) =>
-  mark == null ? `Level ${level}` : `Level ${level} · ${mark}/${maxMark}`
 
 // The marker can also ask for a check without the mark being borderline.
 function BorderlineBadge({ suggestion, flagged }) {

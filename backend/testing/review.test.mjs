@@ -64,14 +64,34 @@ const row = (overrides = {}) => ({
     ...overrides,
 })
 
-test('levelsFor reads single-AO levels in order, with en dashes', () => {
-    assert.deepEqual(levelsFor(extraction), LEVELS)
+const bands = (...pairs) => ({ assessment_objectives: { AO4: { band_marks: pairs.map(([band, marks]) => ({ band, marks })) } } })
+const NO_CREDIT = { level: 0, min: 0, max: 0 }
+
+test('levelsFor reads single-AO levels in order, with en dashes, adding No credit', () => {
+    assert.deepEqual(levelsFor(extraction), [NO_CREDIT, ...LEVELS])
 })
 
-test('levelsFor refuses multi-AO and unparseable schemes', () => {
+test('levelsFor keeps a scheme\'s own 0 band rather than adding another', () => {
+    for (const zero of ['0', 'Level 0']) {
+        assert.deepEqual(levelsFor(bands([zero, '0'], ['Level 1', '1-3'], ['Level 2', '4-6'])), [NO_CREDIT, { level: 1, min: 1, max: 3 }, { level: 2, min: 4, max: 6 }])
+    }
+    assert.deepEqual(levelsFor(bands(['Band 1', '1-6'], ['Band 2', '7-12'])).map(l => l.level), [0, 1, 2])
+})
+
+test('levelsFor refuses multi-AO, points-based and unparseable schemes', () => {
     assert.equal(levelsFor({ assessment_objectives: { AO1: extraction.assessment_objectives.AO4, AO2: extraction.assessment_objectives.AO4 } }), null)
-    assert.equal(levelsFor({ assessment_objectives: { AO4: { band_marks: [{ band: 'Top', marks: '7-9' }] } } }), null)
+    assert.equal(levelsFor(bands(['Top', '7-9'], ['Level 1', '1-3'])), null)
+    // A points question (e.g. Paper 1 Q1) is not levelled, though "1 mark" has a digit.
+    assert.equal(levelsFor({ assessment_objectives: { General: { band_marks: [{ band: '1 mark', marks: '1' }] } } }), null)
+    assert.equal(levelsFor(bands(['Level 1', '1-4'])), null, 'one level is not a level scale')
     assert.equal(levelsFor(null), null)
+})
+
+test('No credit can be chosen and needs no mark', () => {
+    const levels = levelsFor(extraction)
+    assert.deepEqual(parseReviewInput({ teacherLevel: 0 }, levels), { teacherLevel: 0, teacherMark: null, reasonCodes: [], secondsSpent: null })
+    assert.equal(parseReviewInput({ teacherLevel: 0, teacherMark: 0 }, levels).teacherMark, 0)
+    assert.throws(() => parseReviewInput({ teacherLevel: 0, teacherMark: 1 }, levels), ReviewInputError)
 })
 
 test('selectedQuestionExtraction follows the selected question', () => {

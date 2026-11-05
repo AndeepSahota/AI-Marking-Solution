@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getLesson, getReviewList } from '../services/api'
 import { reviewOrder } from '../utils/reviewOrder'
+import { markText } from '../utils/reviewText'
 
 const STATUS_LABELS = {
   needs_checking: 'Needs checking',
@@ -11,10 +12,6 @@ const STATUS_LABELS = {
   changed: 'Changed',
 }
 
-function markText(level, mark, maxMark) {
-  if (level == null) return null
-  return mark == null ? `Level ${level}` : `Level ${level} · ${mark}/${maxMark}`
-}
 
 function EssayRow({ item, lessonId }) {
   const suggested = markText(item.level, item.mark, item.maxMark)
