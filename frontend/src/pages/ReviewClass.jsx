@@ -25,7 +25,10 @@ function EssayRow({ item, lessonId }) {
   return (
     <li>
       <Link className="review-class-row" to={`/review/${lessonId}/${item.studentId}`}>
-        <span className="review-class-name">{item.studentName}</span>
+        <span className="review-class-name">
+          {item.studentName}
+          {item.wrongQuestion && <span className="review-class-wrong-question">Different question?</span>}
+        </span>
         <span className="review-class-mark">
           {changedTo ? (
             <>
@@ -107,7 +110,7 @@ function ReviewClass() {
           </div>
 
           <p className="review-class-hint">
-            Borderline essays are listed first. Blind checks hide the suggested mark until you have chosen yours.
+            Essays that may answer a different question come first, then borderline marks. Blind checks hide the suggested mark until you have chosen yours.
           </p>
 
           <ul className="review-class-list">

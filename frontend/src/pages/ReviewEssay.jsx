@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getReviewEssay, getReviewList, saveReview } from '../services/api'
 import ChangeMarkForm from '../components/ChangeMarkForm'
+import WrongQuestionWarning from '../components/WrongQuestionWarning'
 import { buildEvidenceSegments } from '../utils/evidenceSegments'
 import { renderOcrText } from '../utils/renderOcrText'
 import { nextToReview } from '../utils/reviewOrder'
@@ -57,8 +58,11 @@ function HighlightedEssay({ text, quotes }) {
 const markText = (level, mark, maxMark) =>
   mark == null ? `Level ${level}` : `Level ${level} · ${mark}/${maxMark}`
 
-function BorderlineBadge({ suggestion }) {
-  if (!suggestion.borderline) return null
+// The marker can also ask for a check without the mark being borderline.
+function BorderlineBadge({ suggestion, flagged }) {
+  if (!suggestion.borderline) {
+    return flagged ? <span className="review-borderline-badge">Flagged for a check</span> : null
+  }
   const [low, high] = suggestion.borderlineLevels ?? []
   return (
     <span className="review-borderline-badge">
@@ -67,12 +71,12 @@ function BorderlineBadge({ suggestion }) {
   )
 }
 
-function SuggestionPanel({ suggestion }) {
+function SuggestionPanel({ suggestion, flagged }) {
   return (
     <div className="review-suggestion">
       <div className="review-suggestion-head">
         <span className="review-label">Suggested mark</span>
-        <BorderlineBadge suggestion={suggestion} />
+        <BorderlineBadge suggestion={suggestion} flagged={flagged} />
       </div>
       <p className="review-suggestion-mark">{markText(suggestion.level, suggestion.mark, suggestion.maxMark)}</p>
       {suggestion.threads.length > 0 && (
@@ -191,6 +195,7 @@ function ReviewEssayPage() {
         </section>
 
         <aside className="review-panel" aria-label="Review">
+          {essay.wrongQuestion && <WrongQuestionWarning reason={essay.wrongQuestion.reason} />}
           {blindPending ? (
             <>
               <div className="review-blind-note">
@@ -207,7 +212,7 @@ function ReviewEssayPage() {
             </>
           ) : (
             <>
-              <SuggestionPanel suggestion={suggestion} />
+              <SuggestionPanel suggestion={suggestion} flagged={essay.flaggedForCheck} />
 
               {review && !changing && (
                 <div className="review-saved" role="status">

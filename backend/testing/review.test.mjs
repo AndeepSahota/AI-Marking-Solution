@@ -4,6 +4,8 @@ import {
     MAX_SECONDS_SPENT,
     ReviewInputError,
     blindPickCount,
+    checkReasons,
+    checkSummary,
     chooseBlind,
     engineSnapshot,
     levelsFor,
@@ -13,8 +15,9 @@ import {
     publicListItem,
     reviewStatus,
     selectedQuestionExtraction,
-    stripEngineInternals,
+    wrongQuestionNotes,
 } from '../src/services/reviewService.js'
+import { stripEngineInternals } from '../src/services/teacherFacing.js'
 
 const LEVELS = [
     { level: 1, min: 1, max: 3 },
@@ -140,12 +143,58 @@ test('blind checks: none under 5 essays, 2 under 10, then 3', () => {
     assert.deepEqual(chooseBlind([1, 2, 3]), [])
 })
 
+// A row whose final result has these engine/top-level fields.
+const rowWith = ({ borderline = false, reviewRequired = false, mismatch = null, ...rest } = {}) => row({
+    student_grade: JSON.stringify({
+        score: 4, maxScore: 9,
+        ...(mismatch !== null && { questionMismatch: true, questionMismatchReason: mismatch }),
+    }),
+    final_result: JSON.stringify({
+        status: 'complete',
+        result: { score: 5, maxScore: 9, teacherReviewRequired: reviewRequired, engine: { ...engineBlock, borderline } },
+    }),
+    ...rest,
+})
+
 test('reviewStatus', () => {
-    const engine = { borderline: true }
-    assert.equal(reviewStatus({ review_id: 1, outcome: 'changed' }, engine), 'changed')
-    assert.equal(reviewStatus({ blind_pick: 1 }, engine), 'blind_check')
-    assert.equal(reviewStatus({}, engine), 'needs_checking')
-    assert.equal(reviewStatus({}, { borderline: false }), 'not_reviewed')
+    assert.equal(reviewStatus(rowWith({ borderline: true, review_id: 1, outcome: 'changed' })), 'changed')
+    assert.equal(reviewStatus(rowWith({ borderline: true, blind_pick: 1 })), 'blind_check')
+    assert.equal(reviewStatus(rowWith({ borderline: true })), 'needs_checking')
+    assert.equal(reviewStatus(rowWith({ reviewRequired: true })), 'needs_checking')
+    assert.equal(reviewStatus(rowWith()), 'not_reviewed')
+})
+
+test('checkReasons lists why an unreviewed essay needs a check, most important first', () => {
+    assert.deepEqual(
+        checkReasons(rowWith({ borderline: true, reviewRequired: true, mismatch: 'Wrong task.', blind_pick: 1 })),
+        ['wrong_question', 'blind_check', 'borderline', 'review_required']
+    )
+    assert.deepEqual(checkReasons(rowWith()), [])
+    assert.deepEqual(checkReasons(rowWith({ borderline: true, review_id: 3 })), [], 'reviewed essays are done')
+})
+
+test('checkSummary counts each essay once', () => {
+    const summary = checkSummary([
+        rowWith({ student_id: 1, borderline: true, reviewRequired: true }),
+        rowWith({ student_id: 2 }),
+        rowWith({ student_id: 3, mismatch: 'Wrong task.' }),
+    ])
+    assert.equal(summary.count, 2)
+    assert.deepEqual(Object.keys(summary.byStudent), ['1', '3'])
+})
+
+test('the wrong-question note is cleaned and shown even on a blind check', () => {
+    const essay = publicEssay(rowWith({ blind_pick: 1, mismatch: 'Answers a different task. This fits Level 2.' }), LEVELS)
+    assert.deepEqual(essay.wrongQuestion, { reason: 'Answers a different task.' })
+    assert.equal(essay.suggestion, null)
+    assert.equal(publicEssay(rowWith(), LEVELS).wrongQuestion, null)
+    assert.equal(publicListItem(rowWith({ mismatch: '' })).wrongQuestion, true)
+    assert.deepEqual(wrongQuestionNotes([rowWith({ student_id: 5, mismatch: 'Wrong task.' }), rowWith({ student_id: 6 })]), { 5: 'Wrong task.' })
+})
+
+test('flaggedForCheck shows a "teacher review required" essay once its suggestion is visible', () => {
+    assert.equal(publicEssay(rowWith({ reviewRequired: true }), LEVELS).flaggedForCheck, true)
+    assert.equal(publicEssay(rowWith({ reviewRequired: true, blind_pick: 1 }), LEVELS).flaggedForCheck, false)
 })
 
 const INTERNALS = ['fineScore', 'schemeKey', 'combineMode', 'runsPerThread']

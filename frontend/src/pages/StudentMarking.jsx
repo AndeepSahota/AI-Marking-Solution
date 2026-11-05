@@ -8,6 +8,7 @@ import {
   getMarkingJobStatuses,
   getUploadUrl,
   completeUpload,
+  getReviewSummary,
   uploadToBlob,
   markStudentWork,
 } from '../services/api'
@@ -206,6 +207,19 @@ function StudentMarking() {
       window.clearTimeout(timerId)
     }
   }, [lessonId, hasActiveJobs])
+
+  // Once marking has finished, how many essays need the teacher's check
+  // (teacher review only; the request fails quietly when it is off).
+  const finishedCount = Object.values(markStates).filter(state => state.status === 'marked').length
+  const [checkCount, setCheckCount] = useState(null)
+  useEffect(() => {
+    if (!lessonId || hasActiveJobs || isMarkingRun || finishedCount === 0) return
+    let cancelled = false
+    getReviewSummary(lessonId)
+      .then(data => { if (!cancelled) setCheckCount(data.count) })
+      .catch(() => { if (!cancelled) setCheckCount(null) })
+    return () => { cancelled = true }
+  }, [lessonId, hasActiveJobs, isMarkingRun, finishedCount])
 
   if (notFound) {
     navigate('/', { replace: true })
@@ -592,6 +606,11 @@ function StudentMarking() {
         {isMarkingRun ? 'Queueing…' : 'Submit'}
       </button>
 
+      {!isMarkingRun && !hasActiveJobs && markedCount > 0 && checkCount > 0 && (
+        <p className="marking-check-count" role="status">
+          {checkCount} {checkCount === 1 ? 'essay needs' : 'essays need'} your check
+        </p>
+      )}
       {!isMarkingRun && markedCount > 0 && (
         <button
           className="marking-submit-btn"

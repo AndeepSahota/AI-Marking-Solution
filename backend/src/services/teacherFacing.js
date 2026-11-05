@@ -5,8 +5,6 @@
 // levels sit on a different scale from the overall level, so showing them
 // contradicts the mark (e.g. every skill "Level 2", overall Level 1).
 // Same rule as the AI service's resolve._teacher_reason.
-import { stripEngineInternals } from './reviewService.js'
-
 const INTERNAL_SENTENCE = /\blevel\s*\d|\bao\d+-\d+[a-z]+\b|\bthread\b|\bspecialist|\bcalibrat|\bfine score/i
 
 // Drops every sentence that mentions an internal; keeps the rest as written.
@@ -19,6 +17,17 @@ export function teacherText(text) {
         .map(sentence => sentence.trim())
         .filter(sentence => sentence && !INTERNAL_SENTENCE.test(sentence))
         .join(' ')
+}
+
+// The engine's teacher-facing fields stay; the calibration internals go.
+const INTERNAL_ENGINE_FIELDS = ['fineScore', 'schemeKey', 'combineMode', 'runsPerThread']
+
+export function stripEngineInternals(finalResult) {
+    const engine = finalResult?.result?.engine
+    if (!engine) return finalResult
+    const safe = { ...engine }
+    for (const field of INTERNAL_ENGINE_FIELDS) delete safe[field]
+    return { ...finalResult, result: { ...finalResult.result, engine: safe } }
 }
 
 const cleanEvidence = evidence => Array.isArray(evidence)

@@ -5203,3 +5203,116 @@ body::after {
     white-space: nowrap;
   }
 }
+
+/* ── Essays that need the teacher's check (Feedback, marking, review pages) ── */
+.needs-check-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.needs-check-banner p {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.needs-check-banner strong {
+  font-size: 0.95rem;
+  color: var(--warning);
+}
+
+.needs-check-tag {
+  margin-left: 10px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--warning);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  text-decoration: none;
+}
+
+.needs-check-tag:hover {
+  border-color: var(--warning);
+}
+
+.needs-check-tag::after {
+  content: ' →';
+}
+
+.wrong-question-warning {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  border-left: 4px solid var(--error);
+}
+
+.wrong-question-warning svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  color: var(--error);
+  margin-top: 1px;
+}
+
+.wrong-question-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--error);
+}
+
+.wrong-question-reason {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.review-blind-feedback .wrong-question-warning {
+  margin: 10px 0 0;
+}
+
+.review-class-wrong-question {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--error);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  vertical-align: middle;
+}
+
+.marking-check-count {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+@media (max-width: 640px) {
+  .needs-check-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .needs-check-banner .review-entry-btn {
+    text-align: center;
+  }
+}

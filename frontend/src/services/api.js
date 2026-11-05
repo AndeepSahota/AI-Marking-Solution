@@ -160,10 +160,13 @@ export async function getMarkingResults(lessonId) {
     // blindPendingStudentIds: blind-check essays left out of results until
     // the teacher has reviewed them. reviewAvailable: teacher review is on
     // and this lesson's question can be reviewed.
+    // checks (teacher review on): { count, byStudent: { [id]: reasons },
+    // wrongQuestion: { [id]: note } } -- essays that need the teacher's eye.
     return {
         results: data.results,
         blindPendingStudentIds: data.blindPendingStudentIds ?? [],
         reviewAvailable: Boolean(data.reviewAvailable),
+        checks: data.checks ?? null,
     }
 }
 
@@ -183,6 +186,11 @@ async function reviewRequest(path, options, fallbackMessage) {
 // Returns { progress: { reviewed, total }, items: [...] }
 export async function getReviewList(lessonId) {
     return reviewRequest(`${lessonId}/review`, {}, 'Failed to load essays to review')
+}
+
+// Returns { count } -- essays still needing the teacher's check.
+export async function getReviewSummary(lessonId) {
+    return reviewRequest(`${lessonId}/review/summary`, {}, 'Failed to load review summary')
 }
 
 export async function getReviewEssay(lessonId, studentId) {

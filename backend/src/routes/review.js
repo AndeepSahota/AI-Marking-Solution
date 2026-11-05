@@ -11,6 +11,7 @@ import { lessonDb, reviewDb } from '../db/index.js'
 import { inputSecurity } from '../middleware/inputSecurity.js'
 import {
     ReviewInputError,
+    checkSummary,
     chooseBlind,
     engineSnapshot,
     levelsFor,
@@ -67,6 +68,23 @@ router.get('/:lessonId/review', async (req, res, next) => {
             progress: { reviewed: items.filter(item => item.review).length, total: items.length },
             items,
         })
+    } catch (err) {
+        next(err)
+    }
+})
+
+// How many essays still need the teacher's check -- for the marking page,
+// which shows the count next to Proceed. Declared before /:studentId.
+router.get('/:lessonId/review/summary', async (req, res, next) => {
+    try {
+        const { lessonId } = ids(req)
+        if (!validIds(ids(req))) return res.status(400).json({ error: 'Invalid lesson' })
+        const levels = await lessonLevels(lessonId, req.user.id, res)
+        if (!levels) return
+
+        await reviewDb.ensureBlindPicks(lessonId, req.user.id, chooseBlind)
+        const { count } = checkSummary(await reviewDb.listResults(lessonId, req.user.id))
+        res.json({ count })
     } catch (err) {
         next(err)
     }

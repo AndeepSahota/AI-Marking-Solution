@@ -4,6 +4,7 @@ import { getLesson, getLessonScheme, getStudents, getMarkingResults } from '../s
 import ResultCard from '../components/ResultCard'
 import AnnotatedEssay from '../components/AnnotatedEssay'
 import AggregationEvidenceEssay from '../components/AggregationEvidenceEssay'
+import WrongQuestionWarning from '../components/WrongQuestionWarning'
 import { feedbackResult } from '../utils/feedbackResult'
 
 function StudentFeedback() {
@@ -15,6 +16,7 @@ function StudentFeedback() {
   const [results,        setResults]        = useState([])
   const [blindPendingIds, setBlindPendingIds] = useState([])
   const [reviewAvailable, setReviewAvailable] = useState(false)
+  const [checks, setChecks] = useState(null)
   const [resultsLoading, setResultsLoading] = useState(true)
   const [resultsError,   setResultsError]   = useState(null)
   const [notFound,       setNotFound]       = useState(false)
@@ -50,6 +52,7 @@ function StudentFeedback() {
         setResults(data.results)
         setBlindPendingIds(data.blindPendingStudentIds)
         setReviewAvailable(data.reviewAvailable)
+        setChecks(data.checks)
       })
       .catch(err => setResultsError(err.message))
       .finally(() => setResultsLoading(false))
@@ -62,6 +65,16 @@ function StudentFeedback() {
 
   const nameFor = (studentId) =>
     students.find(s => s.id === studentId)?.student_name ?? `Student #${studentId}`
+
+  // Essays the teacher should look at (teacher review on): the warning shows
+  // on any lesson; the count and links only where review is available.
+  const wrongQuestionNote = (studentId) => checks?.wrongQuestion?.[studentId]
+  const needsCheck = (studentId) => reviewAvailable && Boolean(checks?.byStudent?.[studentId])
+  const checkCount = reviewAvailable ? checks?.count ?? 0 : 0
+
+  const needsCheckTag = (studentId) => needsCheck(studentId)
+    ? <Link className="needs-check-tag" to={`/review/${lessonId}/${studentId}`}>Needs your check</Link>
+    : null
 
   const toggleEssayExpanded = (studentId) =>
     setEssayExpanded(prev => ({ ...prev, [studentId]: !prev[studentId] }))
@@ -94,11 +107,21 @@ function StudentFeedback() {
           <p className="student-marking-empty">No marked work yet.</p>
         ) : (
           <>
+          {checkCount > 0 && (
+            <div className="needs-check-banner" role="status">
+              <p>
+                <strong>{checkCount} {checkCount === 1 ? 'essay needs' : 'essays need'} your check</strong>
+                <span>Borderline marks, blind checks and essays that may answer a different question.</span>
+              </p>
+              <Link className="review-entry-btn" to={`/review/${lessonId}`}>Review marks</Link>
+            </div>
+          )}
           {/* Blind checks: their feedback is held back until the teacher has
               chosen a level, so the AI's mark can't sway them. */}
           {blindPendingIds.map(studentId => (
             <div key={`blind-${studentId}`} className="result-card review-blind-feedback">
               <span className="result-student-name">{nameFor(studentId)}</span>
+              {wrongQuestionNote(studentId) !== undefined && <WrongQuestionWarning reason={wrongQuestionNote(studentId)} />}
               <p className="feedback-notice">
                 <Link to={`/review/${lessonId}/${studentId}`}>Review this essay to see its feedback</Link>
               </p>
@@ -111,6 +134,7 @@ function StudentFeedback() {
 
             return (
               <div key={r.studentId} className="student-feedback-row">
+                {wrongQuestionNote(r.studentId) !== undefined && <WrongQuestionWarning reason={wrongQuestionNote(r.studentId)} />}
                 {finalUnavailable && (
                   <p role="status" className="feedback-notice">
                     Final marking is unavailable for this result. Showing the earlier mark and feedback.
@@ -120,6 +144,7 @@ function StudentFeedback() {
                   studentName={nameFor(r.studentId)}
                   result={result}
                   scheme={schemeData?.scheme}
+                  badge={needsCheckTag(r.studentId)}
                 />
                 {studentText && (
                   <>

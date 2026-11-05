@@ -10,7 +10,7 @@ function descriptorsForBreakdownItem(scheme, item) {
   return Array.isArray(band?.descriptors) ? band.descriptors : []
 }
 
-function ResultCard({ studentName, result, scheme }) {
+function ResultCard({ studentName, result, scheme, badge = null }) {
   const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
   const showAoScores = Array.isArray(result.breakdown) && result.breakdown.length > 1
   const skillReasons = result.engine?.threads ?? []
@@ -39,6 +39,7 @@ function ResultCard({ studentName, result, scheme }) {
     <div className="result-card">
       <div className="result-student-row">
         <span className="result-student-name">{studentName}</span>
+        {badge}
       </div>
 
       <div className="result-score-section">

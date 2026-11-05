@@ -739,21 +739,6 @@ export const reviewDb = {
             intParam('studentId', studentId),
         ])).recordset[0],
 
-    // Blind-check students whose current marking result has no review yet --
-    // their mark stays hidden everywhere until the teacher has chosen.
-    blindPendingStudentIds: async (lessonId, teacherId, e = pool) =>
-        (await exec(e, `
-            SELECT mr.student_id
-            FROM dbo.review_blind_picks AS p
-            JOIN dbo.marking_results AS mr
-                ON mr.lesson_id = p.lesson_id AND mr.student_id = p.student_id
-            JOIN dbo.lessons AS l ON l.id = mr.lesson_id
-            JOIN dbo.classes AS c ON c.id = l.class_id
-            LEFT JOIN dbo.mark_reviews AS r ON r.marking_result_id = mr.id
-            WHERE p.lesson_id = @lessonId AND c.teacher_id = @teacherId AND r.id IS NULL
-        `, [intParam('lessonId', lessonId), intParam('teacherId', teacherId)])).recordset
-            .map(row => row.student_id),
-
     // Picks the lesson's blind-check essays once, the first time it is asked
     // with enough marked essays. chooseStudentIds(markedStudentIds) returns
     // the ones to pick (possibly none, e.g. too few essays yet). Locked so two

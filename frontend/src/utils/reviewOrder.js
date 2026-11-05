@@ -1,6 +1,7 @@
-// Order essays are worked through on the review screens: borderline essays
-// first, then blind checks, then the rest; reviewed ones last. Stable, so
-// essays keep the backend's order within each group.
+// Order essays are worked through on the review screens: possible wrong-
+// question answers first, then borderline essays, then blind checks, then
+// the rest; reviewed ones last. Stable, so essays keep the backend's order
+// within each group.
 const STATUS_ORDER = {
   needs_checking: 0,
   blind_check: 1,
@@ -9,8 +10,10 @@ const STATUS_ORDER = {
   confirmed: 3,
 }
 
+const rank = item => (item.wrongQuestion && !item.review ? -1 : STATUS_ORDER[item.status] ?? 2)
+
 export function reviewOrder(items) {
-  return [...items].sort((a, b) => (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2))
+  return [...items].sort((a, b) => rank(a) - rank(b))
 }
 
 // The next unreviewed essay after currentStudentId, wrapping round to the

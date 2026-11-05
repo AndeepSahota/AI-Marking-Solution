@@ -1,6 +1,7 @@
 // Teacher review logic, kept free of database and HTTP so it can be tested
 // directly (backend/testing/review.test.mjs). Routes: routes/review.js.
 import { randomInt } from 'crypto'
+import { teacherText } from './teacherFacing.js'
 
 export const REASON_CODES = ['too_generous', 'too_harsh', 'missed_evidence', 'misread_question', 'other']
 export const MAX_SECONDS_SPENT = 2 * 60 * 60
@@ -118,10 +119,55 @@ export function chooseBlind(studentIds, pickInt = randomInt) {
     return picked
 }
 
-export function reviewStatus(row, engine) {
+// Why an essay needs the teacher's check, most important first. Empty once
+// the teacher has reviewed it. Counted on the Feedback and marking pages.
+export function checkReasons(row) {
+    if (row.review_id) return []
+    const grade = parseJson(row.student_grade) ?? {}
+    const final = parseJson(row.final_result)
+    const result = final?.status === 'complete' ? final.result : null
+    const reasons = []
+    if (grade.questionMismatch) reasons.push('wrong_question')
+    if (row.blind_pick) reasons.push('blind_check')
+    if (result?.engine?.borderline) reasons.push('borderline')
+    if (grade.teacherReviewRequired || result?.teacherReviewRequired) reasons.push('review_required')
+    return reasons
+}
+
+// { count, byStudent: { [studentId]: reasons } } for a lesson's rows.
+export function checkSummary(rows) {
+    const byStudent = {}
+    for (const row of rows) {
+        const reasons = checkReasons(row)
+        if (reasons.length) byStudent[row.student_id] = reasons
+    }
+    return { count: Object.keys(byStudent).length, byStudent }
+}
+
+// The model's note when the essay seems to answer a different question,
+// cleaned like all teacher-facing text; null when there is no mismatch.
+function wrongQuestion(row) {
+    const grade = parseJson(row.student_grade) ?? {}
+    if (!grade.questionMismatch) return null
+    return { reason: teacherText(grade.questionMismatchReason) || null }
+}
+
+// { [studentId]: reason } for every essay that seems to answer a different
+// question, reviewed or not -- the Feedback page shows the warning on the card.
+export function wrongQuestionNotes(rows) {
+    const notes = {}
+    for (const row of rows) {
+        const note = wrongQuestion(row)
+        if (note) notes[row.student_id] = note.reason
+    }
+    return notes
+}
+
+export function reviewStatus(row) {
     if (row.review_id) return row.outcome
     if (row.blind_pick) return 'blind_check'
-    return engine.borderline ? 'needs_checking' : 'not_reviewed'
+    const reasons = checkReasons(row)
+    return reasons.includes('borderline') || reasons.includes('review_required') ? 'needs_checking' : 'not_reviewed'
 }
 
 const review = row => row.review_id ? {
@@ -152,7 +198,8 @@ export function publicListItem(row) {
     return {
         studentId: row.student_id,
         studentName: row.student_name,
-        status: reviewStatus(row, engine),
+        status: reviewStatus(row),
+        wrongQuestion: Boolean(wrongQuestion(row)),
         maxMark: engine.maxMark,
         level: hidden ? null : engine.level,
         mark: hidden ? null : engine.mark,
@@ -169,19 +216,10 @@ export function publicEssay(row, levels) {
         essayText: engine.essayText,
         blind: Boolean(row.blind_pick),
         levels,
+        // Shown even on a blind check: it is about the question, not the mark.
+        wrongQuestion: wrongQuestion(row),
+        flaggedForCheck: !hidesSuggestion(row) && checkReasons(row).includes('review_required'),
         suggestion: hidesSuggestion(row) ? null : suggestion(engine),
         review: review(row),
     }
-}
-
-// GET /lessons/:id/results is read by the existing Feedback page: keep the
-// engine's teacher-facing fields there, drop the calibration internals.
-const INTERNAL_ENGINE_FIELDS = ['fineScore', 'schemeKey', 'combineMode', 'runsPerThread']
-
-export function stripEngineInternals(finalResult) {
-    const engine = finalResult?.result?.engine
-    if (!engine) return finalResult
-    const safe = { ...engine }
-    for (const field of INTERNAL_ENGINE_FIELDS) delete safe[field]
-    return { ...finalResult, result: { ...finalResult.result, engine: safe } }
 }
