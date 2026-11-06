@@ -47,6 +47,33 @@ class FindQuoteTests(unittest.TestCase):
         self.assertIsNone(find_quote('".', ESSAY))
 
 
+# Made-up text, not a real student's essay. OCR marks crossed-out words ~~so~~.
+STRUCK = 'Firstly the ~~word~~ phrase, "hold on tight" shows the fear. ~~It is~~ This is clear.'
+
+
+class CrossedOutAndBrokenQuoteTests(unittest.TestCase):
+    def test_quote_that_skips_a_crossed_out_word_is_found(self):
+        found = find_quote('the phrase, "hold on tight" shows the fear', STRUCK)
+        # Returned as the student wrote it, crossed-out word and all.
+        self.assertEqual(found, 'the ~~word~~ phrase, "hold on tight" shows the fear')
+
+    def test_quote_that_keeps_the_crossed_out_word_is_found(self):
+        self.assertIsNotNone(find_quote('the word phrase, "hold on tight"', STRUCK))
+
+    def test_crossed_out_text_at_the_start_of_a_sentence(self):
+        self.assertEqual(find_quote("This is clear.", STRUCK), "This is clear.")
+        self.assertIsNotNone(find_quote("the fear. This is clear", STRUCK))
+
+    def test_changed_or_added_words_still_fail(self):
+        self.assertIsNone(find_quote('the phrase, "hold on very tight"', STRUCK))
+        self.assertIsNone(find_quote("the word phrase shows", STRUCK))
+
+    def test_curly_quotes_that_arrive_as_control_characters(self):
+        broken = "the phrase \x1chold on tight\x1d shows"
+        self.assertIsNotNone(find_quote(broken, 'Firstly the phrase \u201chold on tight\u201d shows the fear.'))
+        self.assertIsNotNone(find_quote("the boy\x19s fear", "It shows the boy\u2019s fear."))
+
+
 class ClosestTextTests(unittest.TestCase):
     def test_reports_the_real_sentence_for_a_near_miss(self):
         text, similarity = closest_text("struck the left side", ESSAY)
