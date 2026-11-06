@@ -213,8 +213,35 @@ export function publicListItem(row) {
         level: hidden ? null : engine.level,
         mark: hidden ? null : engine.mark,
         borderline: hidden ? false : engine.borderline,
+        borderlineLevels: hidden ? null : engine.borderlineLevels,
         review: review(row),
     }
+}
+
+// What the Feedback page shows once the teacher has reviewed an essay: their
+// level, and a mark that agrees with it -- their own mark, else the
+// suggested one if they kept its level, else that level's mark range.
+export function checkedMark(row, levels) {
+    if (!row.review_id) return null
+    const engine = engineSnapshot(row)
+    const band = levels?.find(item => item.level === row.teacher_level) ?? null
+    return {
+        level: row.teacher_level,
+        mark: row.teacher_mark ?? (row.teacher_level === engine.level ? engine.mark : null),
+        markRange: band ? { min: band.min, max: band.max } : null,
+        maxMark: engine.maxMark,
+        suggested: { level: engine.level, mark: engine.mark },
+    }
+}
+
+// { [studentId]: checkedMark } for every reviewed essay in the lesson.
+export function checkedMarks(rows, levels) {
+    const marks = {}
+    for (const row of rows) {
+        const checked = checkedMark(row, levels)
+        if (checked) marks[row.student_id] = checked
+    }
+    return marks
 }
 
 export function publicEssay(row, levels) {

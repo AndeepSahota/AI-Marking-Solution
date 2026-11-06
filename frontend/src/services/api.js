@@ -167,6 +167,8 @@ export async function getMarkingResults(lessonId) {
         blindPendingStudentIds: data.blindPendingStudentIds ?? [],
         reviewAvailable: Boolean(data.reviewAvailable),
         checks: data.checks ?? null,
+        // checked: { [id]: { level, mark, markRange, maxMark, suggested } } once reviewed.
+        checked: data.checked ?? {},
     }
 }
 

@@ -1,3 +1,5 @@
+import { levelName, markText } from '../utils/reviewText'
+
 function descriptorsForBreakdownItem(scheme, item) {
   const objectives = scheme?.assessment_objectives
   if (!Array.isArray(objectives)) return []
@@ -10,8 +12,18 @@ function descriptorsForBreakdownItem(scheme, item) {
   return Array.isArray(band?.descriptors) ? band.descriptors : []
 }
 
-function ResultCard({ studentName, result, scheme, badge = null }) {
-  const percentage = result.percentage ?? Math.round((result.score / result.maxScore) * 100)
+// checked: the teacher's review ({ level, mark, markRange, maxMark, suggested }),
+// shown instead of the suggested mark. couldBe: e.g. "could be 4" for a
+// borderline essay not yet reviewed.
+function ResultCard({ studentName, result, scheme, badge = null, checked = null, couldBe = null }) {
+  const singleAo = Array.isArray(result.breakdown) && result.breakdown.length === 1
+  const teacher = singleAo ? checked : null
+  const teacherMark = teacher?.mark ?? (teacher?.markRange ? (teacher.markRange.min + teacher.markRange.max) / 2 : null)
+  const percentage = teacherMark != null
+    ? Math.round((teacherMark / teacher.maxMark) * 100)
+    : result.percentage ?? Math.round((result.score / result.maxScore) * 100)
+  const scoreText = !teacher ? result.score
+    : teacher.mark ?? (teacher.markRange ? `${teacher.markRange.min}–${teacher.markRange.max}` : result.score)
   const showAoScores = Array.isArray(result.breakdown) && result.breakdown.length > 1
   const skillReasons = result.engine?.threads ?? []
 
@@ -39,23 +51,30 @@ function ResultCard({ studentName, result, scheme, badge = null }) {
     <div className="result-card">
       <div className="result-student-row">
         <span className="result-student-name">{studentName}</span>
-        {badge}
+        {teacher ? <span className="checked-by-you">Checked by you</span> : badge}
       </div>
 
       <div className="result-score-section">
         <div className="score-row">
-          <span className="score-number" style={{ color: colour }}>{result.score}</span>
+          <span className="score-number" style={{ color: colour }}>{scoreText}</span>
           <span className="score-separator">/</span>
           <span className="score-max">{result.maxScore}</span>
           <div className="result-awarded-bands">
             {result.breakdown?.map(item => item.awardedBand && (
               <span key={item.section} className="result-awarded-band">
-                {item.section} — {item.awardedBand}
+                {item.section} — {teacher ? levelName(teacher.level) : item.awardedBand}
+                {!teacher && singleAo && couldBe ? ` (${couldBe})` : ''}
               </span>
             ))}
           </div>
           <span className={getBadgeClass(percentage)}>{getGradeLabel(percentage)}</span>
         </div>
+
+        {teacher && (teacher.level !== teacher.suggested.level || (teacher.mark != null && teacher.mark !== teacher.suggested.mark)) && (
+          <p className="result-checked-note">
+            Suggested: {markText(teacher.suggested.level, teacher.suggested.mark, teacher.maxMark)}
+          </p>
+        )}
 
         <div className="progress-track">
           <div
@@ -80,7 +99,10 @@ function ResultCard({ studentName, result, scheme, badge = null }) {
           <div className="section-label">Breakdown</div>
           {result.breakdown.map((item, index) => {
             const itemPct = Math.round((item.marks / item.maxMarks) * 100)
-            const descriptors = descriptorsForBreakdownItem(scheme, item)
+            // The mark scheme lines for the level shown: the teacher's, once checked.
+            const descriptors = descriptorsForBreakdownItem(
+              scheme, teacher ? { ...item, awardedBand: `Level ${teacher.level}` } : item
+            )
             return (
               <div key={index} className="breakdown-item">
                 <div className="breakdown-item-header">

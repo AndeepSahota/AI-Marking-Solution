@@ -7,6 +7,7 @@ import config from '../config/index.js'
 import { lessonDb, markingDb, markingJobDb, classDb, reviewDb } from '../db/index.js'
 import {
     checkSummary,
+    checkedMarks,
     chooseBlind,
     levelsFor,
     selectedQuestionExtraction,
@@ -361,13 +362,17 @@ router.get('/:lessonId/results', async (req, res, next) => {
         let reviewAvailable = false
         let blindPending = []
         let checks = null
+        let checked = {}
         if (config.TEACHER_REVIEW_ENABLED) {
             const ocrRow = await lessonDb.getOcrText(lessonId, req.user.id)
-            reviewAvailable = Boolean(ocrRow && levelsFor(selectedQuestionExtraction(ocrRow)))
+            const levels = ocrRow ? levelsFor(selectedQuestionExtraction(ocrRow)) : null
+            reviewAvailable = Boolean(levels)
             if (reviewAvailable) await reviewDb.ensureBlindPicks(lessonId, req.user.id, chooseBlind)
             const reviewRows = await reviewDb.listResults(lessonId, req.user.id)
             blindPending = reviewRows.filter(r => r.blind_pick && !r.review_id).map(r => r.student_id)
             checks = { ...checkSummary(reviewRows), wrongQuestion: wrongQuestionNotes(reviewRows) }
+            // The teacher's own level and mark, shown instead of the suggestion.
+            checked = checkedMarks(reviewRows, levels)
         }
         const results = rows
             .filter(r => !blindPending.includes(r.student_id))
@@ -382,7 +387,7 @@ router.get('/:lessonId/results', async (req, res, next) => {
                     ? teacherFacingEnvelope(JSON.parse(r.final_result))
                     : null,
             }))
-        res.json({ results, blindPendingStudentIds: blindPending, reviewAvailable, checks })
+        res.json({ results, blindPendingStudentIds: blindPending, reviewAvailable, checks, checked })
     } catch (err) {
         next(err)
     }

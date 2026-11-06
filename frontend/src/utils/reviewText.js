@@ -12,3 +12,15 @@ export function markText(level, mark, maxMark) {
 export function rangeText({ min, max }) {
   return min === max ? `${min} ${min === 1 ? 'mark' : 'marks'}` : `${min}–${max} marks`
 }
+
+// "could be 4" for a borderline essay: the other levels its borderline range
+// covers. Null when not borderline or the range is unknown.
+export function couldBeText(level, borderlineLevels) {
+  if (level == null || !Array.isArray(borderlineLevels) || borderlineLevels.length !== 2) return null
+  const [low, high] = borderlineLevels
+  const others = []
+  for (let other = low; other <= high; other++) if (other !== level) others.push(other)
+  if (!others.length) return null
+  const last = others.pop()
+  return `could be ${others.length ? `${others.join(', ')} or ${last}` : last}`
+}

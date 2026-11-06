@@ -6,6 +6,8 @@ import {
     blindPickCount,
     checkReasons,
     checkSummary,
+    checkedMark,
+    checkedMarks,
     chooseBlind,
     engineSnapshot,
     levelsFor,
@@ -249,4 +251,25 @@ test('stripEngineInternals keeps teacher fields and leaves other results alone',
     assert.equal(final.result.engine.fineScore, 2.31, 'input not mutated')
     const failed = { status: 'failed' }
     assert.equal(stripEngineInternals(failed), failed)
+})
+
+test('checkedMark shows the teacher\'s level with a mark that agrees with it', () => {
+    const levels = levelsFor(extraction)
+    const reviewed = extra => rowWith({ review_id: 9, review_mode: 'normal', outcome: 'changed', teacher_mark: null, ...extra })
+    // Own mark given.
+    assert.deepEqual(checkedMark(reviewed({ teacher_level: 3, teacher_mark: 8 }), levels),
+        { level: 3, mark: 8, markRange: { min: 7, max: 9 }, maxMark: 9, suggested: { level: 2, mark: 5 } })
+    // Same level kept, no mark: the suggested mark stands.
+    assert.equal(checkedMark(reviewed({ teacher_level: 2 }), levels).mark, 5)
+    // Different level, no mark: no single mark, just the level's range.
+    const changed = checkedMark(reviewed({ teacher_level: 3 }), levels)
+    assert.equal(changed.mark, null)
+    assert.deepEqual(changed.markRange, { min: 7, max: 9 })
+    assert.equal(checkedMark(rowWith(), levels), null, 'not reviewed')
+    assert.deepEqual(Object.keys(checkedMarks([reviewed({ student_id: 4, teacher_level: 2 }), rowWith({ student_id: 5 })], levels)), ['4'])
+})
+
+test('the class list carries borderline levels only when the suggestion is visible', () => {
+    assert.deepEqual(publicListItem(rowWith({ borderline: true })).borderlineLevels, [2, 3])
+    assert.equal(publicListItem(rowWith({ borderline: true, blind_pick: 1 })).borderlineLevels, null)
 })

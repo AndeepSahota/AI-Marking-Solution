@@ -6,6 +6,7 @@ import AnnotatedEssay from '../components/AnnotatedEssay'
 import AggregationEvidenceEssay from '../components/AggregationEvidenceEssay'
 import WrongQuestionWarning from '../components/WrongQuestionWarning'
 import { feedbackResult } from '../utils/feedbackResult'
+import { couldBeText } from '../utils/reviewText'
 
 function StudentFeedback() {
   const { lessonId } = useParams()
@@ -17,6 +18,7 @@ function StudentFeedback() {
   const [blindPendingIds, setBlindPendingIds] = useState([])
   const [reviewAvailable, setReviewAvailable] = useState(false)
   const [checks, setChecks] = useState(null)
+  const [checked, setChecked] = useState({})
   const [resultsLoading, setResultsLoading] = useState(true)
   const [resultsError,   setResultsError]   = useState(null)
   const [notFound,       setNotFound]       = useState(false)
@@ -53,6 +55,7 @@ function StudentFeedback() {
         setBlindPendingIds(data.blindPendingStudentIds)
         setReviewAvailable(data.reviewAvailable)
         setChecks(data.checks)
+        setChecked(data.checked)
       })
       .catch(err => setResultsError(err.message))
       .finally(() => setResultsLoading(false))
@@ -145,6 +148,10 @@ function StudentFeedback() {
                   result={result}
                   scheme={schemeData?.scheme}
                   badge={needsCheckTag(r.studentId)}
+                  checked={checked[r.studentId] ?? null}
+                  couldBe={reviewAvailable
+                    ? couldBeText(result.engine?.level, result.engine?.borderline ? result.engine?.borderlineLevels : null)
+                    : null}
                 />
                 {studentText && (
                   <>

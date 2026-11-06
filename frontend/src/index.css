@@ -5316,3 +5316,20 @@ body::after {
     text-align: center;
   }
 }
+
+/* ── Feedback: the teacher's checked mark, and borderline wording ── */
+.checked-by-you {
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+}
+
+.result-checked-note {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}

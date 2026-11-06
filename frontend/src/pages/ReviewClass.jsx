@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { getLesson, getReviewList } from '../services/api'
 import { reviewOrder } from '../utils/reviewOrder'
-import { markText } from '../utils/reviewText'
+import { couldBeText, markText } from '../utils/reviewText'
 
 const STATUS_LABELS = {
   needs_checking: 'Needs checking',
@@ -14,7 +14,9 @@ const STATUS_LABELS = {
 
 
 function EssayRow({ item, lessonId }) {
-  const suggested = markText(item.level, item.mark, item.maxMark)
+  const couldBe = item.review ? null : couldBeText(item.level, item.borderlineLevels)
+  const base = markText(item.level, item.mark, item.maxMark)
+  const suggested = base && couldBe ? `${base} (${couldBe})` : base
   const changedTo = item.status === 'changed'
     ? markText(item.review.teacherLevel, item.review.teacherMark, item.maxMark)
     : null
