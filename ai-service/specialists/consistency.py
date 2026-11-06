@@ -24,6 +24,26 @@ from llm_service import (
 _LEVEL_SUFFIX = re.compile(r"-(\d+)[a-z]+$")
 
 
+# A specialist occasionally mis-copies the anti-injection token (one essay
+# lost all 18 calls because a single sample dropped four characters of it).
+# That is a copying slip, not an injection, so just that call is retried
+# with a fresh token; a token still wrong after the retries fails as before.
+_TOKEN_RETRIES = 2
+
+
+def call_with_fresh_token(sanitized_essay: str, call):
+    """call(wrapped_essay, token) -> result, with a fresh token per attempt."""
+    for attempt in range(_TOKEN_RETRIES + 1):
+        wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized_essay)
+        try:
+            return call(wrapped, token)
+        except ms_ocr_sanitisation.TokenMismatchError as error:
+            if attempt == _TOKEN_RETRIES:
+                raise
+            print(f"[TOKEN] {error} -- retrying this call with a fresh token "
+                  f"({attempt + 1}/{_TOKEN_RETRIES})", flush=True)
+
+
 def _level_of(descriptor_id: str) -> int:
     match = _LEVEL_SUFFIX.search(descriptor_id)
     return int(match.group(1))
@@ -95,8 +115,7 @@ def _median_of_samples(generate, question, sanitized_essay, thread_description, 
     rule every other multi-call stage in this pipeline already follows.
     """
     def one_sample():
-        wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized_essay)
-        return generate(
+        return call_with_fresh_token(sanitized_essay, lambda wrapped, token: generate(
             question=question,
             student_response=wrapped,
             thread_description=thread_description,
@@ -104,7 +123,7 @@ def _median_of_samples(generate, question, sanitized_essay, thread_description, 
             expected_token=token,
             include_performance=True,
             **extra,
-        )
+        ))
 
     # The samples are independent, so they run at the same time; results
     # keep their order, so the representative pick below is unchanged.

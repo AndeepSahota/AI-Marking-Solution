@@ -1,7 +1,10 @@
 import json
 import os
+import httpx
 from openai import OpenAI, OpenAIError, LengthFinishReasonError, ContentFilterFinishReasonError, DefaultHttpxClient
+from openai._constants import DEFAULT_CONNECTION_LIMITS
 from observability import cost_tracker
+from openai_gate import GatedTransport
 from dotenv import load_dotenv
 from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
 from segmentation.seg_prompt import SYSTEM_PROMPT as SEGMENTATION_SYSTEM_PROMPT, build_segmentation_user_prompt
@@ -146,15 +149,26 @@ def _record_usage(response) -> None:
         pass
 
 
+def _failure_message(what: str, error: OpenAIError) -> str:
+    """"<stage> request failed (RateLimitError, HTTP 429)": the kind of error
+    and its status, so logs say why without carrying the response body."""
+    status = getattr(error, "status_code", None)
+    return f"{what} ({type(error).__name__}{f', HTTP {status}' if status else ''})"
+
+
 # Each essay's specialist calls now run in parallel and the worker marks
 # several essays at once (specialists/parallel.py), so bursts can hit
-# OpenAI's rate limit. The client retries 429s and transient errors itself
-# with exponential backoff, honouring OpenAI's retry-after header; the
-# default of 2 retries is too few for a burst.
+# OpenAI's rate limit. Every request goes through one gate that caps
+# requests in flight and paces from OpenAI's own rate-limit counters
+# (openai_gate.py); a 429 that still happens is retried by the client with
+# exponential backoff, honouring retry-after -- 2 retries is too few for a burst.
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "6")),
-    http_client=DefaultHttpxClient(event_hooks={"response": [_record_usage]}),
+    http_client=DefaultHttpxClient(
+        transport=GatedTransport(httpx.HTTPTransport(limits=DEFAULT_CONNECTION_LIMITS)),
+        event_hooks={"response": [_record_usage]},
+    ),
 )
 
 # Model for the per-thread specialists only -- every other stage keeps its own
@@ -608,7 +622,7 @@ def generate_thread_specialist_response(
         log_marking_filtered()
         raise ExtractionFilteredError(str(e)) from e
     except OpenAIError as e:
-        raise ExtractionError("Thread specialist LLM request failed") from e
+        raise ExtractionError(_failure_message("Thread specialist LLM request failed", e)) from e
 
     message = response.choices[0].message
 
@@ -687,7 +701,7 @@ def generate_idea_specialist_response(
         log_marking_filtered()
         raise ExtractionFilteredError(str(e)) from e
     except OpenAIError as e:
-        raise ExtractionError("Idea specialist LLM request failed") from e
+        raise ExtractionError(_failure_message("Idea specialist LLM request failed", e)) from e
 
     message = response.choices[0].message
 
@@ -766,7 +780,7 @@ def generate_reference_specialist_response(
         log_marking_filtered()
         raise ExtractionFilteredError(str(e)) from e
     except OpenAIError as e:
-        raise ExtractionError("Reference specialist LLM request failed") from e
+        raise ExtractionError(_failure_message("Reference specialist LLM request failed", e)) from e
 
     message = response.choices[0].message
 
@@ -836,7 +850,7 @@ def generate_judgement_specialist_response(
         log_marking_filtered()
         raise ExtractionFilteredError(str(e)) from e
     except OpenAIError as e:
-        raise ExtractionError("Judgement specialist LLM request failed") from e
+        raise ExtractionError(_failure_message("Judgement specialist LLM request failed", e)) from e
 
     message = response.choices[0].message
 
@@ -883,7 +897,7 @@ def generate_final_marking_response(
         log_marking_filtered()
         raise ExtractionFilteredError(str(e)) from e
     except OpenAIError as e:
-        raise ExtractionError("Final marking LLM request failed") from e
+        raise ExtractionError(_failure_message("Final marking LLM request failed", e)) from e
     except ValueError as e:
         raise ExtractionError("Invalid final marking response shape") from e
 

@@ -20,6 +20,7 @@ from specialists.consistency import (
     generate_judgement_specialist_response_consistent,
     generate_thread_specialist_response_consistent,
     generate_reference_specialist_response_consistent,
+    call_with_fresh_token,
 )
 
 # How many samples the generic (non-judgement) specialists take, median
@@ -171,20 +172,19 @@ def mark_ao_with_specialists(
             usage = result.pop("usage")
             sample_levels = result.pop("sample_levels")
         else:
-            wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(sanitized)
             specialist_call = (
                 generate_idea_specialist_response
                 if thread_key == _IDEA_THREAD_KEY
                 else generate_thread_specialist_response
             )
-            result, performance = specialist_call(
+            result, performance = call_with_fresh_token(sanitized, lambda wrapped, token: specialist_call(
                 question=question,
                 student_response=wrapped,
                 thread_description=thread["thread_description"],
                 levels=thread["levels"],
                 expected_token=token,
                 include_performance=True,
-            )
+            ))
             usage = performance
             sample_levels = None
 
