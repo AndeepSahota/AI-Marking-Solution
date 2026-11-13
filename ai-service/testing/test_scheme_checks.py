@@ -140,6 +140,17 @@ class PerQuestionCheckTests(unittest.TestCase):
         self.assertEqual(result["skipped_questions"], [])
         self.assertEqual(len(result["questions"]), 1)
 
+    def test_bands_sharing_a_level_number_are_skipped_not_crashed(self):
+        sub_bands = objective("AO5",
+                              ("Upper Level 1", "4-6", "• Simple register.", ["Simple register."]),
+                              ("Lower Level 1", "1-3", "• Basic register.", ["Basic register."]))
+        sub_bands["bands"][0]["band"], sub_bands["bands"][1]["band"] = "Level 1", "Level 1"
+        paper = {"questions": [scheme(GOOD, number="Q4")["questions"][0], scheme(sub_bands, number="Q5")["questions"][0]]}
+        result = check_questions(paper)
+        self.assertEqual([q["question_number"] for q in result["questions"]], ["Q4"])
+        self.assertEqual(result["skipped_questions"], [{"question_number": "Q5", "reason": "two of its bands share a level number"}])
+        transform_segment_mark_scheme(result)  # no duplicate-ID crash
+
     def test_a_paper_with_no_good_question_is_still_rejected(self):
         with self.assertRaises(Exception):
             check_questions(scheme(BAD))

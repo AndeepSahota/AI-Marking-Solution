@@ -27,7 +27,25 @@ from validation.descriptor_validation import validate_descriptor_shapes
 _REASONS = {
     "content": "its descriptor text did not survive extraction word for word",
     "ids": "its levels could not be numbered",
+    "duplicate_ids": "two of its bands share a level number",
 }
+
+
+def _has_duplicate_ids(question: dict) -> bool:
+    """Two bands numbered the same (e.g. "Upper Level 4" and "Lower Level 4",
+    or two AOs that normalise to one ID prefix) give repeated descriptor IDs,
+    which the thread split cannot place."""
+    seen = set()
+    for objective in question.get("assessment_objectives") or []:
+        for band in (objective.get("bands") or []) if isinstance(objective, dict) else []:
+            for item in band.get("descriptors") or [] if isinstance(band, dict) else []:
+                descriptor_id = item.get("id") if isinstance(item, dict) else None
+                if descriptor_id is None:
+                    continue
+                if descriptor_id in seen:
+                    return True
+                seen.add(descriptor_id)
+    return False
 
 
 def check_questions(
@@ -57,6 +75,8 @@ def check_questions(
             if id_issues:
                 log_issues(id_issues)
                 failure = "ids"
+            elif _has_duplicate_ids(single["questions"][0]):
+                failure = "duplicate_ids"
         if failure:
             first_failure = first_failure or failure
             number = question.get("question_number") if isinstance(question, dict) else None
