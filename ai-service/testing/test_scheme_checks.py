@@ -92,6 +92,16 @@ class PerQuestionCheckTests(unittest.TestCase):
         first = result["questions"][0]["assessment_objectives"][0]["bands"][0]["descriptors"][0]
         self.assertEqual(first["id"], "ao4-1a")
 
+    def test_a_different_split_of_the_same_words_is_kept(self):
+        # The model attached the heading "Content" to the first point; the
+        # parser makes it its own point. Same words, so the question is kept.
+        heading = objective("AO5",
+                            ("Level 1", "1-6", "Content• Simple register• Limited vocabulary", ["Content Simple register", "Limited vocabulary"]),
+                            ("Level 2", "7-12", "Content• Some register• Varied vocabulary", ["Content Some register", "Varied vocabulary"]))
+        result = check_questions(scheme(heading))
+        self.assertEqual(result["skipped_questions"], [])
+        self.assertEqual(len(result["questions"]), 1)
+
     def test_a_paper_with_no_good_question_is_still_rejected(self):
         with self.assertRaises(Exception):
             check_questions(scheme(BAD))

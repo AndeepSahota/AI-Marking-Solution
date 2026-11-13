@@ -8,8 +8,13 @@ scheme and listed in ``skipped_questions`` with the reason, and the rest of
 the paper stays usable. Only if no question survives is the upload rejected,
 as before.
 
-Order per question is unchanged: boundary check, content integrity, then
-deterministic descriptor IDs.
+Per question: boundary check, content integrity, then deterministic
+descriptor IDs. The boundary (shape) check is logged but does not skip a
+question: descriptor IDs are built from the application's own split of the
+raw text, not the model's list, and the content check still requires the
+words to survive intact -- requiring the model to split a bulleted cell
+exactly like the parser rejected good questions whenever a cell held a
+heading such as "Content" (17 of 62 real schemes).
 """
 
 from typing import Any, Callable
@@ -20,7 +25,6 @@ from validation.descriptor_integrity_validation import validate_descriptor_conte
 from validation.descriptor_validation import validate_descriptor_shapes
 
 _REASONS = {
-    "shape": "its descriptor points could not be separated reliably",
     "content": "its descriptor text did not survive extraction word for word",
     "ids": "its levels could not be numbered",
 }
@@ -43,18 +47,16 @@ def check_questions(
         failure = None
         shape_issues = validate_descriptor_shapes(single)
         if shape_issues:
-            log_issues(shape_issues)
-            failure = "shape"
+            log_issues(shape_issues)  # advisory only -- see the module docstring
+        content_issues = validate_descriptor_content_integrity(single)
+        if content_issues:
+            log_issues(content_issues)
+            failure = "content"
         else:
-            content_issues = validate_descriptor_content_integrity(single)
-            if content_issues:
-                log_issues(content_issues)
-                failure = "content"
-            else:
-                single, id_issues = add_descriptor_ids(single)
-                if id_issues:
-                    log_issues(id_issues)
-                    failure = "ids"
+            single, id_issues = add_descriptor_ids(single)
+            if id_issues:
+                log_issues(id_issues)
+                failure = "ids"
         if failure:
             first_failure = first_failure or failure
             number = question.get("question_number") if isinstance(question, dict) else None
