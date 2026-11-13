@@ -33,6 +33,15 @@ def normalise_descriptor_content(value: str) -> str:
     return " ".join(normalised.split()).casefold()
 
 
+def _comparison_key(normalised: str) -> str:
+    """The normalised text with all whitespace removed. OCR often drops the
+    space between a full stop or bullet and the next word ("marks.Quotations",
+    "Content•Register") while the model's points are joined with spaces;
+    whitespace never changes the wording, so it is ignored. Every character
+    of the words themselves, and their order, must still match."""
+    return "".join(normalised.split())
+
+
 def _issue(
     *,
     question_number: object,
@@ -123,7 +132,8 @@ def validate_descriptor_content_integrity(
                     isinstance(descriptor, str)
                     and valid_model_list
                     and bool(normalised_descriptor)
-                    and normalised_descriptor == normalised_flattened
+                    and _comparison_key(normalised_descriptor)
+                    == _comparison_key(normalised_flattened)
                 )
 
                 log_descriptor_integrity_comparison(
