@@ -5,7 +5,8 @@ const IS_DEV = import.meta.env.DEV
 // ─── File validation ───────────────────────────────────────────────────────────
 
 const MAX_BYTES = 5 * 1024 * 1024  // 5 MB
-const MAX_PDF_PAGES = 30
+// Same limit as the backend (config MAX_PDF_PAGES): long Literature schemes run to 120+ pages.
+const MAX_PDF_PAGES = 150
 
 const EXT_MIME = {
   jpg:  'image/jpeg',

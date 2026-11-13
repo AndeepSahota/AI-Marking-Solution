@@ -65,6 +65,9 @@ export default {
     // until it has been tested end to end.
     TEACHER_REVIEW_ENABLED: process.env.TEACHER_REVIEW_ENABLED === 'true',
     MAX_FILE_SIZE_MB: 5,
-    MAX_PDF_PAGES: 30,
+    // Mark scheme PDFs only (routes/lessons.js POST /). Full GCSE schemes run
+    // long -- Literature papers reach 70-123 pages -- so 30 rejected 16 of 62
+    // real schemes outright. OCR costs about $0.004 a page.
+    MAX_PDF_PAGES: 150,
     ALLOWED_MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'],
 }
