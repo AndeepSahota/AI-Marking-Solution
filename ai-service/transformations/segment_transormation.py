@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from validation.band_levels import mark_range
+
 
 _DESCRIPTOR_ID_PATTERN = re.compile(
     r"^(?P<ao>.+)-\d+(?P<thread_key>[a-z]+)$",
@@ -13,9 +15,8 @@ _DESCRIPTOR_ID_PATTERN = re.compile(
 
 
 def _is_no_reward_band(band_label: object, marks: object) -> bool:
-    if isinstance(marks, str) and marks.strip() == "0":
-        return True
-    if isinstance(marks, int) and marks == 0:
+    marks_range = mark_range(marks)
+    if marks_range is not None and marks_range[1] == 0:  # "0", 0 or "0 marks"
         return True
     if not isinstance(band_label, str):
         return False

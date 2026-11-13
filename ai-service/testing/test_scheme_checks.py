@@ -8,7 +8,8 @@ import validation.descriptor_integrity_validation as integrity
 import validation.descriptor_validation as shapes
 from llm_service import DescriptorValidationError
 from specialists.orchestrate import general_engine_ao
-from validation.band_levels import is_level_scale, is_points_objective, level_number
+from transformations.segment_transormation import transform_segment_mark_scheme
+from validation.band_levels import is_level_scale, is_points_objective, level_number, level_numbers
 from validation.scheme_checks import check_questions
 
 integrity.log_descriptor_integrity_comparison = lambda **kwargs: None
@@ -75,6 +76,43 @@ class LevelRuleTests(unittest.TestCase):
         self.assertTrue(is_points_objective(POINTS))
         self.assertTrue(is_points_objective({"ao": "General", "bands": GOOD["bands"]}))
         self.assertFalse(is_points_objective(GOOD))
+
+
+# AQA Literature's spelling, punctuation and grammar scale.
+SPAG = objective("AO4",
+                 ("High performance", "4 marks", "• Spells and punctuates with consistent accuracy.", ["Spells and punctuates with consistent accuracy."]),
+                 ("Intermediate performance", "2–3 marks", "• Spells and punctuates with considerable accuracy.", ["Spells and punctuates with considerable accuracy."]),
+                 ("Threshold performance", "1 mark", "• Spells and punctuates with reasonable accuracy.", ["Spells and punctuates with reasonable accuracy."]),
+                 ("0 marks", "0 marks", "• Nothing to reward.", ["Nothing to reward."]))
+
+
+class NamedBandTests(unittest.TestCase):
+    def test_named_bands_are_numbered_by_marks(self):
+        self.assertEqual(level_numbers(SPAG["bands"]), [3, 2, 1, 0])
+
+    def test_level_labels_keep_their_own_numbers(self):
+        self.assertEqual(level_numbers([{"band": "Level 2", "marks": "4-6"}, {"band": "Level 1", "marks": "1-3"}]), [2, 1])
+
+    def test_points_rows_are_never_named_levels(self):
+        true_false = [{"band": letter, "marks": mark} for letter, mark in (("A", "[T]"), ("B", "[F]"), ("C", "[F]"))]
+        self.assertIsNone(level_numbers(true_false))
+        self.assertIsNone(level_numbers([{"band": "One mark", "marks": "1"}, {"band": "Two marks", "marks": "2"}]))
+        self.assertIsNone(level_numbers([{"band": "Indicative content", "marks": "4"}, {"band": "General", "marks": "1"}]))
+
+    def test_overlapping_mark_ranges_are_not_a_scale(self):
+        self.assertIsNone(level_numbers([{"band": "Upper", "marks": "4-8"}, {"band": "Lower", "marks": "1-5"}]))
+
+    def test_named_bands_get_descriptor_ids_and_no_credit_band_gets_no_thread(self):
+        result = check_questions(scheme(SPAG))
+        bands = result["questions"][0]["assessment_objectives"][0]["bands"]
+        self.assertEqual([b["descriptors"][0]["id"] for b in bands], ["ao4-3a", "ao4-2a", "ao4-1a", "ao4-0a"])
+        threads = transform_segment_mark_scheme(result)["questions"]["Question 1"]["assessment_objectives"]["AO4"]["threads"]
+        self.assertEqual([lv["descriptor_id"] for lv in threads["a"]["levels"]], ["ao4-3a", "ao4-2a", "ao4-1a"])
+
+    def test_level_labelled_ids_are_unchanged(self):
+        result = check_questions(scheme(GOOD))
+        ids = [d["id"] for b in result["questions"][0]["assessment_objectives"][0]["bands"] for d in b["descriptors"]]
+        self.assertEqual(ids, ["ao4-1a", "ao4-1b", "ao4-2a", "ao4-2b"])
 
 
 class PerQuestionCheckTests(unittest.TestCase):

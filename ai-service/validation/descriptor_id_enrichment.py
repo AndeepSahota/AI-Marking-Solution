@@ -5,7 +5,7 @@ import re
 import unicodedata
 from typing import Any
 
-from validation.band_levels import is_points_objective
+from validation.band_levels import is_points_objective, level_numbers
 from validation.descriptor_validation import (
     split_descriptor_bullets,
 )
@@ -20,14 +20,6 @@ def _normalise_ao(ao: str) -> str | None:
     normalised = re.sub(r"\s+", "", normalised)
     normalised = re.sub(r"[^a-z0-9]+", "-", normalised).strip("-")
     return normalised or None
-
-
-def _band_number(band: object) -> str | None:
-    if not isinstance(band, str):
-        return None
-
-    match = re.search(r"\d+", band)
-    return match.group(0) if match else None
 
 
 def _letter_suffix(index: int) -> str:
@@ -102,8 +94,11 @@ def add_descriptor_ids(
             bands = objective.get("bands")
             if not isinstance(bands, list):
                 continue
+            # "Level 3" -> 3; named bands ("High performance") are numbered by
+            # marks (validation/band_levels.py).
+            numbers = level_numbers(bands) or [None] * len(bands)
 
-            for band_data in bands:
+            for band_data, band_number in zip(bands, numbers):
                 if not isinstance(band_data, dict):
                     continue
 
@@ -111,7 +106,7 @@ def add_descriptor_ids(
                 model_descriptors = band_data.get("descriptors")
                 application_descriptors = split_descriptor_bullets(descriptor)
                 ao_component = _normalise_ao(ao) if isinstance(ao, str) else None
-                band_component = _band_number(band_data.get("band"))
+                band_component = str(band_number) if band_number is not None else None
                 if (
                     not application_descriptors
                     or ao_component is None
