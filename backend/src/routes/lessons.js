@@ -161,7 +161,12 @@ router.get('/:id/questions', async (req, res, next) => {
                 && q.question_text !== 'value not found' ? q.question_text : null,
         }))
 
-        res.json({ paper_type: paperType, questions: questionsList })
+        // Questions the AI service couldn't read reliably (left out of the
+        // scheme rather than failing the whole upload) -- named on the picker.
+        const skipped = (Array.isArray(parsedScheme.skipped_questions) ? parsedScheme.skipped_questions : [])
+            .map(q => ({ question_number: q?.question_number ?? null, reason: q?.reason ?? null }))
+
+        res.json({ paper_type: paperType, questions: questionsList, skipped_questions: skipped })
     } catch (err) {
         next(err)
     }

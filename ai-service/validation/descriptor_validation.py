@@ -12,6 +12,7 @@ import unicodedata
 from typing import Any
 
 from observability.event_log import log_descriptor_validation_comparison
+from validation.band_levels import is_points_objective
 
 
 DESCRIPTOR_LIST_MISMATCH = "descriptor_list_mismatch"
@@ -92,11 +93,6 @@ def _normalise_for_comparison(value: str) -> str:
     return " ".join(normalised.split()).casefold()
 
 
-def is_general_assessment_objective(ao: object) -> bool:
-    """Whether an AO is the point-mark sentinel with no band provenance."""
-    return isinstance(ao, str) and ao.strip().casefold() == "general"
-
-
 def _issue(
     *,
     rule: str,
@@ -151,10 +147,12 @@ def validate_descriptor_shapes(
                 continue
 
             ao = objective.get("ao")
-            # Point-based questions are extracted as the sentinel AO
-            # "General". They have no level/band provenance to validate or
-            # enrich, so retain the model's extracted data unchanged.
-            if is_general_assessment_objective(ao):
+            # Points sections (answer lists, "1 mark" rows, indicative
+            # content, ao "General") have no level/band provenance to validate
+            # or enrich, so retain the model's extracted data unchanged --
+            # decided from the bands, since the model often gives them a real
+            # AO (see validation/band_levels.py).
+            if is_points_objective(objective):
                 continue
 
             bands = objective.get("bands")

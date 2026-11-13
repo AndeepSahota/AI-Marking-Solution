@@ -15,6 +15,7 @@ from llm_service import generate_thread_specialist_response, generate_idea_speci
 from specialists.calibration import calibration_for, combine_calibrated, fine_score, scheme_key_for
 from specialists.combine import combine_specialist_results, mark_for_level, vote_levels
 from specialists.parallel import run_each
+from validation.band_levels import is_level_scale
 
 from specialists.consistency import (
     generate_judgement_specialist_response_consistent,
@@ -81,14 +82,15 @@ def general_engine_ao(question_extraction: dict) -> tuple[str, dict] | None:
     """(ao_key, ao_data) if this question can go through the general engine,
     else None (caller keeps the old route). Requires exactly one AO, that AO
     to have level-based threads (point-based questions such as Q1 are stored
-    with no threads), band marks, and every descriptor ID in the parseable
-    "ao4-3a" shape."""
+    with no threads), band marks that form a level scale ("Level 3", "Band 2"
+    -- not "1 mark"/"2 marks" rows; validation/band_levels.py), and every
+    descriptor ID in the parseable "ao4-3a" shape."""
     aos = question_extraction.get("assessment_objectives") or {}
     if len(aos) != 1:
         return None
     ao_key, ao_data = next(iter(aos.items()))
     threads = ao_data.get("threads") or {}
-    if not threads or not ao_data.get("band_marks"):
+    if not threads or not is_level_scale(ao_data.get("band_marks")):
         return None
     for thread in threads.values():
         levels = thread.get("levels") or []

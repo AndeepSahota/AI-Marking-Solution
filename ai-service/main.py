@@ -21,8 +21,6 @@ from fastapi import FastAPI, File, Form, UploadFile
 sys.path.append(str(Path(__file__).parent))
 
 from llm_service import (
-    DescriptorContentIntegrityError,
-    DescriptorValidationError,
     ExtractionError,
     FinalMarkingValidationError,
     extract_mark_scheme,
@@ -50,11 +48,7 @@ from specialists.orchestrate import (
     mark_ao_with_specialists,
 )
 from specialists.resolve import resolve_specialist_final_result
-from validation.descriptor_id_enrichment import add_descriptor_ids
-from validation.descriptor_integrity_validation import (
-    validate_descriptor_content_integrity,
-)
-from validation.descriptor_validation import validate_descriptor_shapes
+from validation.scheme_checks import check_questions
 from validation.mark_int_validation import validate_mark_totals
 from transformations.segment_transormation import transform_segment_mark_scheme
 from aggregation.next_band_threads import get_next_band_threads
@@ -115,34 +109,13 @@ async def ocr_file(file: UploadFile = File(...)):
     wrapped_text, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
     structured_scheme   = extract_mark_scheme(wrapped_text, token)
 
-    # Keep descriptor validation as deliberately separate layers. The boundary
-    # check verifies that the application and model found the same points;
-    # content integrity verifies that joining the model points preserves the
-    # complete raw descriptor text. Only then can deterministic IDs be added.
-    descriptor_shape_issues = validate_descriptor_shapes(structured_scheme)
-    if descriptor_shape_issues:
-        log_descriptor_validation_issues(descriptor_shape_issues)
-        raise DescriptorValidationError(
-            "Extracted descriptor boundaries did not match the source descriptor"
-        )
-
-    descriptor_content_issues = validate_descriptor_content_integrity(
-        structured_scheme
+    # Descriptor checks run one question at a time (validation/scheme_checks.py):
+    # boundary check, content integrity, then deterministic IDs. A question
+    # that fails is left out and listed in skipped_questions instead of
+    # rejecting the whole paper; the upload fails only if none pass.
+    structured_scheme = check_questions(
+        structured_scheme, log_issues=log_descriptor_validation_issues
     )
-    if descriptor_content_issues:
-        log_descriptor_validation_issues(descriptor_content_issues)
-        raise DescriptorContentIntegrityError(
-            "Extracted descriptor content did not match the raw descriptor"
-        )
-
-    structured_scheme, descriptor_id_issues = add_descriptor_ids(
-        structured_scheme
-    )
-    if descriptor_id_issues:
-        log_descriptor_validation_issues(descriptor_id_issues)
-        raise DescriptorValidationError(
-            "Descriptor provenance IDs could not be generated safely"
-        )
 
     # This operates after all descriptor transformations so the object returned
     # by /ocr has passed every deterministic post-extraction validation.

@@ -11,6 +11,7 @@ function SelectQuestion() {
   const navigate = useNavigate()
 
   const [questions, setQuestions] = useState(null)
+  const [skipped, setSkipped] = useState([])
   const [error, setError] = useState(null)
   const [notFound, setNotFound] = useState(false)
   const [pickingQuestion, setPickingQuestion] = useState(false)
@@ -30,6 +31,7 @@ function SelectQuestion() {
       .then(data => {
         const list = data.questions ?? []
         setQuestions(list)
+        setSkipped(data.skipped_questions ?? [])
         // Nothing to pick on a single-question paper -- go straight to
         // confirming its wording.
         if (list.length === 1) chooseQuestion(0, list)
@@ -86,6 +88,14 @@ function SelectQuestion() {
             <p className="question-picker-hint">Loading questions…</p>
           ) : (
             <>
+              {skipped.length > 0 && (
+                <p className="question-picker-skipped" role="status">
+                  {skipped.length === 1 ? 'One question' : `${skipped.length} questions`} couldn't be read reliably
+                  and {skipped.length === 1 ? 'is' : 'are'} left out:{' '}
+                  {skipped.map(q => q.question_number ?? 'unnamed').join(', ')}.
+                  Uploading a clearer copy of the mark scheme may help.
+                </p>
+              )}
               {questions.length > 1 && (
                 <>
                   <p className="question-picker-hint">

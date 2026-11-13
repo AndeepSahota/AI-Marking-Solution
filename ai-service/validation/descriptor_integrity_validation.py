@@ -11,7 +11,7 @@ import unicodedata
 from typing import Any
 
 from observability.event_log import log_descriptor_integrity_comparison
-from validation.descriptor_validation import is_general_assessment_objective
+from validation.band_levels import is_points_objective
 
 
 DESCRIPTOR_CONTENT_MISMATCH = "descriptor_content_mismatch"
@@ -103,7 +103,7 @@ def validate_descriptor_content_integrity(
                 continue
 
             ao = objective.get("ao")
-            if is_general_assessment_objective(ao):
+            if is_points_objective(objective):
                 continue
 
             bands = objective.get("bands")

@@ -5,8 +5,8 @@ import re
 import unicodedata
 from typing import Any
 
+from validation.band_levels import is_points_objective
 from validation.descriptor_validation import (
-    is_general_assessment_objective,
     split_descriptor_bullets,
 )
 
@@ -96,7 +96,7 @@ def add_descriptor_ids(
                 continue
 
             ao = objective.get("ao")
-            if is_general_assessment_objective(ao):
+            if is_points_objective(objective):
                 continue
 
             bands = objective.get("bands")
