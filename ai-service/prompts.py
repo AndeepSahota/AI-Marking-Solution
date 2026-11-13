@@ -99,6 +99,15 @@ _EXTRACTION_RULES = """- For a points-based scheme with no AOs or bands, use ao:
   remove the constraint before returning `descriptor`. Preserve the remaining
   descriptor bullets, numbering, punctuation, line breaks, and ordering. Do
   not rewrite, combine, or normalise the remaining assessable content into prose.
+- Inside a band's cell, a heading that only groups the criteria under it
+  (for example "Content", "Organisation", "Technical accuracy") is not an
+  assessable descriptor point, and neither is a sub-band label with its own
+  mark range (for example "Upper Level 4 22-24 marks" / "Lower Level 4
+  19-21 marks"). Leave such headings and labels out of both `descriptor` and
+  `descriptors`, exactly as you leave out a constraint; the band keeps the
+  marks of the whole level. A summary statement of the skill (for example
+  "Shows detailed and perceptive understanding of language:") IS assessable
+  and stays.
 - Return every individual descriptor point in `descriptors`, in original order.
   A visible bullet is not required for text to represent an individual
   descriptor point.
