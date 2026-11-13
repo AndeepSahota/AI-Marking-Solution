@@ -23,13 +23,12 @@ sys.path.append(str(Path(__file__).parent))
 from llm_service import (
     ExtractionError,
     FinalMarkingValidationError,
-    extract_mark_scheme,
     generate_aggregation_response,
     generate_final_marking_response,
-    generate_thread_description_response,
     generate_llm_response,
 )
 from ocr_service import extract_text_from_file
+from scheme_extraction import describe_threads_by_question, extract_mark_scheme_by_question
 from student_ocr_service import extract_student_ocr
 from observability import cost_tracker
 from rag_service import (
@@ -103,11 +102,11 @@ async def ocr_file(file: UploadFile = File(...)):
 
     clean_text = ms_ocr_sanitisation.sanitize(raw_text)
 
-    # clean_text (not wrapped_text) is what gets returned/stored — the
-    # delimiter markers are a prompt-construction detail for the extraction
-    # call only, never part of the mark scheme content itself.
-    wrapped_text, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
-    structured_scheme   = extract_mark_scheme(wrapped_text, token)
+    # One question at a time (scheme_extraction.py): an outline call, then one
+    # extraction call per question, each wrapping clean_text with its own
+    # fresh token. clean_text itself is what gets returned and stored -- the
+    # delimiter markers are a prompt detail, never part of the scheme.
+    structured_scheme = extract_mark_scheme_by_question(clean_text)
 
     # Descriptor checks run one question at a time (validation/scheme_checks.py):
     # boundary check, content integrity, then deterministic IDs. A question
@@ -126,20 +125,9 @@ async def ocr_file(file: UploadFile = File(...)):
 
     thread_scheme_input = transform_segment_mark_scheme(structured_scheme)
 
-    thread_scheme_text = _json.dumps(thread_scheme_input, ensure_ascii=False)
-    thread_scheme_text, lookalikes = (
-        ms_ocr_sanitisation.strip_delimiter_like_patterns(thread_scheme_text)
-    )
-    if lookalikes:
-        log_security_stripped(lookalikes)
-
-    wrapped_thread_scheme, thread_token = ms_ocr_sanitisation.wrap_for_prompt(
-        thread_scheme_text
-    )
-    thread_scheme = generate_thread_description_response(
-        wrapped_thread_scheme,
-        thread_token,
-    )
+    # One question per call (scheme_extraction.py) -- the whole paper in one
+    # reply hit the output limit on long Literature schemes.
+    thread_scheme = describe_threads_by_question(thread_scheme_input)
     _log_thread_extraction_complete()
 
     return {

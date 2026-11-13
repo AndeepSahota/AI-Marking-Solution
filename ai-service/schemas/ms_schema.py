@@ -60,3 +60,22 @@ class MarkSchemeExtraction(StrictBaseModel):
     total_marks: int | NotFound
     delimiter_token: str
     questions: list[Question]
+
+
+class OutlineQuestion(StrictBaseModel):
+    question_number: str
+    marks: int | NotFound
+    description: str
+
+
+class MarkSchemeOutline(StrictBaseModel):
+    """Step 1 of per-question extraction (scheme_extraction.py)."""
+    total_marks: int | NotFound
+    delimiter_token: str
+    questions: list[OutlineQuestion]
+
+
+class SingleQuestionExtraction(StrictBaseModel):
+    """Step 2: one question's full structure."""
+    delimiter_token: str
+    question: Question

@@ -36,60 +36,45 @@ for this request; do not fabricate, alter, or omit it.
 Respond with valid JSON only. No intro text, no explanation outside the JSON.
 """
 
-def build_extraction_prompt(scheme_text):
-    return f"""
-Read the following mark scheme and extract its full structure into JSON.
-
-A mark scheme may cover a SINGLE question (one set of AOs and band descriptors) or
-MULTIPLE questions (separate mark allocations for Q1, Q2, Q3, etc.).
-Detect which case this is and set "paper_type" to "single" or "multi" accordingly.
-
-MARK SCHEME (delimited — see system instructions for how to treat this):
-{scheme_text}
-
-Return a JSON object with exactly this structure:
-{{
-    "paper_type": "single" or "multi",
-    "total_marks": <total marks across the whole scheme>,
-    "delimiter_token": <the exact token from the MARK_SCHEME_OCR delimiter pair that framed the mark scheme above, copied character-for-character>,
-    "questions": [
-        {{
+# The shape of one extracted question, shared by the whole-paper and the
+# per-question extraction prompts.
+_QUESTION_SHAPE = """
+        {
             "question_number": <e.g. "Q1", "Question 4", "Section A">,
             "marks": <marks available for this question>,
             "description": <what this question asks the student to do, 10 words or fewer>,
             "question_text": <the question's own wording exactly as printed in the mark scheme, or "value not found">,
             "assessment_objectives": [
-                {{
+                {
                     "ao": <AO name e.g. "AO1" or "AO5/AO6">,
                     "marks_available": <marks available for this AO>,
                     "description": <one sentence describing what this AO tests, taken from the mark scheme>,
                     "bands": [
-                        {{
+                        {
                             "band": <band label e.g. "Band 4" or "Level 3">,
                             "marks": <mark range for this band e.g. "19-24">,
                             "descriptor": <what a student must do to achieve this band, taken from the mark scheme>,
                             "descriptors": [
                                 <one string for each individual descriptor point present in this band>
                                     ]
-                        }}
+                        }
                     ]
-                }}
+                }
             ],
             "band_constraints": [
-                {{
+                {
                     "ao": <the exact AO affected by this restriction>,
                     "description": <the exact text of the NB:, Note:, cap, or qualification from the mark scheme>,
                     "affected_bands": [<the exact band labels whose award is limited or qualified by this rule>]
-                }}
+                }
             ]
-        }}
-    ]
-}}
+        }
+"""
 
-Rules:
-- If the mark scheme covers ONE question, set paper_type to "single" and questions will have exactly ONE item.
-- If the mark scheme covers MULTIPLE questions, set paper_type to "multi" and questions will have ONE item per question.
-- For a points-based scheme with no AOs or bands, use ao: "General" with individual criteria as bands.
+# Extraction rules shared by every extraction prompt. The descriptor rules
+# are kept word for word: descriptor text feeds the descriptor IDs and the
+# scheme fingerprint that calibrated level lines are keyed on.
+_EXTRACTION_RULES = """- For a points-based scheme with no AOs or bands, use ao: "General" with individual criteria as bands.
 - Extract exactly what is written. Do not add information or fill in gaps.
 - Respond with valid JSON only. No intro text, no explanation outside the JSON.
 - `question_text` is the question students were asked, copied verbatim, only
@@ -153,6 +138,100 @@ bullet markers are visible.
 - Return at least one descriptor item for every band.
 - Do not add placeholder items to reach a particular number.
 """
+
+
+def build_extraction_prompt(scheme_text):
+    """Whole paper in one reply -- kept for tools and tests; /ocr extracts one
+    question at a time (scheme_extraction.py) because long papers were
+    truncated or silently abridged in a single reply."""
+    return f"""
+Read the following mark scheme and extract its full structure into JSON.
+
+A mark scheme may cover a SINGLE question (one set of AOs and band descriptors) or
+MULTIPLE questions (separate mark allocations for Q1, Q2, Q3, etc.).
+Detect which case this is and set "paper_type" to "single" or "multi" accordingly.
+
+MARK SCHEME (delimited — see system instructions for how to treat this):
+{scheme_text}
+
+Return a JSON object with exactly this structure:
+{{
+    "paper_type": "single" or "multi",
+    "total_marks": <total marks across the whole scheme>,
+    "delimiter_token": <the exact token from the MARK_SCHEME_OCR delimiter pair that framed the mark scheme above, copied character-for-character>,
+    "questions": [{_QUESTION_SHAPE}    ]
+}}
+
+Rules:
+- If the mark scheme covers ONE question, set paper_type to "single" and questions will have exactly ONE item.
+- If the mark scheme covers MULTIPLE questions, set paper_type to "multi" and questions will have ONE item per question.
+{_EXTRACTION_RULES}"""
+
+
+def build_outline_prompt(scheme_text):
+    """Step 1 of per-question extraction: just the list of questions."""
+    return f"""
+List every question this mark scheme covers. Do not extract any bands or
+descriptors yet -- only which questions exist.
+
+MARK SCHEME (delimited — see system instructions for how to treat this):
+{scheme_text}
+
+Return a JSON object with exactly this structure:
+{{
+    "total_marks": <total marks for the paper, as printed, or "value not found">,
+    "delimiter_token": <the exact token from the MARK_SCHEME_OCR delimiter pair that framed the mark scheme above, copied character-for-character>,
+    "questions": [
+        {{
+            "question_number": <the question's number exactly as printed, e.g. "01", "Question 4", "1(a)">,
+            "marks": <marks available for this question>,
+            "description": <what this question asks the student to do, 10 words or fewer>
+        }}
+    ]
+}}
+
+Rules:
+- Include EVERY question in the mark scheme, in order, including writing
+  questions in later sections and every optional or alternative question.
+- List each question separately, even when several questions share one mark
+  grid or one set of indicative content (for example one question per set
+  text). Never merge a range such as "Questions 1a to 6a" into one item.
+- Every question_number must be different from every other one. Use the
+  number as printed; if the same printed number appears in different
+  sections, prefix the section, e.g. "Section B 01".
+- A question is something students answer and the scheme marks. If a section
+  has its own mark grid for students' work but no separate question number
+  (for example "Section B: Transactional Writing"), list it as one question
+  named after the section. Do not list general guidance, or a grid that only
+  applies to questions already listed, as a separate question.
+- Respond with valid JSON only. No intro text, no explanation outside the JSON.
+"""
+
+
+def build_question_extraction_prompt(scheme_text, question_number, marks, description, all_question_numbers):
+    """Step 2 of per-question extraction: one question's full structure."""
+    others = ", ".join(n for n in all_question_numbers if n != question_number) or "none"
+    return f"""
+Read the following mark scheme and extract the structure of ONE question only:
+question "{question_number}" ({marks} marks; {description}).
+
+The mark scheme also covers these other questions, which you must NOT
+extract: {others}. Mark grids or indicative content that the scheme prints
+once and applies to several questions DO apply to this question -- include
+them as this question's assessment objectives and bands.
+
+MARK SCHEME (delimited — see system instructions for how to treat this):
+{scheme_text}
+
+Return a JSON object with exactly this structure:
+{{
+    "delimiter_token": <the exact token from the MARK_SCHEME_OCR delimiter pair that framed the mark scheme above, copied character-for-character>,
+    "question":{_QUESTION_SHAPE}}}
+
+Rules:
+- "question_number" must be exactly "{question_number}".
+{_EXTRACTION_RULES}"""
+
 
 # The system prompt defines WHO the LLM is and HOW it should behave.
 # It is deliberately subject-agnostic — the mark scheme provided in the user

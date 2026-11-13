@@ -6,7 +6,10 @@ from openai._constants import DEFAULT_CONNECTION_LIMITS
 from observability import cost_tracker
 from openai_gate import GatedTransport
 from dotenv import load_dotenv
-from prompts import SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt
+from prompts import (
+    SYSTEM_PROMPT, build_user_prompt, EXTRACTION_SYSTEM_PROMPT, build_extraction_prompt,
+    build_outline_prompt, build_question_extraction_prompt,
+)
 from segmentation.seg_prompt import SYSTEM_PROMPT as SEGMENTATION_SYSTEM_PROMPT, build_segmentation_user_prompt
 from aggregation.aggregation_prompt import (
     SYSTEM_PROMPT as AGGREGATION_SYSTEM_PROMPT,
@@ -18,7 +21,7 @@ from transformations.thread_description_prompt import (
 )
 from transformations.fm_descriptor_to_thread import fm_descriptor_to_thread
 from security.ms_ocr_sanitisation import verify_token
-from schemas.ms_schema import MarkSchemeExtraction
+from schemas.ms_schema import MarkSchemeExtraction, MarkSchemeOutline, SingleQuestionExtraction
 from schemas.marking_result_schema import MarkingResult
 from schemas.segmented_result import SegmentationResult
 from schemas.aggregation_schema import AggregationResult
@@ -222,9 +225,9 @@ def _marking_rubric_without_constraints(rubric):
     return json.dumps(marking_rubric, ensure_ascii=False)
 
 
-def extract_mark_scheme(scheme_text, expected_token):
-    user_prompt = build_extraction_prompt(scheme_text)
-
+def _parse_scheme_extraction(user_prompt, response_format, expected_token):
+    """One structuring call (gpt-4o, temperature 0) with the checks every
+    extraction needs; returns the parsed result, token already verified."""
     # The SDK checks finish_reason itself and raises these two directly from
     # inside .parse() — they never reach the .refusal check below, so they
     # need their own try/except around the call itself, not a field check
@@ -237,7 +240,7 @@ def extract_mark_scheme(scheme_text, expected_token):
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_prompt}
             ],
-            response_format=MarkSchemeExtraction,
+            response_format=response_format,
         )
     except LengthFinishReasonError as e:
         log_extraction_truncated(str(e))
@@ -271,10 +274,28 @@ def extract_mark_scheme(scheme_text, expected_token):
     # can't trust this result reflects the genuine boundary, so the request
     # should fail rather than return something unverified.
     verify_token(expected_token, result.delimiter_token)
+    return result
 
-    structured_scheme = result.model_dump(exclude={"delimiter_token"})
 
-    return structured_scheme
+def extract_mark_scheme(scheme_text, expected_token):
+    """The whole paper in one reply. /ocr uses scheme_extraction.py instead
+    (one question per call), since long papers were truncated or abridged."""
+    result = _parse_scheme_extraction(build_extraction_prompt(scheme_text), MarkSchemeExtraction, expected_token)
+    return result.model_dump(exclude={"delimiter_token"})
+
+
+def extract_question_outline(scheme_text, expected_token):
+    """{"total_marks", "questions": [{question_number, marks, description}]}."""
+    result = _parse_scheme_extraction(build_outline_prompt(scheme_text), MarkSchemeOutline, expected_token)
+    return result.model_dump(exclude={"delimiter_token"})
+
+
+def extract_mark_scheme_question(scheme_text, expected_token, question_number, marks, description, all_question_numbers):
+    """One question's full structure, in the same shape as an item of
+    extract_mark_scheme()'s "questions"."""
+    prompt = build_question_extraction_prompt(scheme_text, question_number, marks, description, all_question_numbers)
+    result = _parse_scheme_extraction(prompt, SingleQuestionExtraction, expected_token)
+    return result.model_dump(exclude={"delimiter_token"})["question"]
 
 
 def generate_thread_description_response(scheme_text, expected_token):

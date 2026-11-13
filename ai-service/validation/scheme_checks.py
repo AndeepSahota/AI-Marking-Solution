@@ -58,7 +58,8 @@ def check_questions(
     questions = structured_scheme.get("questions")
     if not isinstance(questions, list):
         questions = []
-    kept, skipped = [], []
+    kept = []
+    skipped = list(structured_scheme.get("skipped_questions") or [])  # e.g. from extraction
     first_failure = None
     for question in questions:
         single = {**structured_scheme, "questions": [question]}
