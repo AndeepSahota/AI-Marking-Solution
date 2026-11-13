@@ -28,6 +28,13 @@ class DescriptorThread(StrictBaseModel):
     thread_key: str
     thread_id: str
     thread_description: str
+    # The evaluative words THIS thread's own levels use to tell one band from
+    # the next (e.g. "valid", "appropriate", "developed" for a references
+    # thread) -- extracted once per scheme upload so a specialist prompt can
+    # name them as "attach as a label, never as the explanation" without us
+    # hand-reading every new mark scheme's wording ourselves. See
+    # specialists/steps.py for where this gets used.
+    descriptor_vocabulary: list[str]
     levels: list[ThreadLevel]
 
 

@@ -327,6 +327,7 @@ def _thread_description_lists_to_keyed_scheme(result: ThreadDescriptionResult):
                 thread.thread_key: {
                     "thread_id": thread.thread_id,
                     "thread_description": thread.thread_description,
+                    "descriptor_vocabulary": thread.descriptor_vocabulary,
                     "levels": [level.model_dump() for level in thread.levels],
                 }
                 for thread in assessment_objective.threads
