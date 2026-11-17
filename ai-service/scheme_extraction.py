@@ -11,6 +11,10 @@ came back silently abridged -- only Question 1 or Section A, no error
    scheme (so a grid printed once still applies) and returning only its
    question -- a small reply that cannot be truncated or abridged.
 
+A question whose descriptor text does not survive word for word is
+extracted once more before being skipped -- on Edexcel writing grids the
+model sometimes reads the wrong part of the table.
+
 The thread split runs per question too. A question whose extraction fails
 is left out and listed in ``skipped_questions`` instead of failing the
 paper; one whose thread split fails is kept (the old pipeline can still mark
@@ -23,6 +27,8 @@ import json
 from typing import Any
 
 from llm_service import (
+    DescriptorContentIntegrityError,
+    DescriptorValidationError,
     ExtractionError,
     ExtractionIncompleteError,
     extract_mark_scheme_question,
@@ -31,6 +37,7 @@ from llm_service import (
 )
 from security import ms_ocr_sanitisation
 from specialists.parallel import run_calls
+from validation.scheme_checks import CONTENT_REASON, check_questions
 
 _FAILED = "it could not be extracted from the mark scheme"
 
@@ -81,7 +88,37 @@ def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
         "total_marks": outline.get("total_marks"),
         "questions": questions,
         "skipped_questions": skipped,
+        "outline_questions": items,  # internal: what a retry needs; dropped by extract_checked_scheme
     }
+
+
+def extract_checked_scheme(clean_text: str, log_issues=lambda issues: None) -> dict[str, Any]:
+    """Per-question extraction plus the per-question descriptor checks
+    (validation/scheme_checks.py), retrying once any question whose text did
+    not survive word for word. Raises if no question passes."""
+    structured = extract_mark_scheme_by_question(clean_text)
+    items = structured.pop("outline_questions")
+    first = check_questions(structured, log_issues=log_issues, raise_if_empty=False)
+    retry_numbers = {s["question_number"] for s in first["skipped_questions"] if s["reason"] == CONTENT_REASON}
+    kept, skipped = first["questions"], [s for s in first["skipped_questions"] if s["question_number"] not in retry_numbers]
+    if retry_numbers:
+        numbers = [item["question_number"] for item in items]
+        retry_items = [item for item in items if item["question_number"] in retry_numbers]
+        results = run_calls([functools.partial(_extract_one, clean_text, item, numbers) for item in retry_items])
+        again = [q for q in results if q is not None]
+        skipped += [{"question_number": item["question_number"], "reason": _FAILED}
+                    for item, q in zip(retry_items, results) if q is None]
+        second = check_questions({**structured, "questions": again, "skipped_questions": []},
+                                 log_issues=log_issues, raise_if_empty=False)
+        kept += second["questions"]
+        skipped += second["skipped_questions"]
+        order = {number: i for i, number in enumerate(numbers)}
+        kept.sort(key=lambda q: order.get(q.get("question_number"), len(order)))
+    if not kept:
+        if all(s["reason"] == CONTENT_REASON for s in skipped):
+            raise DescriptorContentIntegrityError("Extracted descriptor content did not match the raw descriptor")
+        raise DescriptorValidationError("No question in the mark scheme passed the descriptor checks")
+    return {**structured, "questions": kept, "skipped_questions": skipped}
 
 
 def _describe_one(question_key: str, question: dict):

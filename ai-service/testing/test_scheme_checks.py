@@ -10,6 +10,7 @@ from llm_service import DescriptorValidationError
 from specialists.orchestrate import general_engine_ao
 from transformations.segment_transormation import transform_segment_mark_scheme
 from validation.band_levels import is_level_scale, is_points_objective, level_number, level_numbers
+from validation.heading_repair import remove_dropped_headings
 from validation.scheme_checks import check_questions
 
 integrity.log_descriptor_integrity_comparison = lambda **kwargs: None
@@ -168,6 +169,35 @@ class RouterLevelRuleTests(unittest.TestCase):
 
     def test_a_level_scale_still_does(self):
         self.assertIsNotNone(general_engine_ao(self.extraction(["Level 1", "Level 2", "Level 3"])))
+
+
+# AQA writing grid: the model dropped the headings from the points only.
+HEADED = objective("AO5",
+                   ("Level 1", "1-6", "Content • Simple register • Basic vocabulary Organisation • Some linking",
+                    ["Simple register", "Basic vocabulary", "Some linking"]),
+                   ("Level 2", "7-12", "Content: • Some register • Varied vocabulary",
+                    ["Some register", "Varied vocabulary"]))
+
+
+class HeadingRepairTests(unittest.TestCase):
+    def test_dropped_headings_are_removed_and_the_question_kept(self):
+        result = check_questions(scheme(HEADED))
+        self.assertEqual(result["skipped_questions"], [])
+        texts = [d["text"] for b in result["questions"][0]["assessment_objectives"][0]["bands"] for d in b["descriptors"]]
+        self.assertEqual(texts, ["Simple register", "Basic vocabulary", "Some linking", "Some register", "Varied vocabulary"])
+
+    def test_a_dropped_sentence_or_changed_word_is_not_repaired(self):
+        dropped = objective("AO5", ("Level 1", "1-6", "• Simple register. Nothing else is shown here.", ["Simple register."]),
+                            ("Level 2", "7-12", "• Some register.", ["Some register."]))
+        changed = objective("AO5", ("Level 1", "1-6", "• Simple register", ["Plain register"]),
+                            ("Level 2", "7-12", "• Some register", ["Some register"]))
+        for broken in (dropped, changed):
+            self.assertEqual(remove_dropped_headings(scheme(broken)["questions"][0]), scheme(broken)["questions"][0])
+            with self.assertRaises(Exception):
+                check_questions(scheme(broken))
+
+    def test_points_sections_are_left_alone(self):
+        self.assertEqual(remove_dropped_headings(scheme(POINTS)["questions"][0]), scheme(POINTS)["questions"][0])
 
 
 if __name__ == "__main__":

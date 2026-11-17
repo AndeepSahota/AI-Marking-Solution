@@ -28,7 +28,7 @@ from llm_service import (
     generate_llm_response,
 )
 from ocr_service import extract_text_from_file
-from scheme_extraction import describe_threads_by_question, extract_mark_scheme_by_question
+from scheme_extraction import describe_threads_by_question, extract_checked_scheme
 from student_ocr_service import extract_student_ocr
 from observability import cost_tracker
 from rag_service import (
@@ -47,7 +47,6 @@ from specialists.orchestrate import (
     mark_ao_with_specialists,
 )
 from specialists.resolve import resolve_specialist_final_result
-from validation.scheme_checks import check_questions
 from validation.mark_int_validation import validate_mark_totals
 from transformations.segment_transormation import transform_segment_mark_scheme
 from aggregation.next_band_threads import get_next_band_threads
@@ -106,14 +105,13 @@ async def ocr_file(file: UploadFile = File(...)):
     # extraction call per question, each wrapping clean_text with its own
     # fresh token. clean_text itself is what gets returned and stored -- the
     # delimiter markers are a prompt detail, never part of the scheme.
-    structured_scheme = extract_mark_scheme_by_question(clean_text)
-
     # Descriptor checks run one question at a time (validation/scheme_checks.py):
     # boundary check, content integrity, then deterministic IDs. A question
-    # that fails is left out and listed in skipped_questions instead of
-    # rejecting the whole paper; the upload fails only if none pass.
-    structured_scheme = check_questions(
-        structured_scheme, log_issues=log_descriptor_validation_issues
+    # whose text does not survive word for word is extracted once more; one
+    # that still fails is left out and listed in skipped_questions instead of
+    # rejecting the whole paper. The upload fails only if none pass.
+    structured_scheme = extract_checked_scheme(
+        clean_text, log_issues=log_descriptor_validation_issues
     )
 
     # This operates after all descriptor transformations so the object returned

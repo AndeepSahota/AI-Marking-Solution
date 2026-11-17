@@ -57,6 +57,41 @@ class ExtractByQuestionTests(unittest.TestCase):
             self.run_with([{"question_number": "1", "marks": 8, "description": "d"}], fail_on=("1",))
 
 
+def levelled(points_level_1):
+    return {"question_number": "x", "marks": 6, "description": "d", "question_text": "value not found", "band_constraints": [],
+            "assessment_objectives": [{"ao": "AO4", "bands": [
+                {"band": "Level 1", "marks": "1-3", "descriptor": "• Description of ideas.", "descriptors": points_level_1},
+                {"band": "Level 2", "marks": "4-6", "descriptor": "• Comment on ideas.", "descriptors": ["Comment on ideas."]}]}]}
+
+
+class RetryTests(unittest.TestCase):
+    def run_with(self, attempts_by_number):
+        calls = {}
+
+        def outline(text, token):
+            return {"total_marks": 30, "questions": [{"question_number": n, "marks": 6, "description": "d"} for n in attempts_by_number]}
+
+        def one(text, token, number, marks, description, all_numbers):
+            calls[number] = calls.get(number, 0) + 1
+            good = attempts_by_number[number][calls[number] - 1]
+            return levelled(["Description of ideas."] if good else ["Something else entirely."])
+
+        with mock.patch.object(scheme_extraction, "extract_question_outline", outline), \
+             mock.patch.object(scheme_extraction, "extract_mark_scheme_question", one):
+            return scheme_extraction.extract_checked_scheme("A mark scheme."), calls
+
+    def test_a_question_that_fails_the_content_check_is_extracted_once_more(self):
+        result, calls = self.run_with({"Q1": [True], "Q2": [False, True], "Q3": [False, False]})
+        self.assertEqual([q["question_number"] for q in result["questions"]], ["Q1", "Q2"])
+        self.assertEqual([s["question_number"] for s in result["skipped_questions"]], ["Q3"])
+        self.assertEqual(calls, {"Q1": 1, "Q2": 2, "Q3": 2})
+        self.assertNotIn("outline_questions", result)
+
+    def test_nothing_passing_even_after_the_retry_is_still_an_error(self):
+        with self.assertRaises(Exception):
+            self.run_with({"Q1": [False, False]})
+
+
 class ThreadsByQuestionTests(unittest.TestCase):
     def test_results_are_merged_and_a_failed_question_is_left_out(self):
         def describe(text, token):
