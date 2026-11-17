@@ -132,13 +132,27 @@ def _describe_one(question_key: str, question: dict):
         return None
 
 
+def _has_threads(question: dict) -> bool:
+    return any((objective or {}).get("threads") for objective in (question.get("assessment_objectives") or {}).values())
+
+
 def describe_threads_by_question(thread_input: dict) -> dict:
     """The thread split, one question per call, merged into one thread
-    scheme. A question whose split fails is just absent from it."""
+    scheme. A question with no threads (a points question) needs no call:
+    it is passed through as it is -- asking the model to describe nothing
+    ran to the output limit on all 10 points questions in the hold-out run.
+    A question whose split fails is just absent from the result."""
     entries = list((thread_input.get("questions") or {}).items())
-    results = run_calls([functools.partial(_describe_one, key, question) for key, question in entries])
-    merged = {}
+    to_describe = [(key, question) for key, question in entries if _has_threads(question)]
+    results = run_calls([functools.partial(_describe_one, key, question) for key, question in to_describe])
+    described = {}
     for result in results:
         if result is not None:
-            merged.update(result)
+            described.update(result)
+    merged = {}
+    for key, question in entries:  # source order
+        if not _has_threads(question):
+            merged[key] = question
+        elif key in described:
+            merged[key] = described[key]
     return {"questions": merged}

@@ -101,9 +101,28 @@ class ThreadsByQuestionTests(unittest.TestCase):
             return {"questions": {key: {"assessment_objectives": {}}}}
 
         with mock.patch.object(scheme_extraction, "generate_thread_description_response", describe):
+            levelled = {"assessment_objectives": {"AO4": {"threads": {"a": {"levels": []}}}}}
             merged = scheme_extraction.describe_threads_by_question(
-                {"questions": {"Q1": {}, "Q2": {}, "Q3": {}}})
+                {"questions": {"Q1": levelled, "Q2": levelled, "Q3": levelled}})
         self.assertEqual(sorted(merged["questions"]), ["Q1", "Q3"])
+
+
+class NoThreadsTests(unittest.TestCase):
+    def test_points_questions_skip_the_thread_split_call(self):
+        calls = []
+
+        def describe(text, token):
+            calls.append(text)
+            return {"questions": {"Q2": {"marks_available": 8, "assessment_objectives": {"AO2": {"threads": {"a": {"thread_description": "x"}}}}}}}
+
+        points = {"marks_available": 2, "assessment_objectives": {"AO1": {"marks_available": 2, "band_marks": [{"band": "General", "marks": "2"}], "threads": {}}}}
+        levelled = {"marks_available": 8, "assessment_objectives": {"AO2": {"threads": {"a": {"levels": []}}}}}
+        with mock.patch.object(scheme_extraction, "generate_thread_description_response", describe):
+            merged = scheme_extraction.describe_threads_by_question({"questions": {"Q1": points, "Q2": levelled}})
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn('"Q1"', calls[0])
+        self.assertEqual(list(merged["questions"]), ["Q1", "Q2"])
+        self.assertEqual(merged["questions"]["Q1"], points)
 
 
 if __name__ == "__main__":
