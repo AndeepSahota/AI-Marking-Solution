@@ -44,9 +44,14 @@ export function levelsFor(questionExtraction) {
     const levels = []
     for (const band of aos[0].band_marks) {
         const label = typeof band.band === 'string' ? band.band.match(LEVEL_LABEL) : null
+        if (!label) return null
+        const level = Number(label[1])
+        // A level 0 band often reads "No marks" or "Nothing to reward"
+        // (AQA Language) rather than "0" -- that is 0 marks.
         const numbers = String(band.marks ?? '').match(/\d+/g)?.map(Number)
-        if (!label || !numbers?.length) return null
-        levels.push({ level: Number(label[1]), min: Math.min(...numbers), max: Math.max(...numbers) })
+            ?? (level === 0 ? [0] : null)
+        if (!numbers?.length) return null
+        levels.push({ level, min: Math.min(...numbers), max: Math.max(...numbers) })
     }
     if (levels.filter(item => item.max > 0).length < 2) return null
     // Teachers must be able to give no credit (a blank or off-task answer)

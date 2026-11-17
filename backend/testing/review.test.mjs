@@ -80,6 +80,13 @@ test('levelsFor keeps a scheme\'s own 0 band rather than adding another', () => 
     assert.deepEqual(levelsFor(bands(['Band 1', '1-6'], ['Band 2', '7-12'])).map(l => l.level), [0, 1, 2])
 })
 
+test('a level 0 band marked "No marks" is 0 marks', () => {
+    assert.deepEqual(levelsFor(bands(['Level 2', '3–4 marks'], ['Level 1', '1–2 marks'], ['Level 0', 'No marks'])),
+        [NO_CREDIT, { level: 1, min: 1, max: 2 }, { level: 2, min: 3, max: 4 }])
+    // Only level 0 may lack a number.
+    assert.equal(levelsFor(bands(['Level 2', 'High marks'], ['Level 1', '1-2'])), null)
+})
+
 test('levelsFor refuses multi-AO, points-based and unparseable schemes', () => {
     assert.equal(levelsFor({ assessment_objectives: { AO1: extraction.assessment_objectives.AO4, AO2: extraction.assessment_objectives.AO4 } }), null)
     assert.equal(levelsFor(bands(['Top', '7-9'], ['Level 1', '1-3'])), null)
