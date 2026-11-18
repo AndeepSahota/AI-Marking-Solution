@@ -66,6 +66,16 @@ class OutlineQuestion(StrictBaseModel):
     question_number: str
     marks: int | NotFound
     description: str
+    # A short phrase copied exactly from where this question's own marking
+    # section begins -- long papers give each extraction call only its own
+    # section plus the shared sections (scheme_extraction.py).
+    section_start: str
+
+
+class SharedSection(StrictBaseModel):
+    """A grid or guidance printed once and applied to several questions."""
+    title: str
+    section_start: str
 
 
 class MarkSchemeOutline(StrictBaseModel):
@@ -73,6 +83,7 @@ class MarkSchemeOutline(StrictBaseModel):
     total_marks: int | NotFound
     delimiter_token: str
     questions: list[OutlineQuestion]
+    shared_sections: list[SharedSection]
 
 
 class SingleQuestionExtraction(StrictBaseModel):

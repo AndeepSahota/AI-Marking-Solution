@@ -160,6 +160,49 @@ class WrongQuestionGuardTests(unittest.TestCase):
         self.assertIn("may belong to another question", result["skipped_questions"][0]["reason"])
 
 
+# A made-up long paper: contents list, three questions, one shared grid.
+CONTENTS = "Contents: Question 1a Macbeth, Question 1b Macbeth, Question 2a Othello.\n"
+Q1A = "**Question 1a** Macbeth indicative content. " + "Ambition and guilt are explored. " * 20
+Q1B = "**Question 1b** Macbeth wider play. " + "Kingship across the play. " * 20
+Q2A = "**Question 2a** Othello indicative content. " + "Jealousy and trust are explored. " * 20
+GRID = "| Levels grid for all part (a) questions | Level 1 | 1-4 | simple comments |" + " Level detail." * 20
+PAPER = CONTENTS + Q1A + Q1B + Q2A + GRID
+ITEMS = [{"question_number": "1a", "section_start": "Question 1a Macbeth indicative content"},
+         {"question_number": "1b", "section_start": "Question 1b Macbeth wider play"},
+         {"question_number": "2a", "section_start": "Question 2a Othello indicative content"}]
+SHARED = [{"title": "Levels grid", "section_start": "Levels grid for all part (a) questions"}]
+
+
+class SectionTests(unittest.TestCase):
+    def long_paper(self, *args):
+        with mock.patch.object(scheme_extraction, "_LONG_PAPER", 100):
+            return scheme_extraction.question_texts(*args)
+
+    def test_each_question_sees_its_own_section_plus_the_shared_grid(self):
+        texts = self.long_paper(PAPER, ITEMS, SHARED)
+        self.assertIn("Ambition and guilt", texts["1a"])
+        self.assertNotIn("Kingship across", texts["1a"])
+        self.assertNotIn("Jealousy", texts["1a"])
+        self.assertIn("Levels grid for all part (a) questions", texts["1a"])
+        self.assertIn("Jealousy", texts["2a"])
+        self.assertTrue(all(len(t) < len(PAPER) for t in texts.values()))
+
+    def test_the_contents_list_is_passed_over(self):
+        texts = self.long_paper(PAPER, ITEMS, SHARED)
+        self.assertFalse(texts["1a"].startswith("Contents"))
+        self.assertNotIn("Contents:", texts["1b"])
+
+    def test_a_start_that_cannot_be_found_falls_back_to_the_whole_text(self):
+        items = ITEMS[:2] + [{"question_number": "2a", "section_start": "Question 2a Hamlet madness"}]
+        texts = self.long_paper(PAPER, items, SHARED)
+        self.assertEqual(texts["2a"], PAPER)
+        self.assertNotEqual(texts["1a"], PAPER)
+
+    def test_a_short_paper_keeps_the_whole_text(self):
+        texts = scheme_extraction.question_texts(PAPER, ITEMS, SHARED)
+        self.assertTrue(all(t == PAPER for t in texts.values()))
+
+
 class NoThreadsTests(unittest.TestCase):
     def test_points_questions_skip_the_thread_split_call(self):
         calls = []

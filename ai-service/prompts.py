@@ -194,7 +194,14 @@ Return a JSON object with exactly this structure:
         {{
             "question_number": <the question's number exactly as printed, e.g. "01", "Question 4", "1(a)">,
             "marks": <marks available for this question>,
-            "description": <what this question asks the student to do, 10 words or fewer>
+            "description": <what this question asks the student to do, 10 words or fewer>,
+            "section_start": <the first 5-12 words of this question's own marking section, copied exactly from the mark scheme>
+        }}
+    ],
+    "shared_sections": [
+        {{
+            "title": <what the shared section is, e.g. "Levels grid for Questions 1a to 6a">,
+            "section_start": <the first 5-12 words of that section, copied exactly from the mark scheme>
         }}
     ]
 }}
@@ -213,6 +220,14 @@ Rules:
   (for example "Section B: Transactional Writing"), list it as one question
   named after the section. Do not list general guidance, or a grid that only
   applies to questions already listed, as a separate question.
+- `section_start` is copied character for character from the mark scheme
+  text, at the point where that question's own marking content begins (its
+  heading or first line). It must be text that appears only there, not in a
+  contents list.
+- `shared_sections` lists every mark grid, levels table or marking guidance
+  that the scheme prints once and applies to several questions (for example
+  one levels grid for all part (a) questions). Leave it empty if every
+  question has its own grid.
 - Respond with valid JSON only. No intro text, no explanation outside the JSON.
 """
 
