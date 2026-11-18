@@ -18,9 +18,12 @@ grid) is also extracted once more, then skipped with that reason.
 
 On long papers (many questions x a long text, e.g. Edexcel Literature at
 70-123 pages) every call re-reading the whole scheme cost $3-6 per upload.
-There, each question gets only its own section plus the sections the outline
-marks as shared (a grid printed once for several questions); a question
-whose section cannot be found reliably still gets the whole text. Shorter
+There, each question gets only its own section plus the shared sections the
+outline says apply to it (a grid printed once for several questions, e.g.
+AQA Literature's "Section A: Questions 01-24" grid), placed before its own
+section as on the paper; a question whose section cannot be found reliably
+still gets the whole text. If a question given only its section fails the
+wrong-question guard, its second attempt reads the whole paper. Shorter
 papers -- every Language paper, and the AO4 scheme -- keep the whole text.
 
 The thread split runs per question too. A question whose extraction fails
@@ -78,6 +81,20 @@ def _alnum_with_map(text: str) -> tuple[str, list[int]]:
     return "".join(chars), index
 
 
+def _number_key(number) -> str:
+    return _alnum_with_map(str(number or ""))[0]
+
+
+def _applies(section: dict, item: dict, all_keys: set) -> bool:
+    """Whether a shared section is for this question. A section whose
+    applies_to names no outline question at all is given to every question
+    (the safe old behaviour) rather than to none."""
+    wanted = {_number_key(n) for n in section.get("applies_to") or []} & all_keys
+    if not wanted:
+        return True
+    return bool({_number_key(item["question_number"]), _number_key(item.get("printed_number"))} & wanted)
+
+
 def question_texts(clean_text: str, items: list[dict], shared: list[dict]) -> dict[str, str]:
     """{question_number: the text that question's extraction call sees}."""
     if len(items) * len(clean_text) < _LONG_PAPER:
@@ -97,23 +114,40 @@ def question_texts(clean_text: str, items: list[dict], shared: list[dict]) -> di
         if at is not None:
             starts[item["question_number"]] = at
             cursor = at + 1
-    shared_at = [at for at in (find(section.get("section_start")) for section in shared) if at is not None]
-    boundaries = sorted(set(starts.values()) | set(shared_at))
+    # Two grids can begin with the same words ("Level 6 Convincing, critical
+    # analysis..." heads both AQA Literature Section A and B grids): a start
+    # already taken moves on to its next occurrence.
+    shared_at, taken = [], set(starts.values())
+    for section in shared:
+        at = find(section.get("section_start"))
+        while at is not None and at in taken:
+            at = find(section.get("section_start"), at + 1)
+        if at is not None:
+            taken.add(at)
+        shared_at.append(at)
+    boundaries = sorted(taken)
 
     def section(at):
         later = [b for b in boundaries if b > at]
         end = index[later[0]] if later else len(clean_text)
         return clean_text[index[at]:end]
 
-    shared_text = "\n\n".join(section(at) for at in sorted(set(shared_at)))
-    texts = {}
+    all_keys = {_number_key(item["question_number"]) for item in items} | \
+               {_number_key(item.get("printed_number")) for item in items}
+    texts, shared_counts = {}, []
     for item in items:
         number = item["question_number"]
         own = section(starts[number]) if number in starts else ""
-        texts[number] = (own + ("\n\n" + shared_text if shared_text else "")) if len(own) >= _MIN_SECTION_CHARS else clean_text
+        if len(own) < _MIN_SECTION_CHARS:
+            texts[number] = clean_text
+            continue
+        mine = sorted(at for at, part in zip(shared_at, shared) if at is not None and _applies(part, item, all_keys))
+        shared_counts.append(len(mine))
+        texts[number] = "\n\n".join([section(at) for at in mine] + [own])
     whole = sum(text is clean_text for text in texts.values())
     print(f"[SCHEME EXTRACTION] long paper: {len(items) - whole} questions get their own section, "
-          f"{whole} the whole text; {len(shared_at)} shared sections", flush=True)
+          f"{whole} the whole text; {sum(at is not None for at in shared_at)} of {len(shared)} shared sections found, "
+          f"{min(shared_counts, default=0)}-{max(shared_counts, default=0)} per question", flush=True)
     return texts
 
 
@@ -148,11 +182,16 @@ def _marks_match(question: dict, outline_marks) -> bool:
     return not readings or not isinstance(outline_marks, int) or outline_marks in readings
 
 
-def _extract_one(clean_text: str, item: dict, all_numbers: list[str]):
+def _extract_one(text: str, item: dict, all_numbers: list[str], whole_text: str | None = None):
     """(question, None) or (None, reason). A question whose grid does not
-    match its outline marks is extracted once more, then skipped."""
+    match its outline marks is extracted once more, then skipped. If the
+    first attempt saw only the question's section, the second reads the
+    whole paper -- the section may have missed the grid it needs."""
     for attempt in (1, 2):
-        wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
+        if attempt == 2 and whole_text and text is not whole_text:
+            text = whole_text
+            print(f"[SCHEME EXTRACTION] {item['question_number']}: retrying with the whole paper", flush=True)
+        wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(text)
         try:
             question = extract_mark_scheme_question(
                 wrapped, token, item["question_number"], item["marks"], item["description"], all_numbers
@@ -178,12 +217,13 @@ def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
         raise ExtractionIncompleteError("No questions were found in the mark scheme")
     numbers = _unique_numbers([item["question_number"] for item in items])
     for item, number in zip(items, numbers):
+        item["printed_number"] = item["question_number"]  # what applies_to uses
         item["question_number"] = number
 
     texts = question_texts(clean_text, items, outline.get("shared_sections") or [])
     for item in items:
         item["text"] = texts[item["question_number"]]
-    results = run_calls([functools.partial(_extract_one, item["text"], item, numbers) for item in items])
+    results = run_calls([functools.partial(_extract_one, item["text"], item, numbers, clean_text) for item in items])
     questions = [question for question, _ in results if question is not None]
     skipped = [{"question_number": item["question_number"], "reason": reason}
                for item, (question, reason) in zip(items, results) if question is None]
@@ -210,7 +250,7 @@ def extract_checked_scheme(clean_text: str, log_issues=lambda issues: None) -> d
     if retry_numbers:
         numbers = [item["question_number"] for item in items]
         retry_items = [item for item in items if item["question_number"] in retry_numbers]
-        results = run_calls([functools.partial(_extract_one, item["text"], item, numbers) for item in retry_items])
+        results = run_calls([functools.partial(_extract_one, item["text"], item, numbers, clean_text) for item in retry_items])
         again = [q for q, _ in results if q is not None]
         skipped += [{"question_number": item["question_number"], "reason": reason}
                     for item, (q, reason) in zip(retry_items, results) if q is None]

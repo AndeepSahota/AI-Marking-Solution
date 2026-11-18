@@ -76,6 +76,9 @@ class SharedSection(StrictBaseModel):
     """A grid or guidance printed once and applied to several questions."""
     title: str
     section_start: str
+    # The outline question numbers it is used for; a section's grid must not
+    # reach another section's questions (scheme_extraction.question_texts).
+    applies_to: list[str]
 
 
 class MarkSchemeOutline(StrictBaseModel):

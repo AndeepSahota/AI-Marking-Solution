@@ -145,6 +145,18 @@ class WrongQuestionGuardTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(result["questions"]), 1)
 
+    def test_a_sectioned_question_retries_with_the_whole_paper(self):
+        seen = []
+        def one(text, token, number, marks, description, all_numbers):
+            seen.append(text)
+            return graded([("AO4", 4)]) if len(seen) == 1 else graded([("AO1", 20)])
+        item = {"question_number": "04", "marks": 20, "description": "d"}
+        with mock.patch.object(scheme_extraction, "extract_mark_scheme_question", one):
+            question, reason = scheme_extraction._extract_one("Its own section.", item, ["04"], "The whole paper.")
+        self.assertIsNone(reason)
+        self.assertIn("Its own section.", seen[0])
+        self.assertIn("The whole paper.", seen[1])
+
     def test_the_skip_reason_says_why(self):
         writing = graded([("AO5", 24), ("AO6", 16)])
         ok = graded([("AO4", 20)])
@@ -197,6 +209,33 @@ class SectionTests(unittest.TestCase):
         texts = self.long_paper(PAPER, items, SHARED)
         self.assertEqual(texts["2a"], PAPER)
         self.assertNotEqual(texts["1a"], PAPER)
+
+    def test_each_grid_goes_only_to_the_questions_it_applies_to(self):
+        row = "| Level 6 | Convincing, critical analysis and exploration | 26-30 |"
+        grid_a = "Section A grid. " + row + " Modern text detail." * 20
+        grid_b = "Section B grid. " + row + " Poetry comparison detail." * 20
+        paper = CONTENTS + grid_a + Q1A + Q1B + grid_b + Q2A
+        shared = [{"title": "A", "section_start": row, "applies_to": ["1a", "1b"]},
+                  {"title": "B", "section_start": row, "applies_to": ["2a"]}]
+        texts = self.long_paper(paper, ITEMS, shared)
+        self.assertIn("Modern text detail", texts["1a"])
+        self.assertNotIn("Poetry comparison", texts["1a"])
+        self.assertIn("Poetry comparison", texts["2a"], "the repeated start moves on to the B grid")
+        self.assertNotIn("Modern text detail", texts["2a"])
+        self.assertTrue(texts["2a"].index("Poetry comparison") < texts["2a"].index("Jealousy"), "grid before the question")
+
+    def test_applies_to_matches_the_printed_number_of_a_renamed_question(self):
+        items = [dict(item, printed_number=item["question_number"]) for item in ITEMS]
+        items[2] = dict(items[2], question_number="Section B 2a")
+        shared = [{"title": "grid", "section_start": SHARED[0]["section_start"], "applies_to": ["2a"]}]
+        texts = self.long_paper(PAPER, items, shared)
+        self.assertIn("Levels grid", texts["Section B 2a"])
+        self.assertNotIn("Levels grid", texts["1a"])
+
+    def test_a_grid_naming_no_known_question_goes_to_every_question(self):
+        shared = [dict(SHARED[0], applies_to=["Question 9"])]
+        texts = self.long_paper(PAPER, ITEMS, shared)
+        self.assertTrue(all("Levels grid" in t for t in texts.values()))
 
     def test_a_short_paper_keeps_the_whole_text(self):
         texts = scheme_extraction.question_texts(PAPER, ITEMS, SHARED)

@@ -201,7 +201,8 @@ Return a JSON object with exactly this structure:
     "shared_sections": [
         {{
             "title": <what the shared section is, e.g. "Levels grid for Questions 1a to 6a">,
-            "section_start": <the first 5-12 words of that section, copied exactly from the mark scheme>
+            "section_start": <the first 5-12 words of that section, copied exactly from the mark scheme>,
+            "applies_to": [<the question_number of every question it applies to, exactly as in "questions" above>]
         }}
     ]
 }}
@@ -226,8 +227,15 @@ Rules:
   contents list.
 - `shared_sections` lists every mark grid, levels table or marking guidance
   that the scheme prints once and applies to several questions (for example
-  one levels grid for all part (a) questions). Leave it empty if every
-  question has its own grid.
+  one levels grid for all part (a) questions, or a section's grid printed
+  above its questions, such as "Section A: Questions 01-24 (30 marks)").
+  Leave it empty if every question has its own grid.
+- A shared section's `section_start` begins at its own heading (for example
+  "Section A: Modern texts Questions 01-24"), not at the first row of its
+  table -- several grids often begin with the same row ("Level 6 ...").
+- `applies_to` lists exactly the questions that section is used for, using
+  their question_number values from "questions". A grid for Section A
+  questions does not apply to Section B or Section C questions.
 - Respond with valid JSON only. No intro text, no explanation outside the JSON.
 """
 
