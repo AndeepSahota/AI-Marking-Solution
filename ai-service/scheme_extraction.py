@@ -12,8 +12,9 @@ came back silently abridged -- only Question 1 or Section A, no error
    question -- a small reply that cannot be truncated or abridged.
 
 A question whose descriptor text does not survive word for word is
-extracted once more before being skipped -- on Edexcel writing grids the
-model sometimes reads the wrong part of the table.
+extracted once more before being skipped. A question whose extracted grid
+does not match its outline marks (the model returned another question's
+grid) is also extracted once more, then skipped with that reason.
 
 The thread split runs per question too. A question whose extraction fails
 is left out and listed in ``skipped_questions`` instead of failing the
@@ -37,9 +38,11 @@ from llm_service import (
 )
 from security import ms_ocr_sanitisation
 from specialists.parallel import run_calls
+from validation.band_levels import is_points_objective, mark_range
 from validation.scheme_checks import CONTENT_REASON, check_questions
 
 _FAILED = "it could not be extracted from the mark scheme"
+_WRONG_GRID = "the mark grid found for it did not match its marks, so it may belong to another question"
 
 
 def _unique_numbers(numbers: list[str]) -> list[str]:
@@ -52,17 +55,55 @@ def _unique_numbers(numbers: list[str]) -> list[str]:
     return unique
 
 
+def _grid_mark_readings(question: dict) -> set[int]:
+    """The question's total marks as its own grid reads -- several readings,
+    since a shared grid is often repeated under each AO: the sum of each AO's
+    top mark, the largest AO, the sum of distinct grids, and the sum of the
+    AOs' stated marks. Empty if no reading is possible."""
+    tops, grids, stated = [], {}, []
+    for objective in question.get("assessment_objectives") or []:
+        if isinstance(objective.get("marks_available"), int):
+            stated.append(objective["marks_available"])
+        if is_points_objective(objective):
+            if isinstance(objective.get("marks_available"), int):
+                tops.append(objective["marks_available"])
+            continue
+        ranges = [r for r in (mark_range(band.get("marks")) for band in objective.get("bands") or []) if r]
+        if ranges:
+            top = max(high for _, high in ranges)
+            tops.append(top)
+            grids[tuple(sorted(ranges))] = top
+    if not tops:
+        return set()
+    return {sum(tops), max(tops), sum(grids.values()), sum(stated)} - {0}
+
+
+def _marks_match(question: dict, outline_marks) -> bool:
+    """The wrong-question guard: asked for one question, the model sometimes
+    returns another's grid (AQA's 20-mark reading Q4 came back with the 40-mark
+    writing grid). True unless the grid clearly disagrees with the outline."""
+    readings = _grid_mark_readings(question)
+    return not readings or not isinstance(outline_marks, int) or outline_marks in readings
+
+
 def _extract_one(clean_text: str, item: dict, all_numbers: list[str]):
-    wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
-    try:
-        question = extract_mark_scheme_question(
-            wrapped, token, item["question_number"], item["marks"], item["description"], all_numbers
-        )
-    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as error:
-        print(f"[SCHEME EXTRACTION] {item['question_number']}: {type(error).__name__}", flush=True)
-        return None
-    question["question_number"] = item["question_number"]  # the outline's (unique) number
-    return question
+    """(question, None) or (None, reason). A question whose grid does not
+    match its outline marks is extracted once more, then skipped."""
+    for attempt in (1, 2):
+        wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
+        try:
+            question = extract_mark_scheme_question(
+                wrapped, token, item["question_number"], item["marks"], item["description"], all_numbers
+            )
+        except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as error:
+            print(f"[SCHEME EXTRACTION] {item['question_number']}: {type(error).__name__}", flush=True)
+            return None, _FAILED
+        question["question_number"] = item["question_number"]  # the outline's (unique) number
+        if _marks_match(question, item["marks"]):
+            return question, None
+        print(f"[SCHEME EXTRACTION] {item['question_number']}: grid marks {sorted(_grid_mark_readings(question))} "
+              f"!= {item['marks']} (attempt {attempt})", flush=True)
+    return None, _WRONG_GRID
 
 
 def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
@@ -78,9 +119,9 @@ def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
         item["question_number"] = number
 
     results = run_calls([functools.partial(_extract_one, clean_text, item, numbers) for item in items])
-    questions = [question for question in results if question is not None]
-    skipped = [{"question_number": item["question_number"], "reason": _FAILED}
-               for item, question in zip(items, results) if question is None]
+    questions = [question for question, _ in results if question is not None]
+    skipped = [{"question_number": item["question_number"], "reason": reason}
+               for item, (question, reason) in zip(items, results) if question is None]
     if not questions:
         raise ExtractionIncompleteError("No question in the mark scheme could be extracted")
     return {
@@ -98,18 +139,18 @@ def extract_checked_scheme(clean_text: str, log_issues=lambda issues: None) -> d
     not survive word for word. Raises if no question passes."""
     structured = extract_mark_scheme_by_question(clean_text)
     items = structured.pop("outline_questions")
-    first = check_questions(structured, log_issues=log_issues, raise_if_empty=False)
+    first = check_questions(structured, log_issues=log_issues, raise_if_empty=False, source_text=clean_text)
     retry_numbers = {s["question_number"] for s in first["skipped_questions"] if s["reason"] == CONTENT_REASON}
     kept, skipped = first["questions"], [s for s in first["skipped_questions"] if s["question_number"] not in retry_numbers]
     if retry_numbers:
         numbers = [item["question_number"] for item in items]
         retry_items = [item for item in items if item["question_number"] in retry_numbers]
         results = run_calls([functools.partial(_extract_one, clean_text, item, numbers) for item in retry_items])
-        again = [q for q in results if q is not None]
-        skipped += [{"question_number": item["question_number"], "reason": _FAILED}
-                    for item, q in zip(retry_items, results) if q is None]
+        again = [q for q, _ in results if q is not None]
+        skipped += [{"question_number": item["question_number"], "reason": reason}
+                    for item, (q, reason) in zip(retry_items, results) if q is None]
         second = check_questions({**structured, "questions": again, "skipped_questions": []},
-                                 log_issues=log_issues, raise_if_empty=False)
+                                 log_issues=log_issues, raise_if_empty=False, source_text=clean_text)
         kept += second["questions"]
         skipped += second["skipped_questions"]
         order = {number: i for i, number in enumerate(numbers)}

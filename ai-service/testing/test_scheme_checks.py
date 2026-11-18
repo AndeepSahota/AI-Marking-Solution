@@ -200,5 +200,44 @@ class HeadingRepairTests(unittest.TestCase):
         self.assertEqual(remove_dropped_headings(scheme(POINTS)["questions"][0]), scheme(POINTS)["questions"][0])
 
 
+# Edexcel writing grid: the model put the column header in the descriptor.
+OCR_SOURCE = """| Level | Mark | The candidate: |
+| Level 1 | 1-4 | <ul><li>• offers a basic response, with audience not fully established</li></ul> |
+| Level 2 | 5-9 | <ul><li>• shows an awareness of audience and purpose</li><li>• expresses and orders information and ideas</li></ul> |"""
+HEADER_GRID = objective("AO5",
+                        ("Level 1", "1-4", "The candidate:", ["offers a basic response, with audience not fully established"]),
+                        ("Level 2", "5-9", "The candidate:", ["shows an awareness of audience and purpose", "expresses and orders information and ideas"]))
+
+
+class SourceAnchorTests(unittest.TestCase):
+    def test_points_copied_from_the_scheme_pass_and_the_descriptor_is_rebuilt(self):
+        result = check_questions(scheme(HEADER_GRID), source_text=OCR_SOURCE)
+        self.assertEqual(result["skipped_questions"], [])
+        band = result["questions"][0]["assessment_objectives"][0]["bands"][1]
+        self.assertEqual(band["band_title"], "The candidate:")
+        self.assertEqual(band["descriptor"], "• shows an awareness of audience and purpose • expresses and orders information and ideas")
+        self.assertEqual([d["id"] for d in band["descriptors"]], ["ao5-2a", "ao5-2b"])
+        self.assertEqual([d["text"] for d in band["descriptors"]],
+                         ["shows an awareness of audience and purpose", "expresses and orders information and ideas"])
+
+    def test_without_the_source_text_it_still_fails(self):
+        with self.assertRaises(Exception):
+            check_questions(scheme(HEADER_GRID))
+
+    def test_an_invented_or_changed_point_still_fails(self):
+        changed = objective("AO5",
+                            ("Level 1", "1-4", "The candidate:", ["offers a basic response, with audience not fully established"]),
+                            ("Level 2", "5-9", "The candidate:", ["shows a strong awareness of audience and purpose"]))
+        with self.assertRaises(Exception):
+            check_questions(scheme(changed), source_text=OCR_SOURCE)
+
+    def test_a_very_short_point_is_not_enough(self):
+        short = objective("AO5",
+                          ("Level 1", "1-4", "The candidate:", ["offers"]),
+                          ("Level 2", "5-9", "The candidate:", ["shows an awareness of audience and purpose"]))
+        with self.assertRaises(Exception):
+            check_questions(scheme(short), source_text=OCR_SOURCE)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,6 +107,59 @@ class ThreadsByQuestionTests(unittest.TestCase):
         self.assertEqual(sorted(merged["questions"]), ["Q1", "Q3"])
 
 
+def graded(top_by_ao):
+    return {"question_number": "x", "marks": 20, "description": "d", "question_text": "value not found", "band_constraints": [],
+            "assessment_objectives": [{"ao": ao, "marks_available": top, "bands": [
+                {"band": "Level 1", "marks": f"1-{top // 2}", "descriptor": "• Basic.", "descriptors": ["Basic."]},
+                {"band": "Level 2", "marks": f"{top // 2 + 1}-{top}", "descriptor": "• Clear.", "descriptors": ["Clear."]}]}
+                for ao, top in top_by_ao]}
+
+
+class WrongQuestionGuardTests(unittest.TestCase):
+    def run_with(self, attempts):
+        calls = []
+
+        def outline(text, token):
+            return {"total_marks": 20, "questions": [{"question_number": "04", "marks": 20, "description": "evaluate"}]}
+
+        def one(text, token, number, marks, description, all_numbers):
+            calls.append(number)
+            return attempts[len(calls) - 1]
+
+        with mock.patch.object(scheme_extraction, "extract_question_outline", outline), \
+             mock.patch.object(scheme_extraction, "extract_mark_scheme_question", one):
+            return scheme_extraction.extract_mark_scheme_by_question("A mark scheme."), calls
+
+    def test_another_questions_grid_is_retried_then_skipped(self):
+        writing = graded([("AO5", 24), ("AO6", 16)])  # 40 marks for a 20-mark question
+        with self.assertRaises(ExtractionIncompleteError):
+            self.run_with([writing, writing])
+
+    def test_a_right_second_attempt_is_kept(self):
+        result, calls = self.run_with([graded([("AO5", 24), ("AO6", 16)]), graded([("AO4", 20)])])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result["questions"][0]["assessment_objectives"][0]["ao"], "AO4")
+
+    def test_a_shared_grid_repeated_under_two_aos_is_not_a_mismatch(self):
+        result, calls = self.run_with([graded([("AO1", 20), ("AO3", 20)])])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(result["questions"]), 1)
+
+    def test_the_skip_reason_says_why(self):
+        writing = graded([("AO5", 24), ("AO6", 16)])
+        ok = graded([("AO4", 20)])
+        def outline(text, token):
+            return {"total_marks": 40, "questions": [{"question_number": n, "marks": 20, "description": "d"} for n in ("03", "04")]}
+        answers = {"03": [ok], "04": [writing, writing]}
+        def one(text, token, number, marks, description, all_numbers):
+            return answers[number].pop(0)
+        with mock.patch.object(scheme_extraction, "extract_question_outline", outline), \
+             mock.patch.object(scheme_extraction, "extract_mark_scheme_question", one):
+            result = scheme_extraction.extract_mark_scheme_by_question("A mark scheme.")
+        self.assertEqual(result["skipped_questions"][0]["question_number"], "04")
+        self.assertIn("may belong to another question", result["skipped_questions"][0]["reason"])
+
+
 class NoThreadsTests(unittest.TestCase):
     def test_points_questions_skip_the_thread_split_call(self):
         calls = []

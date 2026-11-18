@@ -24,6 +24,7 @@ from validation.descriptor_id_enrichment import add_descriptor_ids
 from validation.descriptor_integrity_validation import validate_descriptor_content_integrity
 from validation.descriptor_validation import validate_descriptor_shapes
 from validation.heading_repair import remove_dropped_headings
+from validation.source_anchor import anchor_bands_to_source
 
 CONTENT_REASON = "its descriptor text did not survive extraction word for word"
 _REASONS = {
@@ -54,10 +55,13 @@ def check_questions(
     structured_scheme: dict[str, Any],
     log_issues: Callable[[list], None] = lambda issues: None,
     raise_if_empty: bool = True,
+    source_text: str = "",
 ) -> dict[str, Any]:
     """The scheme with only the questions that passed every check (with
     descriptor IDs added), plus ``skipped_questions``: [{question_number,
-    reason}]. Raises if no question passes, unless raise_if_empty is False."""
+    reason}]. Raises if no question passes, unless raise_if_empty is False.
+    source_text: the scheme's OCR text, for bands whose points must be
+    checked against it (validation/source_anchor.py)."""
     questions = structured_scheme.get("questions")
     if not isinstance(questions, list):
         questions = []
@@ -76,8 +80,18 @@ def check_questions(
             # descriptor text are removed, then checked again
             # (validation/heading_repair.py).
             repaired = {**single, "questions": [remove_dropped_headings(question)]}
-            if not validate_descriptor_content_integrity(repaired):
+            remaining = validate_descriptor_content_integrity(repaired)
+            if not remaining:
                 single, content_issues = repaired, []
+            else:
+                # Otherwise accept the failing bands if every point is copied
+                # word for word from the scheme (validation/source_anchor.py).
+                failing = {(issue.get("ao"), issue.get("band")) for issue in remaining}
+                anchored = anchor_bands_to_source(repaired["questions"][0], failing, source_text)
+                if anchored is not None:
+                    candidate = {**single, "questions": [anchored]}
+                    if not validate_descriptor_content_integrity(candidate):
+                        single, content_issues = candidate, []
         if content_issues:
             log_issues(content_issues)
             failure = "content"
