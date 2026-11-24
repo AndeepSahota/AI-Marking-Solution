@@ -12,6 +12,7 @@ function SelectQuestion() {
 
   const [questions, setQuestions] = useState(null)
   const [skipped, setSkipped] = useState([])
+  const [possiblyMissing, setPossiblyMissing] = useState([])
   const [error, setError] = useState(null)
   const [notFound, setNotFound] = useState(false)
   const [pickingQuestion, setPickingQuestion] = useState(false)
@@ -32,6 +33,7 @@ function SelectQuestion() {
         const list = data.questions ?? []
         setQuestions(list)
         setSkipped(data.skipped_questions ?? [])
+        setPossiblyMissing(data.possibly_missing ?? [])
         // Nothing to pick on a single-question paper -- go straight to
         // confirming its wording.
         if (list.length === 1) chooseQuestion(0, list)
@@ -94,6 +96,12 @@ function SelectQuestion() {
                   and {skipped.length === 1 ? 'is' : 'are'} left out:{' '}
                   {skipped.map(q => q.question_number ?? 'unnamed').join(', ')}.
                   Uploading a clearer copy of the mark scheme may help.
+                </p>
+              )}
+              {possiblyMissing.length > 0 && (
+                <p className="question-picker-skipped" role="status">
+                  This mark scheme also seems to include {possiblyMissing.join(', ')}, which
+                  wasn't found. If your students answered it, try uploading the mark scheme again.
                 </p>
               )}
               {questions.length > 1 && (

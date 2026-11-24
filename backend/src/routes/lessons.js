@@ -166,7 +166,13 @@ router.get('/:id/questions', async (req, res, next) => {
         const skipped = (Array.isArray(parsedScheme.skipped_questions) ? parsedScheme.skipped_questions : [])
             .map(q => ({ question_number: q?.question_number ?? null, reason: q?.reason ?? null }))
 
-        res.json({ paper_type: paperType, questions: questionsList, skipped_questions: skipped })
+        // Parts of the paper the outline seems to have missed (a printed
+        // "Section B" with no question in it) -- a note on the picker.
+        const possiblyMissing = (Array.isArray(parsedScheme.possibly_missing) ? parsedScheme.possibly_missing : [])
+            .map(item => (typeof item?.name === 'string' ? item.name : null))
+            .filter(Boolean)
+
+        res.json({ paper_type: paperType, questions: questionsList, skipped_questions: skipped, possibly_missing: possiblyMissing })
     } catch (err) {
         next(err)
     }

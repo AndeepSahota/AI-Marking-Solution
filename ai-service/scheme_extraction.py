@@ -49,6 +49,7 @@ from llm_service import (
 from security import ms_ocr_sanitisation
 from specialists.parallel import run_calls
 from validation.band_levels import is_points_objective, mark_range
+from validation.outline_coverage import alnum_with_map as _alnum_with_map, possibly_missing
 from validation.scheme_checks import CONTENT_REASON, check_questions
 
 _FAILED = "it could not be extracted from the mark scheme"
@@ -67,18 +68,6 @@ def _unique_numbers(numbers: list[str]) -> list[str]:
         seen[number] = seen.get(number, 0) + 1
         unique.append(number if seen[number] == 1 else f"{number} ({seen[number]})")
     return unique
-
-
-def _alnum_with_map(text: str) -> tuple[str, list[int]]:
-    """Lower-case letters and digits only, with each one's index in text --
-    so a section start matches whatever bold marks, pipes or spacing the
-    OCR put around it."""
-    chars, index = [], []
-    for i, ch in enumerate(text):
-        if ch.isalnum():
-            chars.append(ch.casefold())
-            index.append(i)
-    return "".join(chars), index
 
 
 def _number_key(number) -> str:
@@ -220,6 +209,9 @@ def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
         item["printed_number"] = item["question_number"]  # what applies_to uses
         item["question_number"] = number
 
+    missing = possibly_missing(clean_text, items)
+    if missing:
+        print(f"[SCHEME EXTRACTION] outline may have missed: {', '.join(m['name'] for m in missing)}", flush=True)
     texts = question_texts(clean_text, items, outline.get("shared_sections") or [])
     for item in items:
         item["text"] = texts[item["question_number"]]
@@ -234,6 +226,7 @@ def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
         "total_marks": outline.get("total_marks"),
         "questions": questions,
         "skipped_questions": skipped,
+        "possibly_missing": missing,  # validation/outline_coverage.py; shown on the question picker
         "outline_questions": items,  # internal: what a retry needs; dropped by extract_checked_scheme
     }
 
