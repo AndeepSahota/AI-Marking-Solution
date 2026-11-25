@@ -4973,6 +4973,94 @@ body::after {
   }
 }
 
+/* ── Teacher review: scan beside the text (pages/ReviewEssay.jsx) ── */
+.review-essay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.review-view-switch {
+  display: inline-flex;
+  border: 1px solid var(--border-hover);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.review-view-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.review-view-btn + .review-view-btn { border-left: 1px solid var(--border-hover); }
+.review-view-btn.is-active { background: var(--accent-soft); color: var(--text-primary); }
+
+.review-essay-views { display: grid; gap: 20px; margin-top: 12px; }
+.review-essay.view-both .review-essay-views { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+.review-view-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.review-scan-note { color: var(--text-secondary); font-size: 0.9rem; margin: 0; }
+
+.review-scan-tools { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.review-scan-btn {
+  background: none;
+  border: 1px solid var(--border-hover);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.review-scan-frame {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: auto;
+  max-height: 75vh;
+  background: var(--card-raised);
+}
+
+.review-scan-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  transform-origin: center;
+}
+
+.review-scan-frame.is-zoomed .review-scan-img { width: 200%; max-width: none; }
+.review-scan-img.turn-1 { transform: rotate(90deg); }
+.review-scan-img.turn-2 { transform: rotate(180deg); }
+.review-scan-img.turn-3 { transform: rotate(270deg); }
+
+.review-scan-pdf {
+  width: 100%;
+  height: 75vh;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+@media (max-width: 900px) {
+  .review-essay.view-both .review-essay-views { grid-template-columns: 1fr; }
+}
+
 /* ── Teacher review: class list (pages/ReviewClass.jsx) ── */
 .review-entry-btn {
   flex-shrink: 0;

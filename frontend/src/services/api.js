@@ -199,6 +199,22 @@ export async function getReviewEssay(lessonId, studentId) {
     return reviewRequest(`${lessonId}/review/${studentId}`, {}, 'Failed to load essay')
 }
 
+// The student's scan for the review page, as a local object URL (the
+// caller revokes it). Fetched rather than linked so the login cookie is sent
+// the same way as every other request. err.status: 403 on a blind check
+// before a level is chosen, 404 when no scan is stored.
+export async function getReviewScan(lessonId, studentId) {
+    const response = await fetch(`${API_BASE}/lessons/${lessonId}/review/${studentId}/scan`, { credentials: 'include' })
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        const error = new Error(data.error || 'Failed to load the scan')
+        error.status = response.status
+        throw error
+    }
+    const blob = await response.blob()
+    return { url: URL.createObjectURL(blob), type: blob.type }
+}
+
 // body: { teacherLevel, teacherMark?, reasonCodes?, secondsSpent? }
 export async function saveReview(lessonId, studentId, body) {
     return reviewRequest(`${lessonId}/review/${studentId}`, {

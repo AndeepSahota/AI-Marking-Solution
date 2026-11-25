@@ -16,6 +16,8 @@ import {
     publicEssay,
     publicListItem,
     reviewStatus,
+    scanContentType,
+    scanHidden,
     selectedQuestionExtraction,
     wrongQuestionNotes,
 } from '../src/services/reviewService.js'
@@ -230,6 +232,21 @@ test('the wrong-question note is cleaned and shown even on a blind check', () =>
 test('flaggedForCheck shows a "teacher review required" essay once its suggestion is visible', () => {
     assert.equal(publicEssay(rowWith({ reviewRequired: true }), LEVELS).flaggedForCheck, true)
     assert.equal(publicEssay(rowWith({ reviewRequired: true, blind_pick: 1 }), LEVELS).flaggedForCheck, false)
+})
+
+test('the scan is hidden on a blind check until the teacher has chosen', () => {
+    assert.equal(scanHidden(rowWith()), false)
+    assert.equal(scanHidden(rowWith({ blind_pick: 1 })), true)
+    assert.equal(scanHidden(rowWith({ blind_pick: 1, review_id: 9 })), false)
+    assert.equal(publicEssay(rowWith({ blind_pick: 1 }), LEVELS).scanHidden, true)
+})
+
+test('only image and PDF scans are served, by stored type or file name', () => {
+    assert.equal(scanContentType('A.jpg', 'image/jpeg'), 'image/jpeg')
+    assert.equal(scanContentType('scan.PDF', 'application/octet-stream'), 'application/pdf')
+    assert.equal(scanContentType('page.png', ''), 'image/png')
+    assert.equal(scanContentType('notes.html', 'text/html'), null)
+    assert.equal(scanContentType('trick.jpg', 'text/html; charset=utf-8'), 'image/jpeg', 'falls back to the name, never serves html')
 })
 
 const INTERNALS = ['fineScore', 'schemeKey', 'combineMode', 'runsPerThread']

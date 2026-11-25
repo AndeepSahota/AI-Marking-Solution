@@ -250,6 +250,23 @@ export function checkedMarks(rows, levels) {
     return marks
 }
 
+// The student's scan, shown beside the OCR text. Hidden on a blind check
+// until the teacher has chosen: photos often carry the class teacher's
+// original mark. Only image and PDF types are ever served.
+const SCAN_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' }
+const ALLOWED_SCAN_TYPES = new Set(Object.values(SCAN_TYPES))
+
+export function scanHidden(row) {
+    return hidesSuggestion(row)
+}
+
+export function scanContentType(fileName, storedType) {
+    const stored = typeof storedType === 'string' ? storedType.split(';')[0].trim().toLowerCase() : ''
+    if (ALLOWED_SCAN_TYPES.has(stored)) return stored
+    const extension = typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : ''
+    return SCAN_TYPES[extension] ?? null
+}
+
 export function publicEssay(row, levels) {
     const engine = engineSnapshot(row)
     return {
@@ -257,6 +274,7 @@ export function publicEssay(row, levels) {
         studentName: row.student_name,
         essayText: engine.essayText,
         blind: Boolean(row.blind_pick),
+        scanHidden: scanHidden(row),
         levels,
         // Shown even on a blind check: it is about the question, not the mark.
         wrongQuestion: wrongQuestion(row),

@@ -2,12 +2,15 @@
 //   GET /lessons/:lessonId/review             class view: every marked essay + status
 //   GET /lessons/:lessonId/review/:studentId  essay view
 //   PUT /lessons/:lessonId/review/:studentId  save a review
+//   GET /lessons/:lessonId/review/:studentId/scan  the student's scan (not on
+//       a blind check until the teacher has chosen a level)
 // The browser only ever sends the teacher's choice. The engine's values are
 // read from the database here, and the calibration internals (fine score,
 // mark scheme fingerprint) are stored but never returned.
 import { Router } from 'express'
 import config from '../config/index.js'
 import { lessonDb, reviewDb } from '../db/index.js'
+import { downloadStudentWork, findStudentUpload } from '../services/blobService.js'
 import { inputSecurity } from '../middleware/inputSecurity.js'
 import {
     ReviewInputError,
@@ -19,6 +22,8 @@ import {
     parseReviewInput,
     publicEssay,
     publicListItem,
+    scanContentType,
+    scanHidden,
     selectedQuestionExtraction,
 } from '../services/reviewService.js'
 
@@ -100,6 +105,35 @@ router.get('/:lessonId/review/:studentId', async (req, res, next) => {
         const row = await reviewDb.getResult(lessonId, studentId, req.user.id)
         if (!row) return res.status(404).json({ error: 'No marked essay for this student' })
         res.json(publicEssay(row, levels))
+    } catch (err) {
+        next(err)
+    }
+})
+
+router.get('/:lessonId/review/:studentId/scan', async (req, res, next) => {
+    try {
+        const { lessonId, studentId } = ids(req)
+        if (!validIds(ids(req))) return res.status(400).json({ error: 'Invalid essay' })
+        const levels = await lessonLevels(lessonId, req.user.id, res)
+        if (!levels) return
+
+        const row = await reviewDb.getResult(lessonId, studentId, req.user.id)
+        if (!row) return res.status(404).json({ error: 'No marked essay for this student' })
+        if (scanHidden(row)) return res.status(403).json({ error: 'The scan is shown after you choose a level' })
+
+        const upload = await findStudentUpload(req.user.id, lessonId, studentId)
+        if (!upload) return res.status(404).json({ error: 'No scan is stored for this essay' })
+        const contentType = scanContentType(upload.fileName, upload.mimeType)
+        if (!contentType) return res.status(415).json({ error: 'This scan cannot be shown' })
+
+        const buffer = await downloadStudentWork(upload.blobName)
+        res.set({
+            'Content-Type': contentType,
+            'Content-Disposition': 'inline',
+            'Cache-Control': 'private, no-store',
+            'X-Content-Type-Options': 'nosniff',
+        })
+        res.send(buffer)
     } catch (err) {
         next(err)
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getReviewEssay, getReviewList, saveReview } from '../services/api'
+import { getReviewEssay, getReviewList, getReviewScan, saveReview } from '../services/api'
 import ChangeMarkForm from '../components/ChangeMarkForm'
 import WrongQuestionWarning from '../components/WrongQuestionWarning'
 import { buildEvidenceSegments } from '../utils/evidenceSegments'
@@ -57,6 +57,85 @@ function HighlightedEssay({ text, quotes }) {
 }
 
 
+// The student's own scan, so the teacher can check what the text reader
+// produced (it can correct spelling and miss words). Hidden on a blind
+// check until the teacher has chosen: photos often show the original mark.
+function ScanPanel({ lessonId, studentId, hidden }) {
+  const [scan, setScan] = useState(null)
+  const [error, setError] = useState(null)
+  const [turns, setTurns] = useState(0)
+  const [zoomed, setZoomed] = useState(false)
+
+  useEffect(() => {
+    if (hidden) return undefined
+    let url = null
+    let cancelled = false
+    getReviewScan(lessonId, studentId)
+      .then(result => {
+        url = result.url
+        if (cancelled) URL.revokeObjectURL(url)
+        else setScan(result)
+      })
+      .catch(err => { if (!cancelled) setError(err) })
+    return () => {
+      cancelled = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [lessonId, studentId, hidden])
+
+  if (hidden) {
+    return <p className="review-scan-note">The scan is shown after you save your level, because it may show the original mark.</p>
+  }
+  if (error) {
+    return <p className="review-scan-note">{error.status === 404 ? 'No scan is stored for this essay.' : error.message}</p>
+  }
+  if (!scan) return <p className="review-scan-note">Loading scan…</p>
+
+  if (scan.type === 'application/pdf') {
+    return (
+      <object className="review-scan-pdf" data={scan.url} type="application/pdf" aria-label="Student's scan">
+        <a href={scan.url} target="_blank" rel="noreferrer">Open the scan</a>
+      </object>
+    )
+  }
+  return (
+    <div className="review-scan">
+      <div className="review-scan-tools">
+        <button type="button" className="review-scan-btn" onClick={() => setTurns(t => (t + 3) % 4)} aria-label="Rotate left">⟲</button>
+        <button type="button" className="review-scan-btn" onClick={() => setTurns(t => (t + 1) % 4)} aria-label="Rotate right">⟳</button>
+        <button type="button" className="review-scan-btn" onClick={() => setZoomed(z => !z)}>{zoomed ? 'Fit' : 'Zoom'}</button>
+      </div>
+      <div className={`review-scan-frame${zoomed ? ' is-zoomed' : ''}`}>
+        <img
+          src={scan.url}
+          alt="Student's handwritten answer"
+          className={`review-scan-img turn-${turns}`}
+        />
+      </div>
+    </div>
+  )
+}
+
+const VIEWS = [['text', 'Text'], ['scan', 'Scan'], ['both', 'Both']]
+
+function ViewSwitch({ view, onChange }) {
+  return (
+    <div className="review-view-switch" role="group" aria-label="Show">
+      {VIEWS.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          className={`review-view-btn${view === value ? ' is-active' : ''}`}
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // The marker can also ask for a check without the mark being borderline.
 function BorderlineBadge({ suggestion, flagged }) {
   if (!suggestion.borderline) {
@@ -104,6 +183,8 @@ function ReviewEssayPage() {
   const [saving, setSaving] = useState(false)
   const [changing, setChanging] = useState(false)
   const [allDone, setAllDone] = useState(false)
+  // Side by side on a wide screen; on a narrow one, one at a time.
+  const [view, setView] = useState(() => (window.innerWidth >= 1100 ? 'both' : 'text'))
 
   const currentId = Number(studentId)
   const backToClass = () => navigate(`/review/${lessonId}`)
@@ -188,9 +269,25 @@ function ReviewEssayPage() {
       )}
 
       <div className="review-layout">
-        <section className="review-essay" aria-label="Student response">
-          <div className="annotated-section-label">Student response</div>
-          <HighlightedEssay text={essay.essayText} quotes={suggestion?.evidenceQuotes ?? []} />
+        <section className={`review-essay view-${view}`} aria-label="Student response">
+          <div className="review-essay-head">
+            <div className="annotated-section-label">Student response</div>
+            <ViewSwitch view={view} onChange={setView} />
+          </div>
+          <div className="review-essay-views">
+            {view !== 'scan' && (
+              <div className="review-essay-text">
+                {view === 'both' && <div className="review-view-label">Text read from the scan</div>}
+                <HighlightedEssay text={essay.essayText} quotes={suggestion?.evidenceQuotes ?? []} />
+              </div>
+            )}
+            {view !== 'text' && (
+              <div className="review-essay-scan">
+                {view === 'both' && <div className="review-view-label">Scan</div>}
+                <ScanPanel lessonId={lessonId} studentId={studentId} hidden={essay.scanHidden} />
+              </div>
+            )}
+          </div>
         </section>
 
         <aside className="review-panel" aria-label="Review">
