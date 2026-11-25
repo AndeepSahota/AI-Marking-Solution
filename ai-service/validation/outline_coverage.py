@@ -10,8 +10,11 @@ one-sided (they can only fire when something printed is unaccounted for):
    the section's last heading (the last, because AQA prints a "SECTION A /
    SECTION B" summary of the objectives before any question). Skipped if any
    question's start can't be placed, rather than guessed at.
-2. A heading that prints a question number ("Question 7") the outline
-   doesn't have.
+2. A question number printed in a heading ("Question 07.2") or in the first
+   cell of a table row ("| Question 5 | 8 | 12 | 20 |", "| Question 7-22 |"
+   -- Edexcel's marks table) that the outline doesn't have. Sub-questions
+   are compared in full (7.2 is not 7.1), but "Question 27" is covered by
+   27.1.
 
 A printed paper total is not used: the model invented totals (106, 114 for
 96-mark papers) that appear nowhere in the text.
@@ -21,8 +24,10 @@ import re
 
 _HEADING = re.compile(r"(?m)^[ \t]*(?:#+|\*\*)[^\n]*$")
 _SECTION = re.compile(r"(?i)\bsection\s+([A-D])\b")
-_QUESTION = re.compile(r"(?i)\b(?:question|q)\s*\.?\s*(\d\s\d|\d{1,2})\b")
-_NUMBER = re.compile(r"\d\s\d\b|\d+")
+_QUESTION = re.compile(r"(?i)\b(?:question|q)\s*\.?\s*(\d\s\d|\d{1,2}(?:\.\d)?)\b")
+_TABLE_QUESTION = re.compile(
+    r"(?im)^\s*\|\s*(?:<b>)?\s*question\s+(\d{1,2}(?:\.\d)?)(?:\s*(?:-|–|or)\s*(\d{1,2}))?\s*(?:</b>)?\s*\|")
+_LABEL = re.compile(r"\d\s\d\b|\d+(?:\.\d+)?")
 
 
 def alnum_with_map(text: str) -> tuple[str, list[int]]:
@@ -37,9 +42,18 @@ def alnum_with_map(text: str) -> tuple[str, list[int]]:
     return "".join(chars), index
 
 
-def _numbers(label) -> set[int]:
-    """"0 5" -> {5}, "Question 8 or 9" -> {8, 9}, "27.1" -> {27, 1}."""
-    return {int(n.replace(" ", "")) for n in _NUMBER.findall(str(label or ""))}
+def _label(raw: str) -> str:
+    """"0 5" -> "5", "07.2" -> "7.2"."""
+    return ".".join(str(int(part)) for part in raw.replace(" ", "").split("."))
+
+
+def _numbers(label) -> set[str]:
+    """"0 5" -> {"5"}, "Question 8 or 9" -> {"8", "9"}, "07.1" -> {"7.1"}."""
+    return {_label(n) for n in _LABEL.findall(str(label or ""))}
+
+
+def _covered(printed: str, listed: set[str]) -> bool:
+    return any(printed == n or n.startswith(printed + ".") or printed.startswith(n + ".") for n in listed)
 
 
 def _question_starts(clean_text: str, items: list[dict]) -> list[int] | None:
@@ -69,7 +83,12 @@ def possibly_missing(clean_text: str, items: list[dict]) -> list[dict]:
         heading = match.group(0)
         for letter in _SECTION.findall(heading):
             last_heading[letter.upper()] = match.start()
-        printed |= {int(n.replace(" ", "")) for n in _QUESTION.findall(heading)}
+        printed |= {_label(n) for n in _QUESTION.findall(heading)}
+    for first, last in _TABLE_QUESTION.findall(clean_text):
+        if last and "." not in first and int(first) < int(last) <= int(first) + 40:
+            printed |= {str(n) for n in range(int(first), int(last) + 1)}
+        else:
+            printed |= {_label(first)} | ({_label(last)} if last else set())
 
     missing = []
     starts = _question_starts(clean_text, items)
@@ -78,7 +97,7 @@ def possibly_missing(clean_text: str, items: list[dict]) -> list[dict]:
             if letter not in named and not any(start > at for start in starts):
                 missing.append({"name": f"Section {letter}",
                                 "reason": f"the mark scheme has a Section {letter} heading but no question was found in it"})
-    for number in sorted(printed - listed):
+    for number in sorted((n for n in printed if not _covered(n, listed)), key=lambda n: [int(p) for p in n.split(".")]):
         missing.append({"name": f"Question {number}",
                         "reason": f"Question {number} is printed in the mark scheme but was not found"})
     return missing

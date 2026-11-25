@@ -50,6 +50,18 @@ class OutlineCoverageTests(unittest.TestCase):
         missing = possibly_missing(LANGUAGE, [Q1, item("Section B", "Level 1 | 1-4 | Communication is simple")])
         self.assertEqual([m["name"] for m in missing], ["Question 2"])
 
+    def test_a_missing_sub_question_is_flagged_but_a_parent_heading_is_covered(self):
+        text = "#### Question 27\n#### Question 27.1\nIn Scaffolding...\n#### Question 27.2\nIn both poems...\n"
+        items = [item("27.1", "In Scaffolding x"), item("27.2", "In both poems x")]
+        self.assertEqual(possibly_missing(text, items[:1] + [item("26", "zzzzzzzzzz")]), [
+            {"name": "Question 27.2", "reason": "Question 27.2 is printed in the mark scheme but was not found"}])
+        self.assertEqual(possibly_missing(text, items), [])
+
+    def test_questions_in_the_marks_table_count_including_ranges(self):
+        text = "| Question 1 | 2 | 2 |\n| Question 7-9 | 16 | 40 |\n| Question 10 or 11 | 40 |\n"
+        listed = [item(n, "zzzzzzzzzz") for n in ("1", "7", "8", "9", "10")]
+        self.assertEqual([m["name"] for m in possibly_missing(text, listed)], ["Question 11"])
+
     def test_a_contents_list_is_not_a_heading(self):
         text = "Contents: Question 1, Question 9\n### Question 1\nIdentify a phrase that shows the setting.\n"
         self.assertEqual(possibly_missing(text, [Q1]), [])
