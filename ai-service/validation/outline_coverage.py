@@ -8,8 +8,12 @@ one-sided (they can only fire when something printed is unaccounted for):
 1. A "Section X" heading with no listed question in it: no question is named
    after that section and none of the outline's section starts comes after
    the section's last heading (the last, because AQA prints a "SECTION A /
-   SECTION B" summary of the objectives before any question). Skipped if any
-   question's start can't be placed, rather than guessed at.
+   SECTION B" summary of the objectives before any question). Starts are
+   placed in order, as for long papers -- a start such as "Award 1 mark for"
+   repeats, and its last occurrence can sit in a later section. A question
+   whose start can't be placed (the outline once gave Q4's start as just
+   "Fear") counts as possibly in a section if its number or start text
+   appears after that section's heading; then the section isn't flagged.
 2. A question number printed in a heading ("Question 07.2") or in the first
    cell of a table row ("| Question 5 | 8 | 12 | 20 |", "| Question 7-22 |"
    -- Edexcel's marks table) that the outline doesn't have. Sub-questions
@@ -56,18 +60,31 @@ def _covered(printed: str, listed: set[str]) -> bool:
     return any(printed == n or n.startswith(printed + ".") or printed.startswith(n + ".") for n in listed)
 
 
-def _question_starts(clean_text: str, items: list[dict]) -> list[int] | None:
-    """Where each listed question's section begins (its last occurrence, so a
-    contents list is passed over), or None if any can't be placed."""
+def _question_starts(clean_text: str, items: list[dict]) -> list[int | None]:
+    """Where each listed question's section begins, placed in order (each
+    after the one before); None for a start that is too short or not found."""
     squashed, index = alnum_with_map(clean_text)
-    starts = []
+    starts, cursor = [], 0
     for item in items:
         needle = alnum_with_map(item.get("section_start") or "")[0]
-        at = squashed.rfind(needle) if len(needle) >= 8 else -1
+        at = squashed.find(needle, cursor) if len(needle) >= 8 else -1
         if at < 0:
-            return None
+            starts.append(None)
+            continue
         starts.append(index[at])
+        cursor = at + 1
     return starts
+
+
+def _could_be_after(clean_text: str, item: dict, at: int) -> bool:
+    """Whether an unplaced question might begin after position at: its start
+    text or its printed number appears there."""
+    after = clean_text[at:]
+    start = " ".join(str(item.get("section_start") or "").split())
+    if start and start.casefold() in " ".join(after.split()).casefold():
+        return True
+    return any(re.search(rf"(?i)\b(?:question|q)\s*\.?\s*0?{re.escape(n)}\b", after)
+               for n in _numbers(item.get("printed_number") or item.get("question_number")))
 
 
 def possibly_missing(clean_text: str, items: list[dict]) -> list[dict]:
@@ -92,11 +109,13 @@ def possibly_missing(clean_text: str, items: list[dict]) -> list[dict]:
 
     missing = []
     starts = _question_starts(clean_text, items)
-    if starts is not None:
-        for letter, at in sorted(last_heading.items()):
-            if letter not in named and not any(start > at for start in starts):
-                missing.append({"name": f"Section {letter}",
-                                "reason": f"the mark scheme has a Section {letter} heading but no question was found in it"})
+    for letter, at in sorted(last_heading.items()):
+        if letter in named or any(start is not None and start > at for start in starts):
+            continue
+        if any(start is None and _could_be_after(clean_text, item, at) for item, start in zip(items, starts)):
+            continue
+        missing.append({"name": f"Section {letter}",
+                        "reason": f"the mark scheme has a Section {letter} heading but no question was found in it"})
     for number in sorted((n for n in printed if not _covered(n, listed)), key=lambda n: [int(p) for p in n.split(".")]):
         missing.append({"name": f"Question {number}",
                         "reason": f"Question {number} is printed in the mark scheme but was not found"})

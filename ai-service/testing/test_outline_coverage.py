@@ -42,9 +42,20 @@ class OutlineCoverageTests(unittest.TestCase):
         items = [item("01", "Read again the first part of the source"), item("05", "A magazine has asked for contributions")]
         self.assertEqual(possibly_missing(SUMMARY_FIRST, items), [])
 
-    def test_no_section_warning_when_a_start_cannot_be_placed(self):
-        lost = item("Question 2", "words that are not in the scheme at all")
-        self.assertEqual(possibly_missing(LANGUAGE, [Q1, lost]), [])
+    def test_an_unplaced_start_covers_a_section_only_if_it_could_be_there(self):
+        # The real miss: the outline gave Q4's start as just "Fear" (too
+        # short to place) and left out Section B -- still flagged.
+        lost = item("Question 2", "Fear")
+        self.assertEqual([m["name"] for m in possibly_missing(LANGUAGE, [Q1, lost])], ["Section B"])
+        # An unplaced start whose text does appear after the heading.
+        writing = item("Section 9", "Level 1 | 1-4 | Communication")
+        self.assertEqual(possibly_missing(LANGUAGE, [Q1, Q2, dict(writing, section_start="Communication is simple!!")]), [])
+
+    def test_a_repeated_start_is_placed_in_order_not_at_its_last_occurrence(self):
+        text = ("### Question 1\nAward 1 mark for a phrase.\n### Question 2\nAward 1 mark for each example.\n"
+                "### Section B: Writing\nAward 1 mark for spelling in the grid notes.\n")
+        items = [item("Question 1", "Award 1 mark for"), item("Question 2", "Award 1 mark for each")]
+        self.assertEqual([m["name"] for m in possibly_missing(text, items)], ["Section B"])
 
     def test_a_printed_question_number_not_in_the_outline_is_flagged(self):
         missing = possibly_missing(LANGUAGE, [Q1, item("Section B", "Level 1 | 1-4 | Communication is simple")])
