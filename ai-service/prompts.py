@@ -227,9 +227,13 @@ Rules:
   contents list.
 - `shared_sections` lists every mark grid, levels table or marking guidance
   that the scheme prints once and applies to several questions (for example
-  one levels grid for all part (a) questions, or a section's grid printed
-  above its questions, such as "Section A: Questions 01-24 (30 marks)").
-  Leave it empty if every question has its own grid.
+  one levels grid for all part (a) questions). Leave it empty if every
+  question has its own grid.
+- A section that students answer as one task, such as a writing section with
+  its own grid and no numbered questions ("Section B: Transactional
+  Writing"), is a question. List it in "questions", never in
+  "shared_sections" -- a shared section is only ever used for questions
+  listed separately.
 - A shared section's `section_start` begins at its own heading (for example
   "Section A: Modern texts Questions 01-24"), not at the first row of its
   table -- several grids often begin with the same row ("Level 6 ...").
