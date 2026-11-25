@@ -242,6 +242,41 @@ class SectionTests(unittest.TestCase):
         self.assertTrue(all(t == PAPER for t in texts.values()))
 
 
+SCHEME_WITH_WRITING = ("### Question 1\nAward 1 mark for a phrase from the source text.\n"
+                       "### Section B: Transactional Writing\nLevel 1 communication is simple and limited.\n")
+Q1_ITEM = {"question_number": "Question 1", "marks": 1, "description": "d", "section_start": "Award 1 mark for a phrase"}
+WRITING_ITEM = {"question_number": "Section B: Transactional Writing", "marks": 40, "description": "d",
+                "section_start": "Level 1 communication is simple"}
+
+
+class OutlineRetryTests(unittest.TestCase):
+    def run_with(self, outlines, text=SCHEME_WITH_WRITING):
+        calls = []
+
+        def outline(t, token):
+            calls.append(token)
+            return {"total_marks": 41, "questions": [dict(i) for i in outlines[len(calls) - 1]]}
+
+        with mock.patch.object(scheme_extraction, "extract_question_outline", outline), \
+             mock.patch.object(scheme_extraction, "extract_mark_scheme_question", lambda *a: question(a[2])):
+            return scheme_extraction.extract_mark_scheme_by_question(text), calls
+
+    def test_a_missing_section_gets_one_more_outline_and_the_better_one_is_kept(self):
+        result, calls = self.run_with([[Q1_ITEM], [Q1_ITEM, WRITING_ITEM]])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([q["question_number"] for q in result["questions"]], ["Question 1", "Section B: Transactional Writing"])
+        self.assertEqual(result["possibly_missing"], [])
+
+    def test_a_retry_that_is_no_better_keeps_the_first_outline_and_its_warning(self):
+        result, calls = self.run_with([[Q1_ITEM], [Q1_ITEM]])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([m["name"] for m in result["possibly_missing"]], ["Section B"])
+
+    def test_no_retry_when_nothing_is_missing(self):
+        _, calls = self.run_with([[Q1_ITEM, WRITING_ITEM]])
+        self.assertEqual(len(calls), 1)
+
+
 class NoThreadsTests(unittest.TestCase):
     def test_points_questions_skip_the_thread_split_call(self):
         calls = []

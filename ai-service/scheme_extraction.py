@@ -199,20 +199,33 @@ def _extract_one(text: str, item: dict, all_numbers: list[str], whole_text: str 
     return None, _WRONG_GRID
 
 
-def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
-    """Same shape as llm_service.extract_mark_scheme(), plus
-    ``skipped_questions`` for questions that could not be extracted."""
+def _outline(clean_text: str) -> tuple[dict, list[dict], list[dict]]:
+    """(outline, its questions with unique numbers, possibly_missing)."""
     wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(clean_text)
     outline = extract_question_outline(wrapped, token)
     items = outline.get("questions") or []
     if not items:
         raise ExtractionIncompleteError("No questions were found in the mark scheme")
-    numbers = _unique_numbers([item["question_number"] for item in items])
-    for item, number in zip(items, numbers):
+    for item, number in zip(items, _unique_numbers([item["question_number"] for item in items])):
         item["printed_number"] = item["question_number"]  # what applies_to uses
         item["question_number"] = number
+    return outline, items, possibly_missing(clean_text, items)
 
-    missing = possibly_missing(clean_text, items)
+
+def extract_mark_scheme_by_question(clean_text: str) -> dict[str, Any]:
+    """Same shape as llm_service.extract_mark_scheme(), plus
+    ``skipped_questions`` for questions that could not be extracted."""
+    outline, items, missing = _outline(clean_text)
+    if any(m["name"].startswith("Section") for m in missing):
+        # The outline sometimes files a whole section (AQA Language's
+        # "Section B: Transactional Writing") as a shared grid instead of a
+        # question -- about 1 run in 4 on the AO4 scheme. One fresh try; the
+        # outline that leaves less unaccounted for is kept.
+        print("[SCHEME EXTRACTION] retrying the outline once", flush=True)
+        again = _outline(clean_text)
+        if len(again[2]) < len(missing):
+            outline, items, missing = again
+    numbers = [item["question_number"] for item in items]
     if missing:
         print(f"[SCHEME EXTRACTION] outline may have missed: {', '.join(m['name'] for m in missing)}", flush=True)
     texts = question_texts(clean_text, items, outline.get("shared_sections") or [])
