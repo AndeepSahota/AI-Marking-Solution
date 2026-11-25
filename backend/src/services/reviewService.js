@@ -34,9 +34,10 @@ export function selectedQuestionExtraction(ocrRow) {
 // -- the same questions the specialist engine marks; anything else returns
 // null and the review screen isn't offered.
 // A band is a level only if it is labelled like one ("Level 3", "Band 2",
-// or a bare number such as a "0" band) -- a points question's "1 mark"
-// band is not.
-const LEVEL_LABEL = /^\s*(?:(?:level|band)\s*)?(\d+)\s*$/i
+// a bare number such as a "0" band, or "Level 3" running into its title as
+// in "Level 6Convincing...") -- a points question's "1 mark" band is not.
+// Same rule as ai-service/validation/band_levels.py.
+const LEVEL_LABEL = /^\s*(?:(?:level|band)\s*(\d+)(?![\d.]|\s*[-–]\s*\d)|(\d+)\s*$)/i
 
 export function levelsFor(questionExtraction) {
     const aos = Object.values(questionExtraction?.assessment_objectives ?? {})
@@ -45,7 +46,7 @@ export function levelsFor(questionExtraction) {
     for (const band of aos[0].band_marks) {
         const label = typeof band.band === 'string' ? band.band.match(LEVEL_LABEL) : null
         if (!label) return null
-        const level = Number(label[1])
+        const level = Number(label[1] ?? label[2])
         // A level 0 band often reads "No marks" or "Nothing to reward"
         // (AQA Language) rather than "0" -- that is 0 marks.
         const numbers = String(band.marks ?? '').match(/\d+/g)?.map(Number)

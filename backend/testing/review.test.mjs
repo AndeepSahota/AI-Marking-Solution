@@ -80,6 +80,12 @@ test('levelsFor keeps a scheme\'s own 0 band rather than adding another', () => 
     assert.deepEqual(levelsFor(bands(['Band 1', '1-6'], ['Band 2', '7-12'])).map(l => l.level), [0, 1, 2])
 })
 
+test('levelsFor reads a level label run into its title, but not a level range', () => {
+    assert.deepEqual(levelsFor(bands(['Level 1Simple, explicit comments1–5 marks', '1–5'], ['Level 2Supported, relevant comments6–10 marks', '6–10']))
+        .map(l => l.level), [0, 1, 2])
+    assert.equal(levelsFor(bands(['Level 1-2', '1-6'], ['Level 3', '7-12'])), null)
+})
+
 test('a level 0 band marked "No marks" is 0 marks', () => {
     assert.deepEqual(levelsFor(bands(['Level 2', '3–4 marks'], ['Level 1', '1–2 marks'], ['Level 0', 'No marks'])),
         [NO_CREDIT, { level: 1, min: 1, max: 2 }, { level: 2, min: 3, max: 4 }])

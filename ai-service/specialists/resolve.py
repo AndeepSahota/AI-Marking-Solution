@@ -52,7 +52,9 @@ def _engine_block(specialist_result: dict, threads: dict) -> dict:
     """What the review screen needs, plus what calibration needs later.
     fine_score and scheme_key are internal -- the backend stores them but
     never sends them to a browser."""
-    level = _level_of_band(specialist_result["awarded_band"])
+    level = specialist_result.get("level")
+    if level is None:
+        level = _level_of_band(specialist_result["awarded_band"])
     return {
         "level": level,
         "mark": specialist_result["marks"],
@@ -138,5 +140,69 @@ def resolve_specialist_final_result(specialist_result: dict, threads: dict) -> d
             ),
             "featured_evidence_by_thread": [],
             "engine": _engine_block(specialist_result, threads),
+        },
+    }
+
+
+def resolve_parts_final_result(part_results: list[dict], parts: list[dict]) -> dict:
+    """The final_result shape for a multi-objective question marked in parts
+    (specialists/parts.py): one breakdown row per part, marks added up. The
+    engine block has no single level; its "threads" are one line per part
+    (the review screens don't take multi-objective questions yet)."""
+    breakdown, evidence, summaries, lines = [], [], [], []
+    for index, (result, part) in enumerate(zip(part_results, parts), 1):
+        thread_lines = []
+        for entry in result["per_thread"]:
+            label = part["threads"][entry["thread_key"]]["thread_description"].strip().rstrip(".")
+            level = _level_of(entry["descriptor_id"])
+            thread_lines.append(f"{label}: Level {level}" if level is not None else f"{label}: not addressed")
+            for step, item in enumerate(entry["evidence"], 1):
+                evidence.append({
+                    "evidence_id": f"p{index}:{entry['thread_key']}-{step}",
+                    "quote": item["quote"],
+                    "explanation": item["explanation"],
+                    "summary": item["explanation"],
+                    "descriptor_ids": [entry["descriptor_id"]],
+                })
+        breakdown.append({
+            "section": part["ao"],
+            "awarded_band": result["awarded_band"],
+            "marks": result["marks"],
+            "max_marks": result["max_marks"],
+            "summary": " ".join(thread_lines),
+        })
+        summaries.append(f"{part['ao']}: {result['awarded_band']} ({result['marks']}/{result['max_marks']})")
+        lines.append({"label": part["ao"], "reason": f"{result['awarded_band']}, {result['marks']} of {result['max_marks']} marks."})
+
+    score = sum(row["marks"] for row in breakdown)
+    max_score = sum(row["max_marks"] for row in breakdown)
+    flagged = any(r["missing_threads"] or r.get("review_flag") for r in part_results)
+    return {
+        "status": "complete",
+        "result": {
+            "score": score,
+            "original_score": score,
+            "delta": 0,
+            "max_score": max_score,
+            "original_max_score": max_score,
+            "max_score_delta": 0,
+            "summary": "Marked in parts by independent specialists, one per thread, combined by majority vote: "
+                       + "; ".join(summaries) + ".",
+            "breakdown": breakdown,
+            "evidence": evidence,
+            "teacher_review_required": flagged,
+            "featured_evidence_by_thread": [],
+            "engine": {
+                "level": None,
+                "mark": score,
+                "max_mark": max_score,
+                "combine_mode": "vote",
+                "runs_per_thread": part_results[0].get("runs_per_thread") if part_results else None,
+                "fine_score": None,
+                "scheme_key": None,
+                "borderline": any(bool(r.get("review_flag")) for r in part_results),
+                "borderline_levels": None,
+                "threads": lines,
+            },
         },
     }

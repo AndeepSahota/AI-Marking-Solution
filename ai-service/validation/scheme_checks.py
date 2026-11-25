@@ -20,6 +20,7 @@ heading such as "Content" (17 of 62 real schemes).
 from typing import Any, Callable
 
 from llm_service import DescriptorContentIntegrityError, DescriptorValidationError
+from validation.ao_names import fix_ao_names
 from validation.descriptor_id_enrichment import add_descriptor_ids
 from validation.descriptor_integrity_validation import validate_descriptor_content_integrity
 from validation.descriptor_validation import validate_descriptor_shapes
@@ -69,6 +70,7 @@ def check_questions(
     skipped = list(structured_scheme.get("skipped_questions") or [])  # e.g. from extraction
     first_failure = None
     for question in questions:
+        question = fix_ao_names(question)  # "A05" -> "AO5" etc., before IDs are built
         single = {**structured_scheme, "questions": [question]}
         failure = None
         shape_issues = validate_descriptor_shapes(single)

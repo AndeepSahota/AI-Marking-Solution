@@ -13,9 +13,9 @@ from pathlib import Path
 
 from final_marking.context import mark_range
 from rag_service import scheme_fingerprint
+from specialists.combine import _numbers as band_level_numbers
 
 _CALIBRATIONS = json.loads((Path(__file__).parent / "calibrations.json").read_text())
-_BAND_NUMBER_DIGITS = "0123456789"
 _LOWEST_SCORE = 1.0  # the lowest a thread level can be
 
 
@@ -33,16 +33,14 @@ def fine_score(per_thread_results: list[dict]) -> float:
     return sum(values) / len(values)
 
 
-def _band_number(band: dict) -> int:
-    return int("".join(ch for ch in band["band"] if ch in _BAND_NUMBER_DIGITS))
-
-
 def combine_calibrated(per_thread_levels: list[int], score: float, band_marks: list[dict], calibration: dict) -> dict:
     """per_thread_levels: each thread's own (median-voted) level -- used only
     for the top-level rule. score: the essay's fine score."""
     cuts = calibration["cuts"]
-    bands = sorted(band_marks, key=_band_number)
-    top_level = _band_number(bands[-1])
+    numbered = sorted(zip(band_level_numbers(band_marks), band_marks), key=lambda pair: pair[0])
+    bands = [band for _, band in numbered]
+    number_of = {id(band): number for number, band in numbered}
+    top_level = number_of[id(bands[-1])]
 
     level = 1 + sum(score > cut for cut in cuts)
     # Levels above the highest learned cut have no teacher-marked essays to
@@ -51,7 +49,7 @@ def combine_calibrated(per_thread_levels: list[int], score: float, band_marks: l
         if sum(lv >= higher for lv in per_thread_levels) * 2 > len(per_thread_levels):
             level = higher
 
-    band = next(b for b in bands if _band_number(b) == level)
+    band = next(b for b in bands if number_of[id(b)] == level)
     low, high = mark_range(band["marks"])
     # The score range this level covers, so the mark can sit where the essay
     # sits within it. Levels above the highest cut share the range from that

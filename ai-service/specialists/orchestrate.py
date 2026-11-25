@@ -261,6 +261,7 @@ def _mark_ao_general(
             calibration=calibration,
         )
         result.update({
+            "level": calibrated["overall_level"],
             "awarded_band": calibrated["band"],
             "marks": calibrated["marks"],
             "fine_score": calibrated["fine_score"],
@@ -293,6 +294,7 @@ def _result(ao, combined, per_thread_results, prompt_tokens, completion_tokens) 
     awarded = mark_for_level(combined["overall_level"], ao["band_marks"])
     return {
         "ao": ao["ao"],
+        "level": combined["overall_level"],
         "awarded_band": awarded["band"],
         "marks": awarded["marks"],
         "max_marks": ao["marks_available"],
@@ -310,3 +312,20 @@ def _result(ao, combined, per_thread_results, prompt_tokens, completion_tokens) 
             "completion_tokens": completion_tokens,
         },
     }
+
+
+def mark_question_parts(
+    question: str,
+    essay_text: str,
+    parts: list[dict],
+    holistic_levels: list[int | None],
+) -> list[dict]:
+    """Mark each part of a multi-objective question (specialists/parts.py)
+    with the general engine, at the same time. One result per part, in
+    order. No exemplars yet: the store keeps whole-question bands, not
+    per-part ones."""
+    outcomes = run_each([
+        functools.partial(_mark_ao_general, question, essay_text, part, level, None)
+        for part, level in zip(parts, holistic_levels)
+    ])
+    return list(outcomes)

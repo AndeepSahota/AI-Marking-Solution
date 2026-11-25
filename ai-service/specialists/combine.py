@@ -9,6 +9,7 @@ import re
 from collections import Counter
 
 from final_marking.context import mark_range
+from validation.band_levels import level_numbers
 
 _LEVEL = re.compile(r"-(\d+)[a-z]+$")
 _BAND_NUMBER = re.compile(r"\d+")
@@ -71,6 +72,17 @@ def combine_specialist_results(results: list[dict], holistic_level: int | None =
     }
 
 
+def _numbers(band_marks: list[dict]) -> list[int | None]:
+    """Each band's level number, read the same way as the scheme step
+    (validation/band_levels.py): "Level 3", a title run into the label
+    ("Level 6Convincing...26-30 marks"), or named bands numbered by marks.
+    Falls back to the first number in each label."""
+    numbers = level_numbers(band_marks)
+    if numbers is not None:
+        return numbers
+    return [int(m.group()) if (m := _BAND_NUMBER.search(band["band"])) else None for band in band_marks]
+
+
 def mark_for_level(overall_level: int, band_marks: list[dict]) -> dict:
     """The specific mark and band label for the voted-on level.
 
@@ -84,9 +96,8 @@ def mark_for_level(overall_level: int, band_marks: list[dict]) -> dict:
     [{"band": "Level 1", "marks": "1-3"}, ...] -- same shape already used
     throughout final_marking/context.py.
     """
-    for band in band_marks:
-        match = _BAND_NUMBER.search(band["band"])
-        if match and int(match.group()) == overall_level:
+    for band, number in zip(band_marks, _numbers(band_marks)):
+        if number == overall_level:
             low, high = mark_range(band["marks"])
             return {"band": band["band"], "marks": (low + high) // 2}
     raise ValueError(f"No band found for level {overall_level} in supplied band_marks")

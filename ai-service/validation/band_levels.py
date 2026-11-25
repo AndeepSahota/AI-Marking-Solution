@@ -15,15 +15,19 @@ the decision is made from the bands, not the AO label.
 
 import re
 
-_LEVEL_LABEL = re.compile(r"^\s*(?:(?:level|band)\s*)?(\d+)\s*$", re.IGNORECASE)
+# "Level 3", "Band 3", a bare "3", or "Level 3" running straight into its
+# title ("Level 6Convincing, critical analysis...26-30 marks" -- AQA
+# Literature cells where the OCR lost the line breaks).
+_LEVEL_LABEL = re.compile(r"^\s*(?:(?:level|band)\s*(\d+)(?![\d.]|\s*[-–]\s*\d)|(\d+)\s*$)", re.IGNORECASE)
 # Words that mark a band label as a points row, never a named level.
 _POINTS_WORDS = re.compile(r"\b(marks?|general|indicative|example|accept|answers?|points?|value not found)\b", re.IGNORECASE)
 
 
 def level_number(label: object) -> int | None:
-    """3 for "Level 3", "Band 3" or "3"; None for anything else."""
+    """3 for "Level 3", "Band 3", "3" or "Level 3Clear understanding";
+    None for anything else."""
     match = _LEVEL_LABEL.match(label) if isinstance(label, str) else None
-    return int(match.group(1)) if match else None
+    return int(match.group(1) or match.group(2)) if match else None
 
 
 def mark_range(marks: object) -> tuple[int, int] | None:
