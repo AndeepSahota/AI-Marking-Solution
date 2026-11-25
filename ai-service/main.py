@@ -45,8 +45,10 @@ from specialists.orchestrate import (
     ENGINE_GENERAL,
     general_engine_ao,
     mark_ao_with_specialists,
+    mark_question_parts,
 )
-from specialists.resolve import resolve_specialist_final_result
+from specialists.parts import holistic_level_for, question_parts
+from specialists.resolve import resolve_parts_final_result, resolve_specialist_final_result
 from validation.mark_int_validation import validate_mark_totals
 from transformations.segment_transormation import transform_segment_mark_scheme
 from aggregation.next_band_threads import get_next_band_threads
@@ -141,6 +143,9 @@ def _scheme_key(thread_extraction) -> str | None:
         return scheme_fingerprint(_json.loads(thread_extraction))
     except (TypeError, _json.JSONDecodeError):
         return None
+
+def _multi_ao_enabled() -> bool:
+    return os.getenv("SPECIALIST_MULTI_AO", "off").strip().lower() in ("1", "on", "true", "yes")
 
 def _holistic_level(holistic_result) -> int | None:
     """The holistic marker's awarded level number ("Level 3" -> 3), used only
@@ -255,6 +260,7 @@ def _mark_with_scheme_text(student_bytes, filename, scheme_text, thread_extracti
     # AO4 stays on the AO4-tuned "current" engine unless
     # SPECIALIST_AO4_ENGINE=general -- kept until the two are compared.
     specialist_ao = None
+    _probe_thread_extraction = None
     try:
         _probe_thread_extraction = _json.loads(thread_extraction)
         if isinstance(_probe_thread_extraction, dict):
@@ -262,6 +268,13 @@ def _mark_with_scheme_text(student_bytes, filename, scheme_text, thread_extracti
     except (TypeError, _json.JSONDecodeError):
         specialist_ao = None
     use_specialists = specialist_ao is not None
+    # Multi-objective questions (writing AO5+AO6, Literature's combined
+    # grids) are marked in parts by the general engine (specialists/parts.py)
+    # -- only with SPECIALIST_MULTI_AO on; off by default until it has been
+    # tested on teacher-marked essays.
+    specialist_parts = None
+    if not use_specialists and _multi_ao_enabled() and isinstance(_probe_thread_extraction, dict):
+        specialist_parts = question_parts(_probe_thread_extraction)
     if use_specialists and specialist_ao[0] == "AO4":
         specialist_engine = os.getenv("SPECIALIST_AO4_ENGINE", ENGINE_CURRENT)
     else:
@@ -281,7 +294,29 @@ def _mark_with_scheme_text(student_bytes, filename, scheme_text, thread_extracti
         exemplars=exemplars or None,
     )
 
-    if use_specialists:
+    if specialist_parts:
+        aggregation = {
+            "status": "skipped",
+            "reason": "Using specialist marking architecture (general, in parts) for "
+                      + ", ".join(part["ao"] for part in specialist_parts),
+        }
+        try:
+            scheme = _json.loads(scheme_text)
+            cost_tracker.set_stage("specialists")
+            part_results = mark_question_parts(
+                question=question_text or scheme.get("description", ""),
+                essay_text=raw_text,
+                parts=specialist_parts,
+                holistic_levels=[holistic_level_for(part, raw.get("rubric_breakdown")) for part in specialist_parts],
+            )
+            final_result = resolve_parts_final_result(part_results, specialist_parts)
+        except (ValueError, TypeError, KeyError, _json.JSONDecodeError) as e:
+            final_result = {"status": "skipped", "reason": str(e)}
+            print("[FINAL MARKING] Skipped (specialists, parts): required inputs unavailable", flush=True)
+        except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as e:
+            final_result = {"status": "failed", "reason": str(e)}
+            print("[FINAL MARKING] Failed (specialists, parts): result could not be verified", flush=True)
+    elif use_specialists:
         ao_key, ao_raw = specialist_ao
         aggregation = {
             "status": "skipped",

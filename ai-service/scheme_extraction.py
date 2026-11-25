@@ -45,9 +45,12 @@ from llm_service import (
     extract_mark_scheme_question,
     extract_question_outline,
     generate_thread_description_response,
+    generate_thread_grouping_response,
 )
 from security import ms_ocr_sanitisation
 from specialists.parallel import run_calls
+from specialists.thread_tidy import is_heading_thread, repair_groups, strip_glued_heading
+from transformations.thread_grouping_prompt import MAX_GROUPS
 from validation.band_levels import is_points_objective, mark_range
 from validation.outline_coverage import alnum_with_map as _alnum_with_map, possibly_missing
 from validation.scheme_checks import CONTENT_REASON, check_questions
@@ -294,4 +297,48 @@ def describe_threads_by_question(thread_input: dict) -> dict:
             merged[key] = question
         elif key in described:
             merged[key] = described[key]
+    _add_thread_groups(merged)
     return {"questions": merged}
+
+
+def _group_one(question_key: str, ao_key: str, threads: dict):
+    """Groups of thread keys to judge together, or None if the call fails or
+    its groups don't use every thread exactly once (then no merging)."""
+    text = json.dumps({key: {"description": thread.get("thread_description"),
+                             "levels": [level.get("text") for level in thread.get("levels") or []]}
+                       for key, thread in threads.items()}, ensure_ascii=False)
+    text, _ = ms_ocr_sanitisation.strip_delimiter_like_patterns(text)
+    wrapped, token = ms_ocr_sanitisation.wrap_for_prompt(text)
+    try:
+        groups = generate_thread_grouping_response(wrapped, token)
+    except (ExtractionError, ms_ocr_sanitisation.TokenMismatchError) as error:
+        print(f"[THREAD GROUPS] {question_key} {ao_key}: {type(error).__name__}", flush=True)
+        return None
+    repaired = repair_groups(groups, list(threads), MAX_GROUPS)
+    if repaired is None:
+        print(f"[THREAD GROUPS] {question_key} {ao_key}: more than {MAX_GROUPS} groups even after repair", flush=True)
+    elif repaired != groups:
+        print(f"[THREAD GROUPS] {question_key} {ao_key}: repaired repeated or missing threads", flush=True)
+    return repaired
+
+
+def _add_thread_groups(questions: dict) -> None:
+    """For multi-objective questions only: an objective with more than
+    MAX_GROUPS real threads (AQA writing grids came out as 7 + 6) gets
+    ``thread_groups`` -- overlapping threads to judge as one
+    (specialists/thread_tidy.py). Stored beside ``threads``, which stay as
+    they are, so the old pipeline and every fingerprint are unaffected."""
+    jobs = []
+    for question_key, question in questions.items():
+        objectives = question.get("assessment_objectives") or {}
+        if len(objectives) < 2:
+            continue
+        for ao_key, ao in objectives.items():
+            threads = {key: strip_glued_heading(thread) for key, thread in (ao.get("threads") or {}).items()
+                       if not is_heading_thread(thread)}
+            if len(threads) > MAX_GROUPS:
+                jobs.append((question_key, ao_key, threads))
+    results = run_calls([functools.partial(_group_one, *job) for job in jobs])
+    for (question_key, ao_key, _), groups in zip(jobs, results):
+        if groups:
+            questions[question_key]["assessment_objectives"][ao_key]["thread_groups"] = groups

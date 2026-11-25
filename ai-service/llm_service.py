@@ -19,6 +19,10 @@ from transformations.thread_description_prompt import (
     SYSTEM_PROMPT as THREAD_DESCRIPTION_SYSTEM_PROMPT,
     build_thread_description_prompt,
 )
+from transformations.thread_grouping_prompt import (
+    SYSTEM_PROMPT as THREAD_GROUPING_SYSTEM_PROMPT,
+    build_thread_grouping_prompt,
+)
 from transformations.fm_descriptor_to_thread import fm_descriptor_to_thread
 from security.ms_ocr_sanitisation import verify_token
 from schemas.ms_schema import MarkSchemeExtraction, MarkSchemeOutline, SingleQuestionExtraction
@@ -50,6 +54,7 @@ from specialists.thread_b_judgement_prompt import (
 from schemas.thread_specialist_result import ThreadSpecialistResult, ThreadStepResult, ReferenceStepResult
 from specialists.steps import resolve_level_from_steps, resolve_reference_level_from_steps
 from schemas.thread_description_result import ThreadDescriptionResult
+from schemas.thread_grouping_result import ThreadGroupingResult
 from observability.event_log import (
     log_extraction_refusal,
     log_extraction_truncated,
@@ -333,6 +338,38 @@ def generate_thread_description_response(scheme_text, expected_token):
 
     verify_token(expected_token, result.delimiter_token)
     return _thread_description_lists_to_keyed_scheme(result)
+
+
+def generate_thread_grouping_response(wrapped_threads, expected_token) -> list[list[str]]:
+    """Groups of thread keys to judge together for one objective
+    (specialists/thread_tidy.py). The caller checks every key is used once."""
+    try:
+        response = client.chat.completions.parse(
+            model="gpt-4o",  # gpt-4o-mini repeated keys and paired unrelated skills
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": THREAD_GROUPING_SYSTEM_PROMPT},
+                {"role": "user", "content": build_thread_grouping_prompt(wrapped_threads)},
+            ],
+            response_format=ThreadGroupingResult,
+        )
+    except LengthFinishReasonError as e:
+        log_extraction_truncated(str(e))
+        raise ExtractionTruncatedError(str(e)) from e
+    except ContentFilterFinishReasonError as e:
+        log_extraction_filtered()
+        raise ExtractionFilteredError(str(e)) from e
+
+    message = response.choices[0].message
+    if message.refusal:
+        log_extraction_refusal(message.refusal)
+        raise ExtractionRefusedError(message.refusal)
+    result = message.parsed
+    if result is None:
+        log_extraction_empty()
+        raise ExtractionIncompleteError("No parsed thread-grouping result was returned")
+    verify_token(expected_token, result.delimiter_token)
+    return [group.threads for group in result.groups]
 
 
 def _thread_description_lists_to_keyed_scheme(result: ThreadDescriptionResult):
